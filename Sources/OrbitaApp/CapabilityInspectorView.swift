@@ -30,11 +30,12 @@ struct CapabilityInspectorView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: CapabilityVisuals.iconName(for: capability.type))
                                 .font(.system(size: 20, weight: .medium))
                                 .frame(width: 28, height: 28)
+
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(capability.name)
                                     .font(.title3.weight(.semibold))
@@ -45,24 +46,25 @@ struct CapabilityInspectorView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        }
 
-                            if canApplyActions(to: capability) {
-                                InspectorActionStrip(
-                                    capability: capability,
-                                    onEnable: onEnable,
-                                    onDisable: onDisable,
-                                    onDelete: onDelete,
-                                    onClose: onClose
-                                )
-                                .fixedSize()
-                            } else {
+                        if canApplyActions(to: capability) {
+                            InspectorActionStrip(
+                                capability: capability,
+                                onEnable: onEnable,
+                                onDisable: onDisable,
+                                onDelete: onDelete,
+                                onClose: onClose
+                            )
+                        } else {
+                            HStack {
+                                Spacer(minLength: 0)
                                 InspectorHeaderButton(
                                     systemImage: "sidebar.right",
                                     tint: .secondary,
                                     help: "Hide inspector",
                                     action: onClose
                                 )
-                                .fixedSize()
                             }
                         }
                     }
@@ -199,7 +201,7 @@ private struct InspectorActionStrip: View {
     let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 10) {
             if capability.source.kind != "virtual-plugin", capability.statuses.contains(.disabled) {
                 InspectorToolbarButton(
                     systemImage: "checkmark.circle",
@@ -220,6 +222,8 @@ private struct InspectorActionStrip: View {
                 }
             }
 
+            Spacer(minLength: 10)
+
             InspectorToolbarButton(
                 systemImage: "trash",
                 tint: .red,
@@ -229,10 +233,6 @@ private struct InspectorActionStrip: View {
                 onDelete(capability)
             }
 
-            Divider()
-                .frame(height: 20)
-                .padding(.horizontal, 1)
-
             InspectorToolbarButton(
                 systemImage: "sidebar.right",
                 tint: .secondary,
@@ -241,13 +241,7 @@ private struct InspectorActionStrip: View {
                 onClose()
             }
         }
-        .padding(3)
-        .background(OrbitaTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(OrbitaTheme.border)
-        }
-        .shadow(color: OrbitaTheme.cardShadow, radius: 8, x: 0, y: 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -274,15 +268,15 @@ private struct InspectorToolbarButton: View {
                 }
             }
                 .foregroundStyle(tint)
-                .frame(width: title == nil ? 38 : 92, height: 30)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .frame(width: title == nil ? 44 : 118, height: 34)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(borderColor)
                 }
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .help(help)
         .accessibilityLabel(help)
     }

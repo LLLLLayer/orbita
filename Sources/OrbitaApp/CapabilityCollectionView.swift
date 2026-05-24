@@ -10,8 +10,8 @@ struct CapabilityCollectionView: View {
     @State private var expandedGroupOrder: [String] = []
     @State private var collapsedSectionIDs: Set<String> = []
 
-    private let itemMinWidth: CGFloat = 118
-    private let itemMaxWidth: CGFloat = 142
+    private let itemMinWidth: CGFloat = 176
+    private let itemTargetWidth: CGFloat = 210
     private let itemSpacing: CGFloat = 18
 
     var body: some View {
@@ -55,6 +55,7 @@ struct CapabilityCollectionView: View {
                         tile(for: item)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 ForEach(expandedGroups(for: row)) { group in
                     ExpandedCapabilityGroupShelf(
@@ -142,13 +143,13 @@ struct CapabilityCollectionView: View {
 
     private var columns: [GridItem] {
         Array(
-            repeating: GridItem(.flexible(minimum: itemMinWidth, maximum: itemMaxWidth), spacing: itemSpacing, alignment: .top),
+            repeating: GridItem(.flexible(minimum: itemMinWidth), spacing: itemSpacing, alignment: .top),
             count: columnCount
         )
     }
 
     private var columnCount: Int {
-        let count = Int((availableWidth + itemSpacing) / (itemMaxWidth + itemSpacing))
+        let count = Int((availableWidth + itemSpacing) / (itemTargetWidth + itemSpacing))
         return max(1, count)
     }
 
@@ -237,6 +238,7 @@ private struct ExpandedCapabilityGroupShelf: View {
             }
         }
         .padding(.top, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .transition(.asymmetric(
             insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)),
             removal: .opacity.combined(with: .scale(scale: 0.995, anchor: .top))
