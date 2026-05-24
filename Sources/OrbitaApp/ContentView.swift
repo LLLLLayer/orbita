@@ -386,13 +386,13 @@ struct ContentView: View {
 
     private var deleteConfirmationMessage: String {
         guard let pendingDeletePlan else {
-            return "This will remove the selected capability from Orbita."
+            return "This will permanently delete the selected capability source."
         }
         let affectedCount = pendingDeletePlan.plan.affectedCapabilityIDs?.count ?? 1
         if affectedCount > 1 {
-            return "This will remove \(affectedCount) capabilities in this virtual plugin from Orbita."
+            return "This will permanently delete \(affectedCount) capability sources in this virtual plugin."
         }
-        return "This will remove this capability from Orbita."
+        return "This will permanently delete this capability source."
     }
 
     private var currentSortOption: CapabilitySortOption {

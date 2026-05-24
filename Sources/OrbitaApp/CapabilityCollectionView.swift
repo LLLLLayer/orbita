@@ -44,7 +44,7 @@ struct CapabilityCollectionView: View {
         .onChange(of: sections.map(\.id)) { _, ids in
             collapsedSectionIDs = collapsedSectionIDs.filter { ids.contains($0) }
         }
-        .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08), value: layoutSignature)
+        .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08), value: contentSignature)
     }
 
     private func sectionContent(_ section: CapabilityDisplaySectionRows) -> some View {
@@ -178,12 +178,12 @@ struct CapabilityCollectionView: View {
         return rows
     }
 
-    private var layoutSignature: String {
+    private var contentSignature: String {
         sections
             .map { section in
-                "\(section.id):\(section.items.map(\.id).joined(separator: ","))"
+                "\(section.id):\(section.items.count)"
             }
-            .joined(separator: "|") + ":\(columnCount)"
+            .joined(separator: "|")
     }
 }
 

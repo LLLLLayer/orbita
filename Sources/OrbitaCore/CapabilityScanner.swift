@@ -822,6 +822,10 @@ public final class CapabilityScanner {
                     continue
                 }
                 guard let installPath = install["installPath"] as? String else { continue }
+                guard fileManager.fileExists(atPath: installPath) else {
+                    issues.append(ScanIssue(severity: .warning, path: installPath, message: "Claude plugin registry points to a missing install path"))
+                    continue
+                }
                 let enabled = enabledPlugins[selector]
                 let pluginName = selector.split(separator: "@", maxSplits: 1).first.map(String.init) ?? selector
                 let marketplace = selector.split(separator: "@", maxSplits: 1).dropFirst().first.map(String.init) ?? ""

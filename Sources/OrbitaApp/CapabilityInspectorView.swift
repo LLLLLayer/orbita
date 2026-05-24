@@ -27,29 +27,26 @@ struct CapabilityInspectorView: View {
     }
 
     private func inspectorContent(for capability: Capability) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let nativeActions = nativePluginActions(for: capability)
+        let nativePrimaryAction = nativeActions.first(where: \.isEnablementToggle)
+        let nativeSecondaryActions = nativeActions.filter { !$0.isEnablementToggle }
+
+        return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 12) {
-                        if canApplyActions(to: capability) {
-                            InspectorActionStrip(
-                                capability: capability,
-                                onEnable: onEnable,
-                                onDisable: onDisable,
-                                onDelete: onDelete,
-                                onClose: onClose
-                            )
-                        } else {
-                            HStack {
-                                Spacer(minLength: 0)
-                                InspectorHeaderButton(
-                                    systemImage: "sidebar.right",
-                                    tint: .secondary,
-                                    help: "Hide inspector",
-                                    action: onClose
-                                )
+                        InspectorActionStrip(
+                            capability: capability,
+                            nativePrimaryAction: nativePrimaryAction,
+                            runningNativeActionID: runningNativeActionID,
+                            onEnable: onEnable,
+                            onDisable: onDisable,
+                            onDelete: onDelete,
+                            onClose: onClose,
+                            onNativeAction: { action in
+                                runNativePluginAction(action, capability: capability)
                             }
-                        }
+                        )
 
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: CapabilityVisuals.iconName(for: capability.type))
@@ -84,10 +81,10 @@ struct CapabilityInspectorView: View {
                         StatusReasonSection(capability: capability)
                     }
 
-                    if !nativePluginActions(for: capability).isEmpty {
+                    if !nativeSecondaryActions.isEmpty {
                         NativePluginActionSection(
                             capability: capability,
-                            actions: nativePluginActions(for: capability),
+                            actions: nativeSecondaryActions,
                             runningActionID: runningNativeActionID,
                             result: nativeActionResult,
                             onRun: { action in
@@ -117,13 +114,6 @@ struct CapabilityInspectorView: View {
             return path
         }
         return "-"
-    }
-
-    private func canApplyActions(to capability: Capability) -> Bool {
-        if capability.source.kind == "virtual-plugin" {
-            return true
-        }
-        return !["codex", "claude-code"].contains(capability.metadata["manager"] ?? "")
     }
 
     private func markdownPreviewPath(for capability: Capability) -> String? {
@@ -195,14 +185,27 @@ private struct EmptyInspectorSelectionView: View {
 
 private struct InspectorActionStrip: View {
     let capability: Capability
+    let nativePrimaryAction: NativePluginAction?
+    let runningNativeActionID: String?
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
     let onDelete: (Capability) -> Void
     let onClose: () -> Void
+    let onNativeAction: (NativePluginAction) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            if capability.source.kind != "virtual-plugin", capability.statuses.contains(.disabled) {
+            if let nativePrimaryAction {
+                InspectorToolbarButton(
+                    systemImage: nativePrimaryAction.systemImage,
+                    tint: nativePrimaryAction.kind == .enable ? .green : .secondary,
+                    title: runningNativeActionID == nativePrimaryAction.id ? "Running" : nativePrimaryAction.title,
+                    help: nativePrimaryAction.command,
+                    isDisabled: runningNativeActionID != nil
+                ) {
+                    onNativeAction(nativePrimaryAction)
+                }
+            } else if capability.source.kind != "virtual-plugin", capability.statuses.contains(.disabled) {
                 InspectorToolbarButton(
                     systemImage: "checkmark.circle",
                     tint: .green,
@@ -251,6 +254,7 @@ private struct InspectorToolbarButton: View {
     var title: String? = nil
     let help: String
     var isDestructive = false
+    var isDisabled = false
     let action: () -> Void
 
     var body: some View {
@@ -267,7 +271,7 @@ private struct InspectorToolbarButton: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
-                .foregroundStyle(tint)
+                .foregroundStyle(isDisabled ? .secondary : tint)
                 .frame(width: title == nil ? 44 : 118, height: 34)
                 .background(backgroundColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
@@ -276,6 +280,7 @@ private struct InspectorToolbarButton: View {
                 }
         }
         .buttonStyle(.plain)
+        .disabled(isDisabled)
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .help(help)
         .accessibilityLabel(help)
@@ -385,7 +390,7 @@ private struct NativePluginActionSection: View {
 }
 
 private struct NativePluginAction: Identifiable {
-    enum Kind {
+    enum Kind: Equatable {
         case enable
         case disable
         case check
@@ -398,6 +403,10 @@ private struct NativePluginAction: Identifiable {
     let command: String
     let manager: String
     let kind: Kind
+
+    var isEnablementToggle: Bool {
+        kind == .enable || kind == .disable
+    }
 
     static func actions(for capability: Capability) -> [NativePluginAction] {
         guard let manager = capability.metadata["manager"] else { return [] }

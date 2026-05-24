@@ -228,24 +228,34 @@ public final class ApplyPlanBuilder {
             )
         ]
 
-        if capability.type == .skill {
-            operations.append(ApplyOperation(
-                kind: .removePath,
-                path: agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path,
-                risk: .write,
-                description: "Remove project skill link"
-            ))
+        var removalPathDescriptions: [String: String] = [:]
+        func registerRemoval(_ path: String, description: String) {
+            let normalizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+            removalPathDescriptions[normalizedPath] = description
         }
 
+        if capability.type == .skill {
+            registerRemoval(
+                agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path,
+                description: "Remove project skill link"
+            )
+        }
         if let managedPath = managedCapabilityPath(for: capability, agentsRoot: agentsRoot),
            managedPath != agentsRoot.appendingPathComponent("manifest.json").path {
-            operations.append(ApplyOperation(
-                kind: .removePath,
-                path: managedPath,
-                risk: .write,
-                description: "Remove managed .agents capability path"
-            ))
+            registerRemoval(managedPath, description: "Remove managed .agents capability path")
         }
+        if let sourcePath = hardDeleteSourcePath(for: capability) {
+            registerRemoval(sourcePath, description: "Hard delete capability source")
+        }
+
+        operations.append(contentsOf: removalPathDescriptions.sorted { $0.key < $1.key }.map { entry in
+            ApplyOperation(
+                kind: .removePath,
+                path: entry.key,
+                risk: .write,
+                description: entry.value
+            )
+        })
 
         operations.append(contentsOf: adapterPreviewOperations(
             graph: graphWithProjectedIntent(capabilityID: capabilityID, status: .disabled, graph: graph)
@@ -303,23 +313,34 @@ public final class ApplyPlanBuilder {
             )
         ]
 
-        var removalPaths: Set<String> = []
+        var removalPathDescriptions: [String: String] = [:]
+        func registerRemoval(_ path: String, description: String) {
+            let normalizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+            removalPathDescriptions[normalizedPath] = description
+        }
+
         for capability in capabilities {
             if capability.type == .skill {
-                removalPaths.insert(agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path)
+                registerRemoval(
+                    agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path,
+                    description: "Remove grouped project skill link"
+                )
             }
             if let managedPath = managedCapabilityPath(for: capability, agentsRoot: agentsRoot),
                managedPath != agentsRoot.appendingPathComponent("manifest.json").path {
-                removalPaths.insert(managedPath)
+                registerRemoval(managedPath, description: "Remove managed grouped capability path")
+            }
+            if let sourcePath = hardDeleteSourcePath(for: capability) {
+                registerRemoval(sourcePath, description: "Hard delete grouped capability source")
             }
         }
 
-        operations.append(contentsOf: removalPaths.sorted().map { path in
+        operations.append(contentsOf: removalPathDescriptions.sorted { $0.key < $1.key }.map { entry in
             ApplyOperation(
                 kind: .removePath,
-                path: path,
+                path: entry.key,
                 risk: .write,
-                description: "Remove managed grouped capability path"
+                description: entry.value
             )
         })
 
@@ -779,6 +800,20 @@ public final class ApplyPlanBuilder {
         return sourcePath
     }
 
+    private func hardDeleteSourcePath(for capability: Capability) -> String? {
+        let path = capability.source.path
+        guard !path.isEmpty, path != "-" else {
+            return nil
+        }
+        if capability.type == .skill, path.hasSuffix("/SKILL.md") {
+            return URL(fileURLWithPath: path)
+                .deletingLastPathComponent()
+                .standardizedFileURL
+                .path
+        }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
     private func manifestCapabilityID(for capability: Capability) -> String {
         capability.metadata["capabilityID"] ?? capability.id
     }
@@ -878,7 +913,7 @@ public final class ApplyPlanExecutor {
 
         for (index, operation) in plan.operations.enumerated() {
             do {
-                try validate(operation: operation, agentsRoot: agentsRoot)
+                try validate(operation: operation, action: plan.action, agentsRoot: agentsRoot)
                 try perform(operation)
                 completed.append(operation)
             } catch {
@@ -945,8 +980,11 @@ public final class ApplyPlanExecutor {
         }
     }
 
-    private func validate(operation: ApplyOperation, agentsRoot: URL) throws {
+    private func validate(operation: ApplyOperation, action: ApplyAction, agentsRoot: URL) throws {
         guard operation.kind != .readSource else { return }
+        if action == .delete, operation.kind == .removePath {
+            return
+        }
         let operationPath = normalizedContainmentPath(URL(fileURLWithPath: operation.path).standardizedFileURL.path)
         let rootPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
         let agentsPath = rootPath + "/"

@@ -740,7 +740,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(manifestText.contains(CapabilityStatus.enabled.rawValue))
     }
 
-    func testDeleteAfterMergeRemovesCapabilityIntentAndSkillLinkOnly() throws {
+    func testDeleteAfterMergeRemovesCapabilityIntentSkillLinkAndSource() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
         try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
@@ -761,7 +761,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(manifestText.contains(skill.id))
         XCTAssertTrue(manifestText.contains(command.id))
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/skills/lark-doc").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: skill.source.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: skill.source.path))
     }
 
     func testEnableAfterDisablePreservesOtherManifestEntries() throws {
@@ -1161,6 +1161,10 @@ final class CapabilityScannerTests: XCTestCase {
         let settings = registryRoot.appendingPathComponent("settings.json")
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: registryRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            atPath: "\(registryRoot.path)/cache/test-marketplace/project-tool/2.0.0",
+            withIntermediateDirectories: true
+        )
         try """
         {
           "version": 2,
