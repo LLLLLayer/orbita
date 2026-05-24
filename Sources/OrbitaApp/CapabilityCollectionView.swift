@@ -10,8 +10,8 @@ struct CapabilityCollectionView: View {
     @State private var expandedGroupOrder: [String] = []
     @State private var collapsedSectionIDs: Set<String> = []
 
-    private let itemMinWidth: CGFloat = 176
-    private let itemTargetWidth: CGFloat = 210
+    private let itemMinWidth: CGFloat = 118
+    private let itemTargetWidth: CGFloat = 142
     private let itemSpacing: CGFloat = 18
 
     var body: some View {

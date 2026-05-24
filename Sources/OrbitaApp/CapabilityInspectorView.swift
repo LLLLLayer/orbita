@@ -31,23 +31,6 @@ struct CapabilityInspectorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: CapabilityVisuals.iconName(for: capability.type))
-                                .font(.system(size: 20, weight: .medium))
-                                .frame(width: 28, height: 28)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(capability.name)
-                                    .font(.title3.weight(.semibold))
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text(capability.type.displayName)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
                         if canApplyActions(to: capability) {
                             InspectorActionStrip(
                                 capability: capability,
@@ -66,6 +49,23 @@ struct CapabilityInspectorView: View {
                                     action: onClose
                                 )
                             }
+                        }
+
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: CapabilityVisuals.iconName(for: capability.type))
+                                .font(.system(size: 20, weight: .medium))
+                                .frame(width: 28, height: 28)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(capability.name)
+                                    .font(.title3.weight(.semibold))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(capability.type.displayName)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(.top, 16)
