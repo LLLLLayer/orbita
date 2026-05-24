@@ -96,6 +96,8 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             OTHER_CODE_SIGN_FLAGS="--timestamp" \
             SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
@@ -104,18 +106,32 @@ jobs:
       - name: Package DMG
         run: |
           APP=".build/release/Build/Products/Release/Orbita.app"
+          DMG="Orbita-${{ steps.version.outputs.value }}.dmg"
           test -d "$APP"
-          codesign --deep --strict --verify --verbose=2 "$APP"
-          script/package_dmg.sh "$APP" "${{ steps.version.outputs.value }}" "Orbita-${{ steps.version.outputs.value }}.dmg"
+          script/sign_release_app.sh "$APP" "$DEVELOPER_ID_APPLICATION"
+          script/package_dmg.sh "$APP" "${{ steps.version.outputs.value }}" "$DMG"
+          codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp "$DMG"
 
       - name: Notarize and staple DMG
+        shell: bash
         run: |
+          set -euo pipefail
           DMG="Orbita-${{ steps.version.outputs.value }}.dmg"
-          xcrun notarytool submit "$DMG" \
+          NOTARY_OUTPUT="$(mktemp)"
+          if ! xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --wait
+            --wait 2>&1 | tee "$NOTARY_OUTPUT"; then
+            SUBMISSION_ID="$(grep -Eo 'id: [0-9a-fA-F-]+' "$NOTARY_OUTPUT" | tail -n 1 | awk '{print $2}')"
+            if [[ -n "$SUBMISSION_ID" ]]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --team-id "$APPLE_TEAM_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            fi
+            exit 1
+          fi
           xcrun stapler staple "$DMG"
           spctl -a -t open --context context:primary-signature -v "$DMG"
 

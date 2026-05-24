@@ -56,6 +56,8 @@ if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Manual
     CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION"
+    CODE_SIGN_ENTITLEMENTS=""
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO
     OTHER_CODE_SIGN_FLAGS="--timestamp"
   )
   if [[ -n "${APPLE_TEAM_ID:-}" ]]; then
@@ -75,14 +77,19 @@ xcodebuild \
 
 APP=".build/release-local/Build/Products/Release/Orbita.app"
 DMG="dist/Orbita-${VERSION}.dmg"
+if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  script/sign_release_app.sh "$APP" "$DEVELOPER_ID_APPLICATION"
+fi
 script/package_dmg.sh "$APP" "$VERSION" "$DMG"
+if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  codesign --force --sign "$DEVELOPER_ID_APPLICATION" --timestamp "$DMG"
+fi
 
 if [[ "${NOTARIZE:-0}" == "1" ]]; then
   : "${APPLE_ID:?APPLE_ID is required when NOTARIZE=1}"
   : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required when NOTARIZE=1}"
   : "${APPLE_APP_SPECIFIC_PASSWORD:?APPLE_APP_SPECIFIC_PASSWORD is required when NOTARIZE=1}"
 
-  codesign --deep --strict --verify --verbose=2 "$APP"
   xcrun notarytool submit "$DMG" \
     --apple-id "$APPLE_ID" \
     --team-id "$APPLE_TEAM_ID" \
