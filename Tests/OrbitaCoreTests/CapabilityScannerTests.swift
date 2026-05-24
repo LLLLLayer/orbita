@@ -599,6 +599,54 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(item.reasons.contains { $0.contains("disabled in .agents") && $0.contains("source remains discoverable") })
     }
 
+    func testProjectAgentsManifestIsVisibleWithSourcePath() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let manifest = temporaryRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": []
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let scan = try scanProjectOnly(temporaryRoot)
+        let manifestCapability = try XCTUnwrap(scan.capabilities.first { $0.source.kind == "agents-manifest" })
+
+        XCTAssertEqual(manifestCapability.name, ".agents manifest")
+        XCTAssertEqual(manifestCapability.source.path, manifest.path)
+    }
+
+    func testInternalThisMacAgentsManifestIsParsedButNotShownAsCapability() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let environmentRoot = temporaryRoot.appendingPathComponent(".orbita/this-mac")
+        let manifest = environmentRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {
+              "id": "skill:global-example",
+              "name": "global-example",
+              "type": "skill",
+              "status": "disabled",
+              "sourcePath": "/tmp/global-example/SKILL.md"
+            }
+          ]
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let scan = try scanProjectOnly(environmentRoot)
+
+        XCTAssertFalse(scan.capabilities.contains { $0.source.kind == "agents-manifest" })
+        XCTAssertTrue(scan.capabilities.contains { $0.source.kind == "agents-intent" && $0.name == "global-example" })
+    }
+
     func testEnableSkillPlanIsDryRunAndWritesAgentsIndex() throws {
         let root = try fixtureURL("MixedProject")
         let scan = try scanProjectOnly(root)

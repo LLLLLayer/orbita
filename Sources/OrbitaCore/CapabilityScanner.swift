@@ -388,15 +388,17 @@ public final class CapabilityScanner {
         let agentsRoot = root.appendingPathComponent(".agents")
         let manifest = agentsRoot.appendingPathComponent("manifest.json")
         if fileManager.fileExists(atPath: manifest.path) {
-            capabilities.append(Capability(
-                id: stableID(type: .instruction, path: manifest.path),
-                name: ".agents manifest",
-                type: .instruction,
-                scope: .project,
-                statuses: [.enabled],
-                risks: [.info, .read],
-                source: CapabilitySource(kind: "agents-manifest", path: manifest.path)
-            ))
+            if !isInternalEnvironmentRoot(root) {
+                capabilities.append(Capability(
+                    id: stableID(type: .instruction, path: manifest.path),
+                    name: ".agents manifest",
+                    type: .instruction,
+                    scope: .project,
+                    statuses: [.enabled],
+                    risks: [.info, .read],
+                    source: CapabilitySource(kind: "agents-manifest", path: manifest.path)
+                ))
+            }
             scanAgentsManifestEntries(at: manifest, into: &capabilities, issues: &issues)
         }
 
@@ -440,6 +442,10 @@ public final class CapabilityScanner {
         } catch {
             issues.append(ScanIssue(severity: .warning, path: skillsRoot.path, message: "Unable to inspect .agents skills: \(error.localizedDescription)"))
         }
+    }
+
+    private func isInternalEnvironmentRoot(_ root: URL) -> Bool {
+        root.pathComponents.suffix(2).joined(separator: "/") == ".orbita/this-mac"
     }
 
     private func scanAgentsManifestEntries(at url: URL, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
