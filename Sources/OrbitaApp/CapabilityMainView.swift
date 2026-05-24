@@ -25,62 +25,57 @@ struct CapabilityMainView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let graph {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HeaderSurface(
-                            projectName: projectName,
-                            graph: graph,
-                            isScanning: isScanning,
-                            lastRefreshLabel: lastRefreshLabel,
-                            onRefresh: onRefresh,
-                            onMerge: onMerge,
-                            onClean: onClean
-                        )
-
-                        if isScanning {
-                            ScanningProgressCard(
-                                message: scanMessage ?? "Scanning \(projectName)",
-                                progress: scanProgress
+                GeometryReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            HeaderSurface(
+                                projectName: projectName,
+                                graph: graph,
+                                isScanning: isScanning,
+                                lastRefreshLabel: lastRefreshLabel,
+                                onRefresh: onRefresh,
+                                onMerge: onMerge,
+                                onClean: onClean
                             )
-                        }
 
-                        if let errorMessage, !errorMessage.isEmpty {
-                            InlineErrorBanner(message: errorMessage)
-                        }
+                            if let errorMessage, !errorMessage.isEmpty {
+                                InlineErrorBanner(message: errorMessage)
+                            }
 
-                        CapabilityFilterBar(
-                            agentOptions: agentOptions,
-                            selectedAgent: $selectedAgent,
-                            selectedGroup: $selectedGroup,
-                            onAddAgent: onAddAgent
-                        )
-
-                        if selectedAgent == nil {
-                            SourceOverviewStrip(
-                                capabilities: graph.capabilities,
-                                overview: AgentOverviewBuilder().overview(graph: graph)
+                            CapabilityFilterBar(
+                                agentOptions: agentOptions,
+                                selectedAgent: $selectedAgent,
+                                selectedGroup: $selectedGroup,
+                                onAddAgent: onAddAgent
                             )
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
 
-                        if displaySections.isEmpty {
-                            ContentUnavailableView("No capabilities", systemImage: "tray")
-                                .frame(maxWidth: .infinity, minHeight: 280)
-                        } else {
-                            CapabilityCollectionView(
-                                sections: displaySections,
-                                selectedCapability: $selectedCapability,
-                                expandedGroupIDs: $expandedGroupIDs
-                            )
-                            .padding(.top, 4)
+                            if selectedAgent == nil {
+                                SourceOverviewStrip(
+                                    capabilities: graph.capabilities,
+                                    overview: AgentOverviewBuilder().overview(graph: graph)
+                                )
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+
+                            if displaySections.isEmpty {
+                                ContentUnavailableView("No capabilities", systemImage: "tray")
+                                    .frame(maxWidth: .infinity, minHeight: 280)
+                            } else {
+                                CapabilityCollectionView(
+                                    sections: displaySections,
+                                    selectedCapability: $selectedCapability,
+                                    expandedGroupIDs: $expandedGroupIDs
+                                )
+                                .padding(.top, 4)
+                            }
                         }
+                        .padding(.top, 28)
+                        .padding(.horizontal, horizontalContentPadding(for: proxy.size.width))
+                        .padding(.bottom, 28)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    .padding(.top, 28)
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             } else if isScanning || hasActiveContext {
                 ProjectLoadingView(
                     projectName: projectName,
@@ -119,6 +114,16 @@ struct CapabilityMainView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.55))
     }
+
+    private func horizontalContentPadding(for width: CGFloat) -> CGFloat {
+        if width < 760 {
+            return 18
+        }
+        if width < 980 {
+            return 22
+        }
+        return 28
+    }
 }
 
 private struct HeaderSurface: View {
@@ -151,11 +156,6 @@ private struct HeaderSurface: View {
                 SummaryStat(title: "Plugins", value: count(.plugin), systemImage: "shippingbox")
                 SummaryStat(title: "Drift", value: statusCount(.drifted), systemImage: "arrow.triangle.branch")
                 SummaryStat(title: "Review", value: statusCount(.risky), systemImage: "exclamationmark.triangle")
-                if isScanning {
-                    Label("Scanning", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
             }
 
         }
@@ -335,16 +335,38 @@ private struct HeaderRefreshButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: isScanning ? "dot.radiowaves.left.and.right" : "arrow.clockwise")
-                .font(.subheadline.weight(.medium))
-                .labelStyle(.titleAndIcon)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
+            HStack(spacing: 8) {
+                RefreshButtonIcon(isSpinning: isScanning)
+                Text(isScanning ? "Refreshing..." : title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
         }
         .buttonStyle(.plain)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .help("Refresh")
+    }
+}
+
+private struct RefreshButtonIcon: View {
+    let isSpinning: Bool
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 14, weight: .semibold))
+                .rotationEffect(.degrees(rotationDegrees(at: context.date)))
+                .frame(width: 16, height: 16)
+        }
+    }
+
+    private func rotationDegrees(at date: Date) -> Double {
+        guard isSpinning else { return 0 }
+        return date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: 1)
+            * 360
     }
 }
 
@@ -499,36 +521,6 @@ private struct SourceOverviewStrip: View {
         let kind: CapabilitySourceClassifier.SourceKind
         let count: Int
         let agentSummary: AgentCapabilitySummary?
-    }
-}
-
-struct ScanningProgressCard: View {
-    let message: String
-    let progress: Double
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(message)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Spacer()
-                Text("\(Int(progress * 100))%")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
-            ProgressView(value: progress, total: 1)
-                .progressViewStyle(.linear)
-        }
-        .padding(12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.secondary.opacity(0.12))
-        }
     }
 }
 

@@ -43,7 +43,10 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
-        .frame(minWidth: 1100, minHeight: 720)
+        .frame(
+            minWidth: OrbitaLayoutMetrics.minimumWindowWidth,
+            minHeight: OrbitaLayoutMetrics.minimumWindowHeight
+        )
         .background(.regularMaterial)
         .background(OrbitaWindowChrome().frame(width: 0, height: 0))
         .ignoresSafeArea(.container, edges: .top)

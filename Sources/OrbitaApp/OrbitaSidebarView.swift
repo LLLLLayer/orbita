@@ -6,6 +6,8 @@ enum OrbitaLayoutMetrics {
     static let sidebarWidth: CGFloat = 224
     static let sidebarRailWidth: CGFloat = 64
     static let inspectorWidth: CGFloat = 340
+    static let minimumWindowWidth: CGFloat = 1280
+    static let minimumWindowHeight: CGFloat = 760
 }
 
 struct OrbitaSidebarView: View {
