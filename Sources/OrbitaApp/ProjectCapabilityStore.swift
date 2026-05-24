@@ -88,10 +88,12 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
-    func reload(force: Bool = false) {
+    func reload(force: Bool = false, preserveCurrentGraph: Bool = false) {
         guard let projectRoot else {
             OrbitaTelemetry.scan.notice("scan.skipped reason=no-project")
-            graph = nil
+            if !preserveCurrentGraph {
+                graph = nil
+            }
             errorMessage = nil
             isScanning = false
             scanMessage = nil
@@ -106,7 +108,9 @@ final class ProjectCapabilityStore: ObservableObject {
         scanTask = nil
         errorMessage = nil
         if let snapshot = try? snapshotStore.load(projectRoot: root) {
-            graph = snapshot.graph
+            if !preserveCurrentGraph {
+                graph = snapshot.graph
+            }
             lastRefreshedAt = iso8601Formatter.date(from: snapshot.capturedAt)
             if !force, isSnapshotFresh(snapshot) {
                 isScanning = false
@@ -119,7 +123,9 @@ final class ProjectCapabilityStore: ObservableObject {
             scanProgress = 0.08
             OrbitaTelemetry.scan.notice("snapshot.loaded root=\(root.path, privacy: .private)")
         } else {
-            graph = nil
+            if !preserveCurrentGraph {
+                graph = nil
+            }
             lastRefreshedAt = nil
             scanMessage = "Scanning \(projectName)"
             scanProgress = 0.04
@@ -314,6 +320,10 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
+    func capability(id: String) -> Capability? {
+        graph?.capabilities.first { $0.id == id }
+    }
+
     func planEnable(_ capability: Capability) -> ApplyPlan? {
         guard let graph else { return nil }
         do {
@@ -396,10 +406,57 @@ final class ProjectCapabilityStore: ObservableObject {
         do {
             let result = try ApplyPlanExecutor().apply(plan)
             OrbitaTelemetry.apply.notice("apply.finish action=\(plan.action.rawValue, privacy: .public) operations=\(result.completedOperations.count, privacy: .public)")
-            reload(force: true)
+            optimisticallyApply(plan)
+            reload(force: true, preserveCurrentGraph: true)
         } catch {
             errorMessage = error.localizedDescription
             OrbitaTelemetry.apply.error("apply.failed action=\(plan.action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func optimisticallyApply(_ plan: ApplyPlan) {
+        guard var projected = graph,
+              projected.projectRoot == plan.projectRoot
+        else {
+            return
+        }
+
+        switch plan.action {
+        case .enable:
+            setStatus(.enabled, capabilityID: plan.capabilityID, in: &projected)
+        case .disable:
+            setStatus(.disabled, capabilityID: plan.capabilityID, in: &projected)
+        case .delete:
+            projected.capabilities.removeAll { $0.id == plan.capabilityID }
+        case .merge, .rollback, .clean:
+            return
+        }
+
+        projected.generatedAt = ISO8601DateFormatter().string(from: Date())
+        graph = projected
+    }
+
+    private func setStatus(_ status: CapabilityStatus, capabilityID: String, in graph: inout CapabilityGraph) {
+        guard let index = graph.capabilities.firstIndex(where: { $0.id == capabilityID }) else {
+            return
+        }
+
+        switch status {
+        case .enabled:
+            graph.capabilities[index].statuses.removeAll { $0 == .disabled }
+            appendStatus(.enabled, to: &graph.capabilities[index])
+        case .disabled:
+            graph.capabilities[index].statuses.removeAll { $0 == .enabled }
+            appendStatus(.disabled, to: &graph.capabilities[index])
+        default:
+            appendStatus(status, to: &graph.capabilities[index])
+        }
+        graph.capabilities[index].metadata["manifestStatus"] = status.rawValue
+    }
+
+    private func appendStatus(_ status: CapabilityStatus, to capability: inout Capability) {
+        if !capability.statuses.contains(status) {
+            capability.statuses.append(status)
         }
     }
 }

@@ -9,6 +9,7 @@ struct CapabilityCollectionView: View {
     @State private var availableWidth: CGFloat = 760
     @State private var expandedGroupOrder: [String] = []
     @State private var collapsedSectionIDs: Set<String> = []
+    @Namespace private var tileMovementNamespace
 
     private let itemMinWidth: CGFloat = 118
     private let itemMaxWidth: CGFloat = 142
@@ -33,6 +34,16 @@ struct CapabilityCollectionView: View {
                             LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
                                 ForEach(row.items) { item in
                                     tile(for: item)
+                                        .matchedGeometryEffect(
+                                            id: item.id,
+                                            in: tileMovementNamespace,
+                                            properties: .frame,
+                                            anchor: .center
+                                        )
+                                        .transition(.asymmetric(
+                                            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .center)),
+                                            removal: .opacity
+                                        ))
                                 }
                             }
 
@@ -65,6 +76,7 @@ struct CapabilityCollectionView: View {
         .onChange(of: sections.map(\.id)) { _, ids in
             collapsedSectionIDs = collapsedSectionIDs.filter { ids.contains($0) }
         }
+        .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08), value: layoutSignature)
     }
 
     private func sectionCollapseButton(for section: CapabilityDisplaySectionRows) -> some View {
@@ -166,13 +178,23 @@ struct CapabilityCollectionView: View {
     private func displayRows(for items: [CapabilityDisplayItem]) -> [CapabilityDisplayRow] {
         var rows: [CapabilityDisplayRow] = []
         var start = 0
+        var index = 0
         while start < items.count {
             let end = min(items.count, start + columnCount)
             let rowItems = Array(items[start..<end])
-            rows.append(CapabilityDisplayRow(items: rowItems))
+            rows.append(CapabilityDisplayRow(index: index, items: rowItems))
             start = end
+            index += 1
         }
         return rows
+    }
+
+    private var layoutSignature: String {
+        sections
+            .map { section in
+                "\(section.id):\(section.items.map(\.id).joined(separator: ","))"
+            }
+            .joined(separator: "|")
     }
 }
 
@@ -191,10 +213,11 @@ private struct CapabilityDisplaySectionRows: Identifiable {
 }
 
 private struct CapabilityDisplayRow: Identifiable {
+    let index: Int
     let items: [CapabilityDisplayItem]
 
     var id: String {
-        items.map(\.id).joined(separator: "|")
+        "row-\(index)"
     }
 
     var expandedGroups: [CapabilityGroup] {

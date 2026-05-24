@@ -59,9 +59,15 @@ struct ContentView: View {
             ApplyPlanSheet(plan: plan) {
                 pendingPlan = nil
             } onApply: {
-                store.apply(plan)
+                withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08)) {
+                    store.apply(plan)
+                }
                 pendingPlan = nil
-                selectedCapability = nil
+                if plan.action == .delete {
+                    selectedCapability = nil
+                } else if let updatedCapability = store.capability(id: plan.capabilityID) {
+                    selectedCapability = updatedCapability
+                }
             }
         }
         .sheet(isPresented: $addingAgentPresented) {
@@ -91,7 +97,8 @@ struct ContentView: View {
                 return
             }
             if let selectedCapability,
-               capabilities.contains(where: { $0.id == selectedCapability.id }) {
+               let updatedCapability = capabilities.first(where: { $0.id == selectedCapability.id }) {
+                self.selectedCapability = updatedCapability
                 return
             }
             selectedCapability = capabilities.first

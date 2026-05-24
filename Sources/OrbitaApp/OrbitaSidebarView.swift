@@ -152,19 +152,25 @@ struct OrbitaSidebarRail: View {
     let onOpenSettings: () -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
-            RailButton(systemImage: "sidebar.left", isSelected: false, action: onExpand)
-                .help("Expand sidebar")
-            RailButton(systemImage: "desktopcomputer", isSelected: selection == ProjectCapabilityStore.environmentSelectionID, action: onSelectThisMac)
-                .help("This Mac")
-            RailButton(systemImage: "folder.badge.plus", isSelected: false, action: onAddProject)
-                .help("Open project")
-            Spacer()
-            RailButton(systemImage: "gearshape", isSelected: false, action: onOpenSettings)
-                .help("Settings")
+        VStack(spacing: 0) {
+            HStack {
+                RailButton(systemImage: "sidebar.left", isSelected: false, action: onExpand)
+                    .help("Expand sidebar")
+            }
+            .frame(height: 54)
+
+            VStack(spacing: 8) {
+                RailButton(systemImage: "desktopcomputer", isSelected: selection == ProjectCapabilityStore.environmentSelectionID, action: onSelectThisMac)
+                    .help("This Mac")
+                RailButton(systemImage: "folder.badge.plus", isSelected: false, action: onAddProject)
+                    .help("Open project")
+                Spacer(minLength: 12)
+                RailButton(systemImage: "gearshape", isSelected: false, action: onOpenSettings)
+                    .help("Settings")
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 16)
         }
-        .padding(.top, 54)
-        .padding(.bottom, 16)
         .frame(width: 64)
         .frame(maxHeight: .infinity)
         .background(.bar)
@@ -312,12 +318,13 @@ private struct RailButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(isSelected ? .white : .secondary)
-                .frame(width: 34, height: 34)
+                .frame(width: 40, height: 40)
                 .background {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .fill(isSelected ? Color.accentColor : Color.clear)
                 }
         }
         .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
     }
 }

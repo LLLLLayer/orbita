@@ -189,12 +189,7 @@ private struct InspectorActionStrip: View {
 
             Spacer(minLength: 4)
 
-            InspectorHeaderButton(
-                systemImage: "trash",
-                tint: .red,
-                help: "Delete",
-                isDestructive: true
-            ) {
+            InspectorDeleteButton {
                 onDelete(capability)
             }
         }
@@ -209,17 +204,20 @@ private struct InspectorTextActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
+            HStack(spacing: 7) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
                 .foregroundStyle(tint)
-                .lineLimit(1)
-                .frame(minWidth: 86)
-                .frame(height: 30)
-                .padding(.horizontal, 8)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .frame(width: 96, height: 46)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(tint.opacity(0.16))
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(tint.opacity(0.18), lineWidth: 1.1)
                 }
         }
         .buttonStyle(.plain)
@@ -235,6 +233,28 @@ private struct InspectorTextActionButton: View {
             return Color.red.opacity(0.11)
         }
         return Color.primary.opacity(0.045)
+    }
+}
+
+private struct InspectorDeleteButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "trash")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.red)
+                .frame(width: 56, height: 46)
+                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(Color.red.opacity(0.24), lineWidth: 1.2)
+                }
+        }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .help("Delete")
+        .accessibilityLabel("Delete")
     }
 }
 

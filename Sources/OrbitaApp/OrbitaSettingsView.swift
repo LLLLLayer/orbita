@@ -90,12 +90,12 @@ struct OrbitaSettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             settingsSidebar
-                .frame(width: 210)
+                .frame(width: 224)
             Divider()
             settingsDetail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.58))
+        .background(.regularMaterial)
     }
 
     private var settingsSidebar: some View {
@@ -130,14 +130,14 @@ struct OrbitaSettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(selectedPage == page ? .primary : .secondary)
-                    .background(selectedPage == page ? Color.secondary.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(selectedPage == page ? Color.secondary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
             .padding(.horizontal, 10)
 
             Spacer()
         }
-        .background(.regularMaterial)
+        .background(.bar)
     }
 
     @ViewBuilder
@@ -160,6 +160,7 @@ struct OrbitaSettingsView: View {
             .padding(.bottom, 34)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.55))
     }
 
     private var generalSettings: some View {
