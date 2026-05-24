@@ -1,0 +1,4 @@
+interface:
+  display_name: "Orbita Release"
+  short_description: "Ship signed Orbita macOS releases safely"
+  default_prompt: "Use $orbita-release to prepare, verify, and publish an Orbita macOS release without exposing secrets."
