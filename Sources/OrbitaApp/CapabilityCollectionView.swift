@@ -9,7 +9,6 @@ struct CapabilityCollectionView: View {
     @State private var availableWidth: CGFloat = 760
     @State private var expandedGroupOrder: [String] = []
     @State private var collapsedSectionIDs: Set<String> = []
-    @Namespace private var tileMovementNamespace
 
     private let itemMinWidth: CGFloat = 118
     private let itemMaxWidth: CGFloat = 142
@@ -30,31 +29,9 @@ struct CapabilityCollectionView: View {
                     }
 
                     if !collapsedSectionIDs.contains(section.id) {
-                        ForEach(section.rows) { row in
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                                ForEach(row.items) { item in
-                                    tile(for: item)
-                                        .matchedGeometryEffect(
-                                            id: item.id,
-                                            in: tileMovementNamespace,
-                                            properties: .frame,
-                                            anchor: .center
-                                        )
-                                        .transition(.asymmetric(
-                                            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .center)),
-                                            removal: .opacity
-                                        ))
-                                }
-                            }
-
-                            ForEach(expandedGroups(for: row)) { group in
-                                ExpandedCapabilityGroupShelf(
-                                    group: group,
-                                    selectedCapability: $selectedCapability
-                                )
-                            }
-                        }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        sectionContent(section)
+                            .clipped()
+                            .transition(.opacity)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -77,6 +54,25 @@ struct CapabilityCollectionView: View {
             collapsedSectionIDs = collapsedSectionIDs.filter { ids.contains($0) }
         }
         .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08), value: layoutSignature)
+    }
+
+    private func sectionContent(_ section: CapabilityDisplaySectionRows) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(section.rows) { row in
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                    ForEach(row.items) { item in
+                        tile(for: item)
+                    }
+                }
+
+                ForEach(expandedGroups(for: row)) { group in
+                    ExpandedCapabilityGroupShelf(
+                        group: group,
+                        selectedCapability: $selectedCapability
+                    )
+                }
+            }
+        }
     }
 
     private func sectionCollapseButton(for section: CapabilityDisplaySectionRows) -> some View {

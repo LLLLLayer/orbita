@@ -53,6 +53,7 @@ public struct CapabilityGroup: Hashable, Sendable, Identifiable {
             pluginID: pluginIDs.count == 1 ? pluginIDs.first : nil,
             summary: "Virtual plugin group containing \(capabilities.count) capabilities",
             metadata: [
+                "childIDs": capabilities.map(\.id).joined(separator: "\n"),
                 "childCount": String(capabilities.count),
                 "groupKind": kind.rawValue,
                 "sourcePath": sourcePath

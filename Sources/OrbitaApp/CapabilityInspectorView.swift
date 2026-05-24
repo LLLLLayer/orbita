@@ -118,8 +118,10 @@ struct CapabilityInspectorView: View {
     }
 
     private func canApplyActions(to capability: Capability) -> Bool {
-        capability.source.kind != "virtual-plugin"
-            && !["codex", "claude-code"].contains(capability.metadata["manager"] ?? "")
+        if capability.source.kind == "virtual-plugin" {
+            return true
+        }
+        return !["codex", "claude-code"].contains(capability.metadata["manager"] ?? "")
     }
 
     private func markdownPreviewPath(for capability: Capability) -> String? {
@@ -175,7 +177,7 @@ private struct InspectorActionStrip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if capability.statuses.contains(.disabled) {
+            if capability.source.kind != "virtual-plugin", capability.statuses.contains(.disabled) {
                 InspectorToolbarButton(
                     systemImage: "checkmark.circle",
                     tint: .green,
@@ -184,7 +186,7 @@ private struct InspectorActionStrip: View {
                 ) {
                     onEnable(capability)
                 }
-            } else {
+            } else if capability.source.kind != "virtual-plugin" {
                 InspectorToolbarButton(
                     systemImage: "minus.circle",
                     tint: .secondary,

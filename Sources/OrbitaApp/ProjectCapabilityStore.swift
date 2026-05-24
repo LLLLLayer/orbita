@@ -353,7 +353,18 @@ final class ProjectCapabilityStore: ObservableObject {
     func planDelete(_ capability: Capability) -> ApplyPlan? {
         guard let graph else { return nil }
         do {
-            let plan = try ApplyPlanBuilder().planDelete(capabilityID: capability.id, graph: graph)
+            let plan: ApplyPlan
+            if capability.source.kind == "virtual-plugin" {
+                let childIDs = groupedCapabilityIDs(for: capability)
+                plan = try ApplyPlanBuilder().planDelete(
+                    capabilityIDs: childIDs,
+                    groupID: capability.id,
+                    groupName: capability.name,
+                    graph: graph
+                )
+            } else {
+                plan = try ApplyPlanBuilder().planDelete(capabilityID: capability.id, graph: graph)
+            }
             OrbitaTelemetry.apply.notice("plan.delete capability=\(capability.name, privacy: .public) operations=\(plan.operations.count, privacy: .public)")
             return plan
         } catch {
@@ -361,6 +372,12 @@ final class ProjectCapabilityStore: ObservableObject {
             OrbitaTelemetry.apply.error("plan.delete.failed capability=\(capability.name, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    private func groupedCapabilityIDs(for capability: Capability) -> [String] {
+        capability.metadata["childIDs"]?
+            .split(separator: "\n")
+            .map(String.init) ?? []
     }
 
     func planMerge() -> ApplyPlan? {
@@ -427,7 +444,8 @@ final class ProjectCapabilityStore: ObservableObject {
         case .disable:
             setStatus(.disabled, capabilityID: plan.capabilityID, in: &projected)
         case .delete:
-            projected.capabilities.removeAll { $0.id == plan.capabilityID }
+            let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
+            projected.capabilities.removeAll { affectedIDs.contains($0.id) }
         case .merge, .rollback, .clean:
             return
         }

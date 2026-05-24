@@ -82,6 +82,7 @@ public struct ApplyPlan: Codable, Identifiable, Sendable {
     public var projectRoot: String
     public var action: ApplyAction
     public var capabilityID: String
+    public var affectedCapabilityIDs: [String]?
     public var appliesChanges: Bool
     public var requiresConfirmation: Bool
     public var operations: [ApplyOperation]
@@ -95,6 +96,7 @@ public struct ApplyPlan: Codable, Identifiable, Sendable {
         projectRoot: String,
         action: ApplyAction,
         capabilityID: String,
+        affectedCapabilityIDs: [String]? = nil,
         appliesChanges: Bool = false,
         requiresConfirmation: Bool,
         operations: [ApplyOperation]
@@ -103,6 +105,7 @@ public struct ApplyPlan: Codable, Identifiable, Sendable {
         self.projectRoot = projectRoot
         self.action = action
         self.capabilityID = capabilityID
+        self.affectedCapabilityIDs = affectedCapabilityIDs
         self.appliesChanges = appliesChanges
         self.requiresConfirmation = requiresConfirmation
         self.operations = operations
@@ -255,6 +258,90 @@ public final class ApplyPlanBuilder {
             capabilityID: capabilityID,
             appliesChanges: false,
             requiresConfirmation: true,
+            operations: operations
+        )
+    }
+
+    public func planDelete(
+        capabilityIDs: [String],
+        groupID: String,
+        groupName: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let selectedIDs = Set(capabilityIDs)
+        let capabilities = graph.capabilities
+            .filter { selectedIDs.contains($0.id) }
+            .sorted { $0.id < $1.id }
+        guard !capabilities.isEmpty else {
+            throw OrbitaError.capabilityNotFound(groupID)
+        }
+
+        let agentsRoot = URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".agents")
+        let selectedManifestIDs = Set(capabilities.map { manifestCapabilityID(for: $0) })
+        let remainingIntents = capabilityIntentsExcluding(manifestIDs: selectedManifestIDs, graph: graph)
+        let remainingCapabilities = remainingIntents.map(\.capability)
+        var operations = [
+            ApplyOperation(
+                kind: .createDirectory,
+                path: agentsRoot.path,
+                risk: .write,
+                description: "Create project capability index directory"
+            ),
+            ApplyOperation(
+                kind: .writeFile,
+                path: agentsRoot.appendingPathComponent("manifest.json").path,
+                content: manifestJSON(for: remainingIntents),
+                risk: .write,
+                description: "Remove grouped capabilities from project capability intent"
+            ),
+            ApplyOperation(
+                kind: .writeFile,
+                path: agentsRoot.appendingPathComponent("lock.json").path,
+                content: lockJSON(for: remainingCapabilities),
+                risk: .write,
+                description: "Update resolved source, risk, and hash metadata"
+            )
+        ]
+
+        var removalPaths: Set<String> = []
+        for capability in capabilities {
+            if capability.type == .skill {
+                removalPaths.insert(agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path)
+            }
+            if let managedPath = managedCapabilityPath(for: capability, agentsRoot: agentsRoot),
+               managedPath != agentsRoot.appendingPathComponent("manifest.json").path {
+                removalPaths.insert(managedPath)
+            }
+        }
+
+        operations.append(contentsOf: removalPaths.sorted().map { path in
+            ApplyOperation(
+                kind: .removePath,
+                path: path,
+                risk: .write,
+                description: "Remove managed grouped capability path"
+            )
+        })
+
+        let projected = capabilities.reduce(graph) { partialGraph, capability in
+            graphWithProjectedIntent(capabilityID: capability.id, status: .disabled, graph: partialGraph)
+        }
+        operations.append(contentsOf: adapterPreviewOperations(graph: projected))
+        operations.append(ApplyOperation(
+            kind: .appendLog,
+            path: agentsRoot.appendingPathComponent("logs/apply.log").path,
+            content: "\(ISO8601DateFormatter().string(from: Date())) delete \(groupID)\n",
+            risk: .write,
+            description: "Append grouped delete operation log"
+        ))
+
+        return ApplyPlan(
+            projectRoot: graph.projectRoot,
+            action: .delete,
+            capabilityID: groupID,
+            affectedCapabilityIDs: capabilities.map(\.id),
+            appliesChanges: false,
+            requiresConfirmation: requiresConfirmation(for: capabilities, operations: operations),
             operations: operations
         )
     }
@@ -637,7 +724,13 @@ public final class ApplyPlanBuilder {
         capability selectedCapability: Capability,
         graph: CapabilityGraph
     ) -> [(capability: Capability, status: CapabilityStatus)] {
-        let selectedManifestID = manifestCapabilityID(for: selectedCapability)
+        capabilityIntentsExcluding(manifestIDs: [manifestCapabilityID(for: selectedCapability)], graph: graph)
+    }
+
+    private func capabilityIntentsExcluding(
+        manifestIDs selectedManifestIDs: Set<String>,
+        graph: CapabilityGraph
+    ) -> [(capability: Capability, status: CapabilityStatus)] {
         var seenIDs: Set<String> = []
         let values = graph.capabilities.compactMap { capability -> (capability: Capability, status: CapabilityStatus)? in
             guard let manifestStatus = capability.metadata["manifestStatus"].flatMap(CapabilityStatus.init(rawValue:)) else {
@@ -645,7 +738,7 @@ public final class ApplyPlanBuilder {
             }
 
             let manifestID = manifestCapabilityID(for: capability)
-            guard manifestID != selectedManifestID, !seenIDs.contains(manifestID) else {
+            guard !selectedManifestIDs.contains(manifestID), !seenIDs.contains(manifestID) else {
                 return nil
             }
             seenIDs.insert(manifestID)
