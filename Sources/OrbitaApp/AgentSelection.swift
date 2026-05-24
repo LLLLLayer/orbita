@@ -204,7 +204,24 @@ enum CapabilityVisuals {
     }
 
     static func statusLabel(for capability: Capability) -> String {
-        capability.statuses.map(\.rawValue).joined(separator: ", ")
+        var labels: [String] = [
+            capability.statuses.contains(.disabled) ? "Disabled" : "Enabled"
+        ]
+
+        if capability.statuses.contains(.broken) {
+            labels.append("Broken")
+        }
+        if capability.statuses.contains(.drifted) || capability.statuses.contains(.shadowed) {
+            labels.append("Needs attention")
+        }
+        if capability.statuses.contains(.risky) {
+            labels.append("Review needed")
+        }
+        if capability.statuses.contains(.duplicate) {
+            labels.append("Duplicate")
+        }
+
+        return labels.joined(separator: ", ")
     }
 }
 

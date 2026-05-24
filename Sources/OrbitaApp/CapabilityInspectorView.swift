@@ -19,30 +19,39 @@ struct CapabilityInspectorView: View {
             ScrollView {
                 if let capability {
                     VStack(alignment: .leading, spacing: 16) {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: CapabilityVisuals.iconName(for: capability.type))
-                                .font(.system(size: 19, weight: .medium))
-                                .frame(width: 26, height: 26)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(capability.name)
-                                    .font(.title3.weight(.semibold))
-                                    .lineLimit(2)
-                                Text(capability.type.displayName)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: CapabilityVisuals.iconName(for: capability.type))
+                                    .font(.system(size: 19, weight: .medium))
+                                    .frame(width: 26, height: 26)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(capability.name)
+                                        .font(.title3.weight(.semibold))
+                                        .lineLimit(2)
+                                    Text(capability.type.displayName)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .layoutPriority(1)
+
+                                Spacer(minLength: 8)
+
+                                InspectorHeaderButton(
+                                    systemImage: "sidebar.right",
+                                    tint: .secondary,
+                                    help: "Hide inspector",
+                                    action: onClose
+                                )
                             }
-                            .layoutPriority(1)
 
-                            Spacer(minLength: 8)
-
-                            InspectorHeaderActionBar(
-                                capability: capability,
-                                canApplyActions: canApplyActions(to: capability),
-                                onEnable: onEnable,
-                                onDisable: onDisable,
-                                onDelete: onDelete,
-                                onClose: onClose
-                            )
+                            if canApplyActions(to: capability) {
+                                InspectorActionStrip(
+                                    capability: capability,
+                                    onEnable: onEnable,
+                                    onDisable: onDisable,
+                                    onDelete: onDelete
+                                )
+                            }
                         }
                         .padding(.top, 10)
 
@@ -154,60 +163,78 @@ struct CapabilityInspectorView: View {
     }
 }
 
-private struct InspectorHeaderActionBar: View {
+private struct InspectorActionStrip: View {
     let capability: Capability
-    let canApplyActions: Bool
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
     let onDelete: (Capability) -> Void
-    let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
-            if canApplyActions {
-                InspectorHeaderButton(
-                    systemImage: "checkmark.circle",
-                    tint: .green,
-                    help: "Enable"
-                ) {
-                    onEnable(capability)
-                }
-
-                InspectorHeaderButton(
-                    systemImage: "minus.circle",
-                    tint: .secondary,
-                    help: "Disable"
-                ) {
-                    onDisable(capability)
-                }
-
-                InspectorHeaderButton(
-                    systemImage: "trash",
-                    tint: .red,
-                    help: "Delete",
-                    isDestructive: true
-                ) {
-                    onDelete(capability)
-                }
-
-                Divider()
-                    .frame(height: 18)
-                    .padding(.horizontal, 2)
+        HStack(spacing: 8) {
+            InspectorTextActionButton(
+                title: "Enable",
+                systemImage: "checkmark.circle",
+                tint: .green
+            ) {
+                onEnable(capability)
             }
 
+            InspectorTextActionButton(
+                title: "Disable",
+                systemImage: "minus.circle",
+                tint: .secondary
+            ) {
+                onDisable(capability)
+            }
+
+            Spacer(minLength: 4)
+
             InspectorHeaderButton(
-                systemImage: "sidebar.right",
-                tint: .secondary,
-                help: "Hide inspector",
-                action: onClose
-            )
+                systemImage: "trash",
+                tint: .red,
+                help: "Delete",
+                isDestructive: true
+            ) {
+                onDelete(capability)
+            }
         }
-        .padding(4)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.secondary.opacity(0.12))
+    }
+}
+
+private struct InspectorTextActionButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .frame(minWidth: 86)
+                .frame(height: 30)
+                .padding(.horizontal, 8)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(tint.opacity(0.16))
+                }
         }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
+    private var backgroundColor: Color {
+        if tint == .green {
+            return Color.green.opacity(0.09)
+        }
+        if tint == .red {
+            return Color.red.opacity(0.11)
+        }
+        return Color.primary.opacity(0.045)
     }
 }
 
@@ -223,11 +250,15 @@ private struct InspectorHeaderButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(tint)
-                .frame(width: 30, height: 28)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(width: 34, height: 30)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(tint.opacity(isDestructive ? 0.2 : 0.12))
+                }
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .help(help)
         .accessibilityLabel(help)
     }

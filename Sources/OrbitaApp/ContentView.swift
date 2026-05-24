@@ -344,16 +344,13 @@ struct ContentView: View {
 private enum CapabilitySectionKind: String, CaseIterable {
     case enabled
     case disabled
-    case discovered
 
     init(item: CapabilityDisplayItem) {
         let capability = item.inspectionCapability
         if capability.statuses.contains(.disabled) {
             self = .disabled
-        } else if capability.statuses.contains(.enabled) {
-            self = .enabled
         } else {
-            self = .discovered
+            self = .enabled
         }
     }
 
@@ -363,8 +360,6 @@ private enum CapabilitySectionKind: String, CaseIterable {
             return "Enabled"
         case .disabled:
             return "Disabled"
-        case .discovered:
-            return "Discovered"
         }
     }
 }
