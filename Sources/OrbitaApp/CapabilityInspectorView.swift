@@ -19,23 +19,9 @@ struct CapabilityInspectorView: View {
             ScrollView {
                 if let capability {
                     VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: CapabilityVisuals.iconName(for: capability.type))
-                                    .font(.system(size: 19, weight: .medium))
-                                    .frame(width: 26, height: 26)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(capability.name)
-                                        .font(.title3.weight(.semibold))
-                                        .lineLimit(2)
-                                    Text(capability.type.displayName)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .layoutPriority(1)
-
-                                Spacer(minLength: 8)
-
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                Spacer(minLength: 0)
                                 if canApplyActions(to: capability) {
                                     InspectorActionStrip(
                                         capability: capability,
@@ -52,6 +38,22 @@ struct CapabilityInspectorView: View {
                                         action: onClose
                                     )
                                 }
+                            }
+
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: CapabilityVisuals.iconName(for: capability.type))
+                                    .font(.system(size: 20, weight: .medium))
+                                    .frame(width: 28, height: 28)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(capability.name)
+                                        .font(.title3.weight(.semibold))
+                                        .lineLimit(2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(capability.type.displayName)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                         .padding(.top, 10)
@@ -177,6 +179,7 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: "checkmark.circle",
                     tint: .green,
+                    title: "Enable",
                     help: "Enable"
                 ) {
                     onEnable(capability)
@@ -185,6 +188,7 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: "minus.circle",
                     tint: .secondary,
+                    title: "Disable",
                     help: "Disable"
                 ) {
                     onDisable(capability)
@@ -224,16 +228,25 @@ private struct InspectorActionStrip: View {
 private struct InspectorToolbarButton: View {
     let systemImage: String
     let tint: Color
+    var title: String? = nil
     let help: String
     var isDestructive = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .semibold))
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                if let title {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
                 .foregroundStyle(tint)
-                .frame(width: 36, height: 32)
+                .frame(width: title == nil ? 36 : nil, height: 32)
+                .padding(.horizontal, title == nil ? 0 : 10)
                 .background(backgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
