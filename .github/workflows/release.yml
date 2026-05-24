@@ -18,6 +18,15 @@ jobs:
   build-release:
     name: Build macOS release
     runs-on: macos-15
+    env:
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+      APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+      SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+      SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,7 +41,51 @@ jobs:
             echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build
+      - name: Validate Apple Developer release secrets
+        shell: bash
+        run: |
+          missing=0
+          for name in \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 \
+            APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD \
+            APPLE_ID \
+            APPLE_TEAM_ID \
+            DEVELOPER_ID_APPLICATION \
+            SPARKLE_PRIVATE_ED_KEY \
+            SPARKLE_PUBLIC_ED_KEY
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is required for signed public DMG releases"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Import Developer ID certificate
+        shell: bash
+        env:
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/release-signing.keychain-db"
+
+          echo "$APPLE_DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Build signed app
         run: |
           xcodebuild \
             -project Orbita.xcodeproj \
@@ -40,19 +93,57 @@ jobs:
             -configuration Release \
             -derivedDataPath .build/release \
             -destination "platform=macOS" \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp" \
+            SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
             build
 
       - name: Package DMG
         run: |
           APP=".build/release/Build/Products/Release/Orbita.app"
           test -d "$APP"
+          codesign --deep --strict --verify --verbose=2 "$APP"
           script/package_dmg.sh "$APP" "${{ steps.version.outputs.value }}" "Orbita-${{ steps.version.outputs.value }}.dmg"
+
+      - name: Notarize and staple DMG
+        run: |
+          DMG="Orbita-${{ steps.version.outputs.value }}.dmg"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+          xcrun stapler staple "$DMG"
+          spctl -a -t open --context context:primary-signature -v "$DMG"
+
+      - name: Generate Sparkle appcast
+        shell: bash
+        run: |
+          DMG="Orbita-${{ steps.version.outputs.value }}.dmg"
+          UPDATES_DIR="$RUNNER_TEMP/sparkle-updates"
+          GENERATE_APPCAST=".build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast"
+          DOWNLOAD_PREFIX="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.value }}"
+
+          mkdir -p "$UPDATES_DIR"
+          cp "$DMG" "$UPDATES_DIR/"
+          test -x "$GENERATE_APPCAST"
+          printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$GENERATE_APPCAST" \
+            --ed-key-file - \
+            --download-url-prefix "$DOWNLOAD_PREFIX" \
+            "$UPDATES_DIR"
+          test -f "$UPDATES_DIR/appcast.xml"
+          grep -q "sparkle:edSignature" "$UPDATES_DIR/appcast.xml"
+          cp "$UPDATES_DIR/appcast.xml" appcast.xml
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.value }}
           name: Orbita ${{ steps.version.outputs.value }}
-          files: Orbita-${{ steps.version.outputs.value }}.dmg
+          files: |
+            Orbita-${{ steps.version.outputs.value }}.dmg
+            appcast.xml
           generate_release_notes: true

@@ -80,6 +80,12 @@ struct CapabilityInspectorView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+                                Spacer(minLength: 0)
+                                Button(action: onClose) {
+                                    Label("Collapse", systemImage: "sidebar.right")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .help("Collapse inspector")
                             }
                             .buttonStyle(.bordered)
                             .padding(.top, 2)

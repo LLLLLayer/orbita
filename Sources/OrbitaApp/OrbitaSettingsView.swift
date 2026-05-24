@@ -229,11 +229,21 @@ struct OrbitaSettingsView: View {
 
     private var releaseSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SettingsHeader(title: "Release", subtitle: "GitHub release workflow and local release trigger.")
+            SettingsHeader(title: "Release", subtitle: "Signed DMG release, notarization, and Sparkle update feed readiness.")
             SettingsCard(title: "GitHub Actions", systemImage: "shippingbox") {
                 SettingsInfoRow(title: "Workflow", value: ".github/workflows/release.yml")
                 SettingsInfoRow(title: "Trigger", value: "Push a tag like v\(VersionInfo.current.version)")
                 SettingsInfoRow(title: "Artifact", value: "Orbita-v\(VersionInfo.current.version).dmg")
+            }
+            SettingsCard(title: "Distribution", systemImage: "checkmark.seal") {
+                SettingsInfoRow(title: "Signing", value: "Developer ID Application")
+                SettingsInfoRow(title: "Runtime", value: "Hardened Runtime")
+                SettingsInfoRow(title: "Notary", value: "xcrun notarytool + stapler")
+            }
+            SettingsCard(title: "Auto Updates", systemImage: "arrow.triangle.2.circlepath") {
+                SettingsInfoRow(title: "Updater", value: "Sparkle runtime + appcast")
+                SettingsInfoRow(title: "Feed", value: "SUFeedURL over HTTPS")
+                SettingsInfoRow(title: "Security", value: "SUPublicEDKey + EdDSA archive signatures")
             }
             CommandCard(
                 title: "Check GitHub CLI",
@@ -244,7 +254,7 @@ struct OrbitaSettingsView: View {
             )
             CommandCard(
                 title: "Tag current version",
-                detail: "Create a local DMG, push the release tag, then let GitHub Actions publish the DMG.",
+                detail: "Create a local DMG, push the release tag, then let GitHub Actions sign, notarize, staple, and publish the DMG.",
                 command: "script/release_github.sh v\(VersionInfo.current.version)",
                 isRunning: isRunningCommand,
                 onRun: { runCommand("script/release_github.sh v\(VersionInfo.current.version)") }

@@ -135,7 +135,6 @@ struct ContentView: View {
                         errorMessage: store.errorMessage,
                         selectedAgent: $selectedAgent,
                         selectedGroup: $selectedGroup,
-                        sortOption: currentSortOption,
                         agentOptions: agentOptions,
                         displaySections: capabilityDisplaySections,
                         selectedCapability: $selectedCapability,
@@ -154,9 +153,6 @@ struct ContentView: View {
                         },
                         onClean: {
                             pendingPlan = store.planClean()
-                        },
-                        onChangeSort: { option in
-                            capabilitySortOption = option.rawValue
                         }
                     )
                     .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)

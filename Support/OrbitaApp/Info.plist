@@ -18,6 +18,10 @@
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>SUFeedURL</key>
+  <string>https://github.com/LLLLLayer/orbita/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string>$(SPARKLE_PUBLIC_ED_KEY)</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.developer-tools</string>
   <key>NSPrincipalClass</key>

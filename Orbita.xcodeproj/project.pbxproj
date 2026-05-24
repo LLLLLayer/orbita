@@ -36,6 +36,7 @@
 		200000000000000000001014 /* OrbitaWindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000014 /* OrbitaWindowChrome.swift */; };
 		200000000000000000001015 /* ProjectCapabilityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000015 /* ProjectCapabilityStore.swift */; };
 		300000000000000000001001 /* libOrbitaCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 300000000000000000000002 /* libOrbitaCore.a */; };
+		500000000000000000001001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,6 +90,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				300000000000000000001001 /* libOrbitaCore.a in Frameworks */,
+				500000000000000000001001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -212,6 +214,9 @@
 				300000000000000000002002 /* PBXTargetDependency */,
 			);
 			name = Orbita;
+			packageProductDependencies = (
+				500000000000000000002002 /* Sparkle */,
+			);
 			productName = Orbita;
 			productReference = 300000000000000000000001 /* Orbita.app */;
 			productType = "com.apple.product-type.application";
@@ -243,6 +248,9 @@
 				Base,
 			);
 			mainGroup = 000000000000000000000002;
+			packageReferences = (
+				500000000000000000002001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = 300000000000000000000005 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -305,6 +313,25 @@
 			targetProxy = 300000000000000000002001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		500000000000000000002001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		500000000000000000002002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 500000000000000000002001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		300000000000000000005001 /* Debug */ = {

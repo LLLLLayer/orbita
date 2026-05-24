@@ -12,6 +12,9 @@ let package = Package(
         .executable(name: "orbita", targets: ["OrbitaCLI"]),
         .executable(name: "OrbitaApp", targets: ["OrbitaApp"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2")
+    ],
     targets: [
         .target(name: "OrbitaCore"),
         .executableTarget(
@@ -20,7 +23,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "OrbitaApp",
-            dependencies: ["OrbitaCore"]
+            dependencies: [
+                "OrbitaCore",
+                .product(name: "Sparkle", package: "Sparkle")
+            ]
         ),
         .testTarget(
             name: "OrbitaCoreTests",

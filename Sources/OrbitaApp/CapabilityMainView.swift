@@ -12,7 +12,6 @@ struct CapabilityMainView: View {
     let errorMessage: String?
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
-    let sortOption: CapabilitySortOption
     let agentOptions: [AgentSelection]
     let displaySections: [CapabilityCollectionSection]
     @Binding var selectedCapability: Capability?
@@ -22,7 +21,6 @@ struct CapabilityMainView: View {
     let onRefresh: () -> Void
     let onMerge: () -> Void
     let onClean: () -> Void
-    let onChangeSort: (CapabilitySortOption) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -51,9 +49,7 @@ struct CapabilityMainView: View {
                             agentOptions: agentOptions,
                             selectedAgent: $selectedAgent,
                             selectedGroup: $selectedGroup,
-                            sortOption: sortOption,
-                            onAddAgent: onAddAgent,
-                            onChangeSort: onChangeSort
+                            onAddAgent: onAddAgent
                         )
 
                         if displaySections.isEmpty {
@@ -327,9 +323,7 @@ struct CapabilityFilterBar: View {
     let agentOptions: [AgentSelection]
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
-    let sortOption: CapabilitySortOption
     let onAddAgent: () -> Void
-    let onChangeSort: (CapabilitySortOption) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -367,48 +361,7 @@ struct CapabilityFilterBar: View {
                     }
                 }
             }
-
-            SortMenuButton(sortOption: sortOption, onChangeSort: onChangeSort)
         }
-    }
-}
-
-private struct SortMenuButton: View {
-    let sortOption: CapabilitySortOption
-    let onChangeSort: (CapabilitySortOption) -> Void
-
-    var body: some View {
-        Menu {
-            ForEach(CapabilitySortOption.allCases) { option in
-                Button {
-                    onChangeSort(option)
-                } label: {
-                    if option == sortOption {
-                        Label(option.title, systemImage: "checkmark")
-                    } else {
-                        Text(option.title)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(sortOption.title)
-                    .font(.subheadline.weight(.medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 11)
-            .frame(height: 30)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Sort capabilities")
     }
 }
 
