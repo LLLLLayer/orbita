@@ -31,26 +31,6 @@ struct CapabilityInspectorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 14) {
-                        HStack {
-                            Spacer(minLength: 0)
-                            if canApplyActions(to: capability) {
-                                InspectorActionStrip(
-                                    capability: capability,
-                                    onEnable: onEnable,
-                                    onDisable: onDisable,
-                                    onDelete: onDelete,
-                                    onClose: onClose
-                                )
-                            } else {
-                                InspectorHeaderButton(
-                                    systemImage: "sidebar.right",
-                                    tint: .secondary,
-                                    help: "Hide inspector",
-                                    action: onClose
-                                )
-                            }
-                        }
-
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: CapabilityVisuals.iconName(for: capability.type))
                                 .font(.system(size: 20, weight: .medium))
@@ -65,9 +45,28 @@ struct CapabilityInspectorView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if canApplyActions(to: capability) {
+                                InspectorActionStrip(
+                                    capability: capability,
+                                    onEnable: onEnable,
+                                    onDisable: onDisable,
+                                    onDelete: onDelete,
+                                    onClose: onClose
+                                )
+                                .fixedSize()
+                            } else {
+                                InspectorHeaderButton(
+                                    systemImage: "sidebar.right",
+                                    tint: .secondary,
+                                    help: "Hide inspector",
+                                    action: onClose
+                                )
+                                .fixedSize()
+                            }
                         }
                     }
-                    .padding(.top, 10)
+                    .padding(.top, 16)
 
                     VStack(alignment: .leading, spacing: 16) {
                         InspectorSection {

@@ -61,10 +61,12 @@ struct CapabilityMainView: View {
                                 ContentUnavailableView("No capabilities", systemImage: "tray")
                                     .frame(maxWidth: .infinity, minHeight: 280)
                             } else {
+                                let horizontalPadding = horizontalContentPadding(for: proxy.size.width)
                                 CapabilityCollectionView(
                                     sections: displaySections,
                                     selectedCapability: $selectedCapability,
-                                    expandedGroupIDs: $expandedGroupIDs
+                                    expandedGroupIDs: $expandedGroupIDs,
+                                    availableWidth: max(1, proxy.size.width - horizontalPadding * 2)
                                 )
                                 .padding(.top, 4)
                             }

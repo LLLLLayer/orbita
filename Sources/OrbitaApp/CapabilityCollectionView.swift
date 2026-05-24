@@ -5,8 +5,8 @@ struct CapabilityCollectionView: View {
     let sections: [CapabilityCollectionSection]
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
+    let availableWidth: CGFloat
 
-    @State private var availableWidth: CGFloat = 760
     @State private var expandedGroupOrder: [String] = []
     @State private var collapsedSectionIDs: Set<String> = []
 
@@ -38,15 +38,6 @@ struct CapabilityCollectionView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(key: CapabilityCollectionWidthKey.self, value: proxy.size.width)
-            }
-        }
-        .onPreferenceChange(CapabilityCollectionWidthKey.self) { width in
-            availableWidth = width
-        }
         .onChange(of: expandedGroupIDs) { _, ids in
             expandedGroupOrder.removeAll { !ids.contains($0) }
         }
@@ -68,7 +59,8 @@ struct CapabilityCollectionView: View {
                 ForEach(expandedGroups(for: row)) { group in
                     ExpandedCapabilityGroupShelf(
                         group: group,
-                        selectedCapability: $selectedCapability
+                        selectedCapability: $selectedCapability,
+                        columns: columns
                     )
                 }
             }
@@ -190,7 +182,7 @@ struct CapabilityCollectionView: View {
             .map { section in
                 "\(section.id):\(section.items.map(\.id).joined(separator: ","))"
             }
-            .joined(separator: "|")
+            .joined(separator: "|") + ":\(columnCount)"
     }
 }
 
@@ -226,48 +218,25 @@ private struct CapabilityDisplayRow: Identifiable {
     }
 }
 
-private struct CapabilityCollectionWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 760
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private struct ExpandedCapabilityGroupShelf: View {
     let group: CapabilityGroup
     @Binding var selectedCapability: Capability?
-
-    private let columns = [
-        GridItem(.adaptive(minimum: 108, maximum: 132), spacing: 16, alignment: .top)
-    ]
+    let columns: [GridItem]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                ForEach(group.capabilities) { capability in
-                    CapabilityTile(
-                        capability: capability,
-                        isSelected: selectedCapability?.id == capability.id
-                    ) {
-                        withAnimation(.snappy(duration: 0.18)) {
-                            selectedCapability = capability
-                        }
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+            ForEach(group.capabilities) { capability in
+                CapabilityTile(
+                    capability: capability,
+                    isSelected: selectedCapability?.id == capability.id
+                ) {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        selectedCapability = capability
                     }
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(
-                    group.isVirtualPlugin ? OrbitaTheme.strongBorder : OrbitaTheme.border,
-                    style: group.outlineStyle(lineWidth: 1)
-                )
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.top, 2)
         .transition(.asymmetric(
             insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)),
             removal: .opacity.combined(with: .scale(scale: 0.995, anchor: .top))
@@ -330,7 +299,7 @@ private struct CapabilityGroupTile: View {
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: 128, alignment: .top)
             .contentShape(Rectangle())
-            .overlay {
+            .background {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface)
             }

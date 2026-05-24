@@ -165,7 +165,8 @@ struct OrbitaSidebarRail: View {
                 RailButton(systemImage: "sidebar.left", isSelected: false, action: onExpand)
                     .help("Expand sidebar")
             }
-            .frame(height: 54)
+            .frame(height: 86, alignment: .bottom)
+            .padding(.bottom, 8)
 
             VStack(spacing: 8) {
                 RailButton(systemImage: "desktopcomputer", isSelected: selection == ProjectCapabilityStore.environmentSelectionID, action: onSelectThisMac)

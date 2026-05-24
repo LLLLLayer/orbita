@@ -178,6 +178,7 @@ struct OrbitaSettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+                .tint(OrbitaTheme.prominentControlFill)
             }
             SettingsCard(title: "Display", systemImage: "arrow.up.arrow.down") {
                 HStack(spacing: 12) {
@@ -191,6 +192,7 @@ struct OrbitaSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
+                    .tint(OrbitaTheme.prominentControlFill)
                     .frame(width: 180)
                 }
             }
@@ -201,6 +203,7 @@ struct OrbitaSettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+                .tint(OrbitaTheme.prominentControlFill)
             }
         }
     }

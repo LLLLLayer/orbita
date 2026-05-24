@@ -50,6 +50,7 @@ struct ContentView: View {
         .background(OrbitaTheme.canvas)
         .background(OrbitaWindowChrome().frame(width: 0, height: 0))
         .ignoresSafeArea(.container, edges: .top)
+        .tint(OrbitaTheme.prominentControlFill)
         .environment(\.locale, Locale(identifier: orbitaLanguageCode))
         .fileImporter(isPresented: $importerPresented, allowedContentTypes: [.folder]) { result in
             if case let .success(url) = result {
