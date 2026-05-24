@@ -12,8 +12,9 @@ struct CapabilityMainView: View {
     let errorMessage: String?
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
+    let sortOption: CapabilitySortOption
     let agentOptions: [AgentSelection]
-    let displayItems: [CapabilityDisplayItem]
+    let displaySections: [CapabilityCollectionSection]
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let onAddAgent: () -> Void
@@ -21,6 +22,7 @@ struct CapabilityMainView: View {
     let onRefresh: () -> Void
     let onMerge: () -> Void
     let onClean: () -> Void
+    let onChangeSort: (CapabilitySortOption) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,15 +51,17 @@ struct CapabilityMainView: View {
                             agentOptions: agentOptions,
                             selectedAgent: $selectedAgent,
                             selectedGroup: $selectedGroup,
-                            onAddAgent: onAddAgent
+                            sortOption: sortOption,
+                            onAddAgent: onAddAgent,
+                            onChangeSort: onChangeSort
                         )
 
-                        if displayItems.isEmpty {
+                        if displaySections.isEmpty {
                             ContentUnavailableView("No capabilities", systemImage: "tray")
                                 .frame(maxWidth: .infinity, minHeight: 280)
                         } else {
                             CapabilityCollectionView(
-                                items: displayItems,
+                                sections: displaySections,
                                 selectedCapability: $selectedCapability,
                                 expandedGroupIDs: $expandedGroupIDs
                             )
@@ -323,7 +327,9 @@ struct CapabilityFilterBar: View {
     let agentOptions: [AgentSelection]
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
+    let sortOption: CapabilitySortOption
     let onAddAgent: () -> Void
+    let onChangeSort: (CapabilitySortOption) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -360,6 +366,22 @@ struct CapabilityFilterBar: View {
                         }
                     }
                 }
+            }
+
+            HStack(spacing: 8) {
+                Label("Sort", systemImage: "arrow.up.arrow.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Picker("Sort", selection: Binding(
+                    get: { sortOption },
+                    set: { onChangeSort($0) }
+                )) {
+                    ForEach(CapabilitySortOption.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 380)
             }
         }
     }

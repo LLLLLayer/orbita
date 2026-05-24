@@ -53,6 +53,10 @@ final class ProjectCapabilityStore: ObservableObject {
         return projectRoot.lastPathComponent.isEmpty ? projectRoot.path : projectRoot.lastPathComponent
     }
 
+    var activeRootPath: String? {
+        projectRoot?.path
+    }
+
     var lastRefreshLabel: String {
         guard let lastRefreshedAt else {
             return "Never refreshed"

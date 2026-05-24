@@ -8,6 +8,7 @@ struct ContentView: View {
     @AppStorage("customAgentsJSON") private var customAgentsJSON = "[]"
     @AppStorage("scanRefreshPolicy") private var scanRefreshPolicy = ScanRefreshPolicy.oneHour.rawValue
     @AppStorage("orbitaLanguageCode") private var orbitaLanguageCode = OrbitaLanguage.english.rawValue
+    @AppStorage("capabilitySortOption") private var capabilitySortOption = CapabilitySortOption.nameAscending.rawValue
     @AppStorage("fullDiskAccessOnboardingDismissed") private var fullDiskAccessOnboardingDismissed = false
     @State private var selectedProject: String? = ProjectCapabilityStore.environmentSelectionID
     @State private var selectedAgent: AgentSelection?
@@ -77,14 +78,6 @@ struct ContentView: View {
                 addingAgentPresented = false
             }
         }
-        .sheet(isPresented: $settingsPresented) {
-            OrbitaSettingsView(
-                refreshPolicy: $scanRefreshPolicy,
-                languageCode: $orbitaLanguageCode
-            ) {
-                settingsPresented = false
-            }
-        }
         .onAppear {
             store.configure(refreshPolicy: scanRefreshPolicy)
             fullDiskAccess.refresh()
@@ -127,40 +120,62 @@ struct ContentView: View {
 
             Divider()
 
-            CapabilityMainView(
-                projectName: store.projectName,
-                hasActiveContext: store.hasActiveContext,
-                graph: store.graph,
-                isScanning: store.isScanning,
-                scanMessage: store.scanMessage,
-                scanProgress: store.scanProgress,
-                lastRefreshLabel: store.lastRefreshLabel,
-                errorMessage: store.errorMessage,
-                selectedAgent: $selectedAgent,
-                selectedGroup: $selectedGroup,
-                agentOptions: agentOptions,
-                displayItems: capabilityDisplayItems,
-                selectedCapability: $selectedCapability,
-                expandedGroupIDs: $expandedGroupIDs,
-                onAddAgent: {
-                    addingAgentPresented = true
-                },
-                onOpenProject: {
-                    importerPresented = true
-                },
-                onRefresh: {
-                    store.reload(force: true)
-                },
-                onMerge: {
-                    pendingPlan = store.planMerge()
-                },
-                onClean: {
-                    pendingPlan = store.planClean()
-                }
-            )
-            .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+            if settingsPresented {
+                OrbitaSettingsView(
+                    refreshPolicy: $scanRefreshPolicy,
+                    languageCode: $orbitaLanguageCode,
+                    sortOption: $capabilitySortOption,
+                    projectName: store.projectName,
+                    projectRootPath: store.activeRootPath,
+                    onRefresh: {
+                        store.reload(force: true)
+                    },
+                    onClose: {
+                        settingsPresented = false
+                    }
+                )
+                .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+            } else {
+                CapabilityMainView(
+                    projectName: store.projectName,
+                    hasActiveContext: store.hasActiveContext,
+                    graph: store.graph,
+                    isScanning: store.isScanning,
+                    scanMessage: store.scanMessage,
+                    scanProgress: store.scanProgress,
+                    lastRefreshLabel: store.lastRefreshLabel,
+                    errorMessage: store.errorMessage,
+                    selectedAgent: $selectedAgent,
+                    selectedGroup: $selectedGroup,
+                    sortOption: currentSortOption,
+                    agentOptions: agentOptions,
+                    displaySections: capabilityDisplaySections,
+                    selectedCapability: $selectedCapability,
+                    expandedGroupIDs: $expandedGroupIDs,
+                    onAddAgent: {
+                        addingAgentPresented = true
+                    },
+                    onOpenProject: {
+                        importerPresented = true
+                    },
+                    onRefresh: {
+                        store.reload(force: true)
+                    },
+                    onMerge: {
+                        pendingPlan = store.planMerge()
+                    },
+                    onClean: {
+                        pendingPlan = store.planClean()
+                    },
+                    onChangeSort: { option in
+                        capabilitySortOption = option.rawValue
+                    }
+                )
+                .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+            }
 
-            if store.hasActiveContext, inspectorVisible {
+            if !settingsPresented, store.hasActiveContext, inspectorVisible {
                 Divider()
                     .transition(.opacity)
                 CapabilityInspectorView(
@@ -179,6 +194,9 @@ struct ContentView: View {
                     },
                     onDelete: { capability in
                         pendingPlan = store.planDelete(capability)
+                    },
+                    onNativePluginChanged: {
+                        store.reload(force: true)
                     }
                 )
                 .frame(width: 340)
@@ -274,14 +292,30 @@ struct ContentView: View {
         visibleCapabilities.filter { selectedGroup.matches($0) }
     }
 
+    private var sortedCapabilities: [Capability] {
+        filteredCapabilities.sorted(by: currentSortOption.comparator)
+    }
+
     private var visibleCapabilities: [Capability] {
         guard let graph = store.graph else { return [] }
         guard let selectedAgent else { return graph.capabilities }
         return selectedAgent.visibleCapabilities(in: graph)
     }
 
-    private var capabilityDisplayItems: [CapabilityDisplayItem] {
-        CapabilityDisplayGrouper().items(for: filteredCapabilities)
+    private var capabilityDisplaySections: [CapabilityCollectionSection] {
+        let items = CapabilityDisplayGrouper().items(for: sortedCapabilities, preservesInputOrder: true)
+        let grouped = Dictionary(grouping: items, by: CapabilitySectionKind.init(item:))
+        return CapabilitySectionKind.allCases.compactMap { kind in
+            guard let sectionItems = grouped[kind], !sectionItems.isEmpty else {
+                return nil
+            }
+            return CapabilityCollectionSection(
+                id: kind.rawValue,
+                title: kind.title,
+                subtitle: "\(sectionItems.count) items",
+                items: sectionItems.sorted(by: currentSortOption.itemComparator)
+            )
+        }
     }
 
     private var agentOptions: [AgentSelection] {
@@ -295,5 +329,84 @@ struct ContentView: View {
             return []
         }
         return agents
+    }
+
+    private var currentSortOption: CapabilitySortOption {
+        CapabilitySortOption(rawValue: capabilitySortOption) ?? .nameAscending
+    }
+}
+
+private enum CapabilitySectionKind: String, CaseIterable {
+    case enabled
+    case disabled
+    case discovered
+
+    init(item: CapabilityDisplayItem) {
+        let capability = item.inspectionCapability
+        if capability.statuses.contains(.disabled) {
+            self = .disabled
+        } else if capability.statuses.contains(.enabled) {
+            self = .enabled
+        } else {
+            self = .discovered
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .enabled:
+            return "Enabled"
+        case .disabled:
+            return "Disabled"
+        case .discovered:
+            return "Discovered"
+        }
+    }
+}
+
+private extension CapabilitySortOption {
+    var comparator: (Capability, Capability) -> Bool {
+        { lhs, rhs in
+            switch self {
+            case .nameAscending:
+                return compareByName(lhs, rhs)
+            case .modifiedNewest:
+                let lhsDate = modifiedAt(lhs)
+                let rhsDate = modifiedAt(rhs)
+                if lhsDate != rhsDate {
+                    return lhsDate > rhsDate
+                }
+                return compareByName(lhs, rhs)
+            case .modifiedOldest:
+                let lhsDate = modifiedAt(lhs)
+                let rhsDate = modifiedAt(rhs)
+                if lhsDate != rhsDate {
+                    return lhsDate < rhsDate
+                }
+                return compareByName(lhs, rhs)
+            }
+        }
+    }
+
+    var itemComparator: (CapabilityDisplayItem, CapabilityDisplayItem) -> Bool {
+        { lhs, rhs in
+            comparator(lhs.inspectionCapability, rhs.inspectionCapability)
+        }
+    }
+
+    private func compareByName(_ lhs: Capability, _ rhs: Capability) -> Bool {
+        let comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+        if comparison == .orderedSame {
+            return lhs.id < rhs.id
+        }
+        return comparison == .orderedAscending
+    }
+
+    private func modifiedAt(_ capability: Capability) -> Date {
+        guard let value = capability.metadata["modifiedAt"],
+              let date = ISO8601DateFormatter().date(from: value) else {
+            return .distantPast
+        }
+        return date
     }
 }

@@ -2,7 +2,7 @@ import SwiftUI
 import OrbitaCore
 
 struct CapabilityCollectionView: View {
-    let items: [CapabilityDisplayItem]
+    let sections: [CapabilityCollectionSection]
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
 
@@ -14,19 +14,32 @@ struct CapabilityCollectionView: View {
     private let itemSpacing: CGFloat = 18
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ForEach(displayRows) { row in
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                    ForEach(row.items) { item in
-                        tile(for: item)
+        VStack(alignment: .leading, spacing: 24) {
+            ForEach(sectionRows) { section in
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(section.title)
+                            .font(.headline)
+                        Text(section.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
-                }
 
-                ForEach(expandedGroups(for: row)) { group in
-                    ExpandedCapabilityGroupShelf(
-                        group: group,
-                        selectedCapability: $selectedCapability
-                    )
+                    ForEach(section.rows) { row in
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                            ForEach(row.items) { item in
+                                tile(for: item)
+                            }
+                        }
+
+                        ForEach(expandedGroups(for: row)) { group in
+                            ExpandedCapabilityGroupShelf(
+                                group: group,
+                                selectedCapability: $selectedCapability
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -103,7 +116,18 @@ struct CapabilityCollectionView: View {
         return max(1, count)
     }
 
-    private var displayRows: [CapabilityDisplayRow] {
+    private var sectionRows: [CapabilityDisplaySectionRows] {
+        sections.map { section in
+            CapabilityDisplaySectionRows(
+                id: section.id,
+                title: section.title,
+                subtitle: section.subtitle,
+                rows: displayRows(for: section.items)
+            )
+        }
+    }
+
+    private func displayRows(for items: [CapabilityDisplayItem]) -> [CapabilityDisplayRow] {
         var rows: [CapabilityDisplayRow] = []
         var start = 0
         while start < items.count {
@@ -114,6 +138,20 @@ struct CapabilityCollectionView: View {
         }
         return rows
     }
+}
+
+struct CapabilityCollectionSection: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let items: [CapabilityDisplayItem]
+}
+
+private struct CapabilityDisplaySectionRows: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let rows: [CapabilityDisplayRow]
 }
 
 private struct CapabilityDisplayRow: Identifiable {

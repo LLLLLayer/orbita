@@ -7,6 +7,7 @@ public final class CapabilityResolver {
         var capabilities = scanResult.capabilities.filter { $0.source.kind != "agents-intent" }
         applyAgentsIntent(from: scanResult.capabilities, to: &capabilities)
         capabilities.append(contentsOf: inferredPlugins(from: capabilities))
+        capabilities = deduplicatedCapabilities(capabilities)
         markDuplicates(in: &capabilities)
         markShadowedAndDrifted(in: &capabilities)
 
@@ -50,8 +51,12 @@ public final class CapabilityResolver {
     }
 
     private func inferredPlugins(from capabilities: [Capability]) -> [Capability] {
+        let existingPluginIDs = Set(capabilities.filter { $0.type == .plugin }.map(\.id))
         let grouped = Dictionary(grouping: capabilities.compactMap { capability -> (String, Capability)? in
             guard let pluginID = capability.pluginID, let packageName = capability.source.packageName else {
+                return nil
+            }
+            guard !existingPluginIDs.contains(pluginID) else {
                 return nil
             }
             return (pluginID + "|" + packageName, capability)
@@ -95,6 +100,28 @@ public final class CapabilityResolver {
                 }
             }
         }
+    }
+
+    private func deduplicatedCapabilities(_ capabilities: [Capability]) -> [Capability] {
+        var seenIDs: Set<String> = []
+        var result: [Capability] = []
+        for capability in capabilities.sorted(by: { lhs, rhs in
+            if lhs.id == rhs.id {
+                return statusRank(lhs) < statusRank(rhs)
+            }
+            return lhs.id < rhs.id
+        }) {
+            guard !seenIDs.contains(capability.id) else { continue }
+            seenIDs.insert(capability.id)
+            result.append(capability)
+        }
+        return result
+    }
+
+    private func statusRank(_ capability: Capability) -> Int {
+        if capability.statuses.contains(.enabled) { return 0 }
+        if capability.statuses.contains(.disabled) { return 1 }
+        return 2
     }
 
     private func markShadowedAndDrifted(in capabilities: inout [Capability]) {

@@ -134,6 +134,15 @@ public enum CapabilityDisplayItem: Hashable, Sendable, Identifiable {
             return group.id
         }
     }
+
+    public var inspectionCapability: Capability {
+        switch self {
+        case let .capability(capability):
+            return capability
+        case let .group(group):
+            return group.inspectionCapability
+        }
+    }
 }
 
 public final class CapabilityDisplayGrouper {

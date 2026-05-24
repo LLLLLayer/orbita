@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build macOS release
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        run: |
+          xcodebuild \
+            -project Orbita.xcodeproj \
+            -scheme Orbita \
+            -configuration Release \
+            -derivedDataPath .build/release \
+            -destination "platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package app
+        run: |
+          APP=".build/release/Build/Products/Release/Orbita.app"
+          test -d "$APP"
+          ditto -c -k --keepParent "$APP" "Orbita-${{ steps.version.outputs.value }}.app.zip"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.value }}
+          name: Orbita ${{ steps.version.outputs.value }}
+          files: Orbita-${{ steps.version.outputs.value }}.app.zip
+          generate_release_notes: true

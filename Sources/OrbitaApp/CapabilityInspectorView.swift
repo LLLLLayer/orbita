@@ -9,6 +9,10 @@ struct CapabilityInspectorView: View {
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
     let onDelete: (Capability) -> Void
+    let onNativePluginChanged: () -> Void
+
+    @State private var runningNativeActionID: String?
+    @State private var nativeActionResult: CommandRunResult?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -81,6 +85,18 @@ struct CapabilityInspectorView: View {
                             .padding(.top, 2)
                         }
 
+                        if !nativePluginActions(for: capability).isEmpty {
+                            NativePluginActionSection(
+                                capability: capability,
+                                actions: nativePluginActions(for: capability),
+                                runningActionID: runningNativeActionID,
+                                result: nativeActionResult,
+                                onRun: { action in
+                                    runNativePluginAction(action, capability: capability)
+                                }
+                            )
+                        }
+
                         if let markdownPath = markdownPreviewPath(for: capability) {
                             MarkdownPreviewCard(sourcePath: markdownPath)
                         }
@@ -116,6 +132,7 @@ struct CapabilityInspectorView: View {
 
     private func canApplyActions(to capability: Capability) -> Bool {
         capability.source.kind != "virtual-plugin"
+            && !["codex", "claude-code"].contains(capability.metadata["manager"] ?? "")
     }
 
     private func markdownPreviewPath(for capability: Capability) -> String? {
@@ -129,6 +146,183 @@ struct CapabilityInspectorView: View {
             return nil
         }
         return path
+    }
+
+    private func nativePluginActions(for capability: Capability) -> [NativePluginAction] {
+        NativePluginAction.actions(for: capability)
+    }
+
+    private func runNativePluginAction(_ action: NativePluginAction, capability: Capability) {
+        guard runningNativeActionID == nil else { return }
+        runningNativeActionID = action.id
+        nativeActionResult = nil
+
+        Task.detached {
+            let result: CommandRunResult
+            if action.manager == "codex", action.kind == .enable || action.kind == .disable {
+                result = CodexPluginConfigUpdater.setEnabled(
+                    action.kind == .enable,
+                    selector: capability.metadata["pluginSelector"] ?? capability.name,
+                    configPath: capability.metadata["configPath"] ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.codex/config.toml"
+                )
+            } else {
+                result = ShellCommandRunner.run(action.command, workingDirectory: FileManager.default.currentDirectoryPath)
+            }
+            await MainActor.run {
+                nativeActionResult = result
+                runningNativeActionID = nil
+                if result.exitCode == 0 {
+                    onNativePluginChanged()
+                }
+            }
+        }
+    }
+}
+
+private struct NativePluginActionSection: View {
+    let capability: Capability
+    let actions: [NativePluginAction]
+    let runningActionID: String?
+    let result: CommandRunResult?
+    let onRun: (NativePluginAction) -> Void
+
+    var body: some View {
+        InspectorSection {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Native Plugin", systemImage: "shippingbox")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Text(capability.metadata["manager"] ?? "plugin")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let note = capability.metadata["lifecycleNote"] {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    ForEach(actions) { action in
+                        Button {
+                            onRun(action)
+                        } label: {
+                            Label(runningActionID == action.id ? "Running" : action.title, systemImage: runningActionID == action.id ? "hourglass" : action.systemImage)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(runningActionID != nil)
+                        .help(action.command)
+                    }
+                }
+
+                if let result {
+                    Divider()
+                    Text(result.output.isEmpty ? "(no output)" : result.output)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(8)
+                }
+            }
+        }
+    }
+}
+
+private struct NativePluginAction: Identifiable {
+    enum Kind {
+        case enable
+        case disable
+        case check
+        case update
+    }
+
+    let id: String
+    let title: String
+    let systemImage: String
+    let command: String
+    let manager: String
+    let kind: Kind
+
+    static func actions(for capability: Capability) -> [NativePluginAction] {
+        guard let manager = capability.metadata["manager"] else { return [] }
+        var actions: [NativePluginAction] = []
+        if let command = capability.metadata["checkCommand"] {
+            actions.append(NativePluginAction(id: "check", title: "Check", systemImage: "magnifyingglass", command: command, manager: manager, kind: .check))
+        }
+        if capability.statuses.contains(.disabled), let command = capability.metadata["enableCommand"] {
+            actions.append(NativePluginAction(id: "enable", title: "Enable", systemImage: "checkmark.circle", command: command, manager: manager, kind: .enable))
+        }
+        if capability.statuses.contains(.enabled), let command = capability.metadata["disableCommand"] {
+            actions.append(NativePluginAction(id: "disable", title: "Disable", systemImage: "minus.circle", command: command, manager: manager, kind: .disable))
+        }
+        if let command = capability.metadata["updateCommand"] {
+            actions.append(NativePluginAction(id: "update", title: "Update", systemImage: "arrow.down.circle", command: command, manager: manager, kind: .update))
+        }
+        return actions
+    }
+}
+
+private enum CodexPluginConfigUpdater {
+    static func setEnabled(_ enabled: Bool, selector: String, configPath: String) -> CommandRunResult {
+        let url = URL(fileURLWithPath: configPath)
+        let section = "[plugins.\"\(selector)\"]"
+        let enabledLine = "enabled = \(enabled ? "true" : "false")"
+        do {
+            let original = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            let lines = original.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            var output: [String] = []
+            var inTargetSection = false
+            var foundSection = false
+            var wroteEnabled = false
+
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if inTargetSection, trimmed.hasPrefix("[") {
+                    if !wroteEnabled {
+                        output.append(enabledLine)
+                        wroteEnabled = true
+                    }
+                    inTargetSection = false
+                }
+
+                if trimmed == section {
+                    inTargetSection = true
+                    foundSection = true
+                    wroteEnabled = false
+                    output.append(line)
+                    continue
+                }
+
+                if inTargetSection, trimmed.hasPrefix("enabled") {
+                    output.append(enabledLine)
+                    wroteEnabled = true
+                    continue
+                }
+
+                output.append(line)
+            }
+
+            if inTargetSection, !wroteEnabled {
+                output.append(enabledLine)
+            }
+
+            if !foundSection {
+                if !output.isEmpty, output.last?.isEmpty == false {
+                    output.append("")
+                }
+                output.append(section)
+                output.append(enabledLine)
+            }
+
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try output.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            return CommandRunResult(command: "Codex config update", exitCode: 0, output: "\(selector) \(enabled ? "enabled" : "disabled") in \(configPath)")
+        } catch {
+            return CommandRunResult(command: "Codex config update", exitCode: 1, output: error.localizedDescription)
+        }
     }
 }
 
@@ -229,8 +423,8 @@ private struct StatusReasonSection: View {
 
         if capability.statuses.contains(.disabled) {
             items.append(StatusReason(
-                title: "Disabled in .agents",
-                detail: "The .agents manifest marks this capability as disabled.",
+                title: "Disabled",
+                detail: disabledDetail,
                 systemImage: "minus.circle",
                 color: .secondary
             ))
@@ -262,6 +456,13 @@ private struct StatusReasonSection: View {
             return reason
         }
         return "A capability with the same type and name exists in multiple places, and the content hash is different."
+    }
+
+    private var disabledDetail: String {
+        if let manager = capability.metadata["manager"], !manager.isEmpty {
+            return "\(manager) marks this plugin as disabled."
+        }
+        return "The .agents manifest marks this capability as disabled."
     }
 }
 

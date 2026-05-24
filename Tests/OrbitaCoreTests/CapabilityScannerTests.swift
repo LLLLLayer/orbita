@@ -1062,6 +1062,192 @@ final class CapabilityScannerTests: XCTestCase {
         })
     }
 
+    func testScansCodexPluginCacheWithEnablementAndUpdateCommand() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let registryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCodexPlugins-\(UUID().uuidString)")
+        let config = registryRoot.appendingPathComponent("config.toml")
+        let manifest = registryRoot
+            .appendingPathComponent("cache/test-marketplace/sample-plugin/1.2.3/.codex-plugin/plugin.json")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        [plugins."sample-plugin@test-marketplace"]
+        enabled = false
+        """.write(to: config, atomically: true, encoding: .utf8)
+        try """
+        {
+          "name": "sample-plugin",
+          "version": "1.2.3",
+          "description": "Sample plugin"
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: registryRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                codexConfigURL: config,
+                codexPluginCacheRoot: registryRoot.appendingPathComponent("cache"),
+                claudeInstalledPluginsURL: registryRoot.appendingPathComponent("missing-claude.json"),
+                claudeSettingsURLs: []
+            )
+        )
+
+        let plugin = try XCTUnwrap(
+            result.capabilities.first { $0.source.kind == "codex-plugin" },
+            result.capabilities.map { "\($0.name):\($0.source.kind):\($0.source.path)" }.joined(separator: "\n")
+        )
+        XCTAssertEqual(plugin.name, "Sample")
+        XCTAssertEqual(plugin.statuses, [.disabled])
+        XCTAssertEqual(plugin.metadata["manager"], "codex")
+        XCTAssertEqual(plugin.metadata["installedVersion"], "1.2.3")
+        XCTAssertTrue(plugin.metadata["updateCommand"]?.contains("codex plugin marketplace upgrade 'test-marketplace'") == true)
+    }
+
+    func testScansProjectCodexPluginWhenUserScopeIsDisabled() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let manifest = projectRoot
+            .appendingPathComponent("plugins/project-helper/.codex-plugin/plugin.json")
+        let config = projectRoot.appendingPathComponent(".codex/config.toml")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        [plugins."project-helper@project"]
+        enabled = true
+        """.write(to: config, atomically: true, encoding: .utf8)
+        try """
+        {
+          "name": "project-helper",
+          "version": "0.2.0",
+          "description": "Project local plugin"
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: false)
+        )
+
+        let plugin = try XCTUnwrap(result.capabilities.first { $0.source.kind == "codex-plugin" })
+        XCTAssertEqual(plugin.scope, .project)
+        XCTAssertEqual(plugin.statuses, [.enabled])
+        XCTAssertEqual(plugin.metadata["pluginSelector"], "project-helper@project")
+        XCTAssertTrue(plugin.metadata["enableCommand"]?.contains("[plugins.\"project-helper@project\"]") == true)
+    }
+
+    func testScansClaudeInstalledPluginsWithProjectScopeAndLifecycleCommands() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let registryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudePlugins-\(UUID().uuidString)")
+        let installed = registryRoot.appendingPathComponent("installed_plugins.json")
+        let settings = registryRoot.appendingPathComponent("settings.json")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: registryRoot, withIntermediateDirectories: true)
+        try """
+        {
+          "version": 2,
+          "plugins": {
+            "project-tool@test-marketplace": [
+              {
+                "scope": "project",
+                "projectPath": "\(projectRoot.path)",
+                "installPath": "\(registryRoot.path)/cache/test-marketplace/project-tool/2.0.0",
+                "version": "2.0.0",
+                "installedAt": "2026-05-01T00:00:00Z",
+                "lastUpdated": "2026-05-02T00:00:00Z"
+              }
+            ],
+            "other-project@test-marketplace": [
+              {
+                "scope": "project",
+                "projectPath": "\(registryRoot.path)/Other",
+                "installPath": "\(registryRoot.path)/cache/test-marketplace/other-project/1.0.0",
+                "version": "1.0.0"
+              }
+            ]
+          }
+        }
+        """.write(to: installed, atomically: true, encoding: .utf8)
+        try """
+        {
+          "enabledPlugins": {
+            "project-tool@test-marketplace": true,
+            "other-project@test-marketplace": true
+          }
+        }
+        """.write(to: settings, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: registryRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                codexConfigURL: registryRoot.appendingPathComponent("missing-config.toml"),
+                codexPluginCacheRoot: registryRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: installed,
+                claudeSettingsURLs: [settings]
+            )
+        )
+
+        let plugin = try XCTUnwrap(result.capabilities.first { $0.name == "Project Tool" && $0.source.kind == "claude-plugin" })
+        XCTAssertEqual(plugin.scope, .project)
+        XCTAssertEqual(plugin.statuses, [.enabled])
+        XCTAssertEqual(plugin.metadata["manager"], "claude-code")
+        XCTAssertTrue(plugin.metadata["disableCommand"]?.contains("claude plugin disable 'project-tool@test-marketplace'") == true)
+        XCTAssertFalse(result.capabilities.contains { $0.name == "Other Project" })
+    }
+
+    func testAgentsSkillsExposeSkillsCLIUpdateCommand() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let userRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaAgentsSkills-\(UUID().uuidString)")
+        let skillsRoot = userRoot.appendingPathComponent(".agents/skills")
+        let skill = skillsRoot.appendingPathComponent("example-skill/SKILL.md")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "example-skill", body: "Body")
+            .write(to: skill, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: userRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [skillsRoot],
+                codexConfigURL: userRoot.appendingPathComponent("missing-config.toml"),
+                codexPluginCacheRoot: userRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: userRoot.appendingPathComponent("missing-claude.json"),
+                claudeSettingsURLs: []
+            )
+        )
+
+        let scannedSkill = try XCTUnwrap(result.capabilities.first { $0.name == "example-skill" })
+        XCTAssertEqual(scannedSkill.metadata["manager"], "agents-skills")
+        XCTAssertEqual(scannedSkill.statuses, [.enabled])
+        XCTAssertEqual(scannedSkill.metadata["checkCommand"], "npx skills list -g")
+        XCTAssertTrue(scannedSkill.metadata["updateCommand"]?.contains("npx skills update 'example-skill' -g -y") == true)
+    }
+
     private func fixtureURL(_ name: String) throws -> URL {
         #if SWIFT_PACKAGE
         return Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Fixtures")!

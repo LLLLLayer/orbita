@@ -5,6 +5,10 @@ public struct ScanOptions: Sendable {
     public var includeUserScope: Bool
     public var maxSkillFiles: Int
     public var userSkillRoots: [URL]
+    public var codexConfigURL: URL
+    public var codexPluginCacheRoot: URL
+    public var claudeInstalledPluginsURL: URL
+    public var claudeSettingsURLs: [URL]
     public var ignoredDirectoryNames: Set<String>
     public var progressHandler: (@Sendable (ScanProgressEvent) -> Void)?
 
@@ -12,12 +16,21 @@ public struct ScanOptions: Sendable {
         includeUserScope: Bool = true,
         maxSkillFiles: Int = 200,
         userSkillRoots: [URL]? = nil,
+        codexConfigURL: URL? = nil,
+        codexPluginCacheRoot: URL? = nil,
+        claudeInstalledPluginsURL: URL? = nil,
+        claudeSettingsURLs: [URL]? = nil,
         ignoredDirectoryNames: Set<String> = Self.defaultIgnoredDirectoryNames,
         progressHandler: (@Sendable (ScanProgressEvent) -> Void)? = nil
     ) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
         self.includeUserScope = includeUserScope
         self.maxSkillFiles = maxSkillFiles
         self.userSkillRoots = userSkillRoots ?? Self.defaultUserSkillRoots()
+        self.codexConfigURL = codexConfigURL ?? home.appendingPathComponent(".codex/config.toml")
+        self.codexPluginCacheRoot = codexPluginCacheRoot ?? home.appendingPathComponent(".codex/plugins/cache")
+        self.claudeInstalledPluginsURL = claudeInstalledPluginsURL ?? home.appendingPathComponent(".claude/plugins/installed_plugins.json")
+        self.claudeSettingsURLs = claudeSettingsURLs ?? [home.appendingPathComponent(".claude/settings.json")]
         self.ignoredDirectoryNames = ignoredDirectoryNames
         self.progressHandler = progressHandler
     }
@@ -100,6 +113,7 @@ public final class CapabilityScanner {
 
         scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues)
         scanUserSkillRoots(projectRoot: root, options: options, into: &capabilities, issues: &issues)
+        scanNativePluginRegistries(projectRoot: root, options: options, into: &capabilities, issues: &issues)
 
         emitProgress("scan.finish", path: root.path, count: capabilities.count, options: options)
         return ScanResult(
@@ -557,19 +571,335 @@ public final class CapabilityScanner {
         let parentName = url.deletingLastPathComponent().lastPathComponent
         let name = frontmatter["name"] ?? parentName
         let packageInfo = packageInfo(for: url, projectRoot: projectRoot)
+        var metadata = fileMetadata(for: url, merging: frontmatter)
+        if sourceKind == "agents-skill" {
+            metadata["manager"] = "agents-skills"
+            metadata["pluginSelector"] = name
+            metadata["checkCommand"] = scope == .user ? "npx skills list -g" : "npx skills list"
+            metadata["updateCommand"] = "npx skills update \(shellQuoted(name)) \(scope == .user ? "-g" : "-p") -y"
+            metadata["lifecycleNote"] = "Skills CLI updates installed .agents skills by name; disabling is modeled as removal or .agents manifest intent."
+        }
 
         return Capability(
             id: stableID(type: .skill, path: url.path),
             name: name,
             type: .skill,
             scope: scope,
-            statuses: [.discovered],
+            statuses: sourceKind == "agents-skill" ? [.enabled] : [.discovered],
             risks: scope == .user ? [.read, .global] : [.read],
             source: CapabilitySource(kind: sourceKind, path: url.path, packageName: packageInfo?.packageName),
             pluginID: packageInfo?.pluginID,
             summary: frontmatter["description"],
-            metadata: fileMetadata(for: url, merging: frontmatter)
+            metadata: metadata
         )
+    }
+
+    private func scanNativePluginRegistries(
+        projectRoot: URL,
+        options: ScanOptions,
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
+        let projectCodexConfig = projectRoot.appendingPathComponent(".codex/config.toml")
+        let projectCodexStates = codexPluginStates(at: projectCodexConfig)
+        scanCodexPluginManifests(
+            at: projectRoot.appendingPathComponent("plugins"),
+            scope: .project,
+            configPath: projectCodexConfig.path,
+            states: projectCodexStates,
+            into: &capabilities,
+            issues: &issues
+        )
+
+        guard options.includeUserScope else { return }
+
+        let codexConfig = options.codexConfigURL
+        let codexStates = codexPluginStates(at: codexConfig)
+        scanCodexPluginManifests(
+            at: options.codexPluginCacheRoot,
+            scope: .user,
+            configPath: codexConfig.path,
+            states: codexStates,
+            into: &capabilities,
+            issues: &issues
+        )
+
+        scanClaudeInstalledPlugins(
+            projectRoot: projectRoot,
+            installedPluginsURL: options.claudeInstalledPluginsURL,
+            settingsURLs: options.claudeSettingsURLs + [projectRoot.appendingPathComponent(".claude/settings.json")],
+            into: &capabilities,
+            issues: &issues
+        )
+    }
+
+    private struct CodexPluginManifest {
+        var selector: String
+        var marketplace: String
+        var pluginName: String
+        var version: String
+        var manifestURL: URL
+        var pluginRoot: URL
+        var metadata: [String: String]
+    }
+
+    private func scanCodexPluginManifests(
+        at root: URL,
+        scope: CapabilityScope,
+        configPath: String,
+        states: [String: Bool],
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
+        let root = root.standardizedFileURL.resolvingSymlinksInPath()
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: []
+        ) else {
+            issues.append(ScanIssue(severity: .warning, path: root.path, message: "Unable to enumerate Codex plugin cache"))
+            return
+        }
+
+        var latestBySelector: [String: CodexPluginManifest] = [:]
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent == "plugin.json",
+                  [".codex-plugin", ".claude-plugin"].contains(url.deletingLastPathComponent().lastPathComponent),
+                  let manifest = codexPluginManifest(at: url, cacheRoot: root) else {
+                continue
+            }
+
+            if let existing = latestBySelector[manifest.selector] {
+                if pluginManifestSortKey(manifest) > pluginManifestSortKey(existing) {
+                    latestBySelector[manifest.selector] = manifest
+                }
+            } else {
+                latestBySelector[manifest.selector] = manifest
+            }
+        }
+
+        for manifest in latestBySelector.values.sorted(by: { $0.selector < $1.selector }) {
+            let enabled = states[manifest.selector]
+            var metadata = manifest.metadata
+            metadata["manager"] = "codex"
+            metadata["pluginSelector"] = manifest.selector
+            metadata["marketplace"] = manifest.marketplace
+            metadata["installedVersion"] = manifest.version
+            metadata["configPath"] = configPath
+            metadata["checkCommand"] = "codex plugin list --marketplace \(shellQuoted(manifest.marketplace))"
+            metadata["updateCommand"] = "codex plugin marketplace upgrade \(shellQuoted(manifest.marketplace)) && codex plugin add \(shellQuoted(manifest.selector))"
+            metadata["enableCommand"] = "Set [plugins.\"\(manifest.selector)\"].enabled = true in \(configPath)"
+            metadata["disableCommand"] = "Set [plugins.\"\(manifest.selector)\"].enabled = false in \(configPath)"
+            metadata["lifecycleNote"] = "Codex Desktop stores enablement in config.toml; marketplace upgrade refreshes update snapshots."
+
+            capabilities.append(Capability(
+                id: "plugin:codex-cache:\(normalized(manifest.marketplace)):\(normalized(manifest.pluginName))",
+                name: pluginDisplayName(manifest.pluginName),
+                type: .plugin,
+                scope: scope,
+                statuses: statusList(enabled: enabled),
+                risks: scope == .user ? [.info, .read, .global] : [.info, .read],
+                source: CapabilitySource(kind: "codex-plugin", path: manifest.pluginRoot.path, packageName: manifest.pluginName),
+                summary: metadata["description"],
+                metadata: fileMetadata(for: manifest.manifestURL, merging: metadata)
+            ))
+        }
+    }
+
+    private func codexPluginManifest(at url: URL, cacheRoot: URL) -> CodexPluginManifest? {
+        guard let object = jsonObject(at: url) else { return nil }
+        let rootPath = cacheRoot.standardizedFileURL.resolvingSymlinksInPath().path
+        let urlPath = url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard urlPath.hasPrefix(rootPath + "/") else { return nil }
+        let relativeComponents = String(urlPath.dropFirst(rootPath.count + 1))
+            .split(separator: "/")
+            .map(String.init)
+        var pluginRoot = url.deletingLastPathComponent().deletingLastPathComponent()
+        let marketplace: String
+        let pluginName: String
+        let version: String
+        if relativeComponents.count >= 5 {
+            marketplace = relativeComponents[0]
+            pluginName = relativeComponents[1]
+            version = object["version"] as? String ?? relativeComponents[2]
+            pluginRoot = cacheRoot.appendingPathComponent(marketplace).appendingPathComponent(pluginName)
+        } else if relativeComponents.count >= 3 {
+            marketplace = "project"
+            pluginName = object["name"] as? String ?? pluginRoot.lastPathComponent
+            version = object["version"] as? String ?? "local"
+        } else {
+            return nil
+        }
+        let selector = "\(pluginName)@\(marketplace)"
+        let interface = object["interface"] as? [String: Any]
+        let displayName = interface?["displayName"] as? String
+        let shortDescription = interface?["shortDescription"] as? String
+        var metadata: [String: String] = [
+            "description": (shortDescription ?? object["description"] as? String ?? ""),
+            "displayName": displayName ?? pluginDisplayName(pluginName),
+            "manifestKind": url.deletingLastPathComponent().lastPathComponent
+        ].filter { !$0.value.isEmpty }
+        if let repository = object["repository"] as? String {
+            metadata["repository"] = repository
+        }
+        if let homepage = object["homepage"] as? String {
+            metadata["homepage"] = homepage
+        }
+        return CodexPluginManifest(
+            selector: selector,
+            marketplace: marketplace,
+            pluginName: pluginName,
+            version: version,
+            manifestURL: url,
+            pluginRoot: pluginRoot,
+            metadata: metadata
+        )
+    }
+
+    private func pluginManifestSortKey(_ manifest: CodexPluginManifest) -> String {
+        "\(manifest.version)|\(manifest.manifestURL.path)"
+    }
+
+    private func codexPluginStates(at url: URL) -> [String: Bool] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var states: [String: Bool] = [:]
+        var currentPlugin: String?
+
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[plugins.\""), line.hasSuffix("\"]") {
+                currentPlugin = String(line.dropFirst("[plugins.\"".count).dropLast(2))
+                continue
+            }
+            if line.hasPrefix("["), !line.hasPrefix("[plugins.\"") {
+                currentPlugin = nil
+                continue
+            }
+            guard let plugin = currentPlugin, line.hasPrefix("enabled") else { continue }
+            let value = line.split(separator: "=", maxSplits: 1).dropFirst().first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if value == "true" {
+                states[plugin] = true
+            } else if value == "false" {
+                states[plugin] = false
+            }
+        }
+        return states
+    }
+
+    private func scanClaudeInstalledPlugins(
+        projectRoot: URL,
+        installedPluginsURL: URL,
+        settingsURLs: [URL],
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
+        guard let root = jsonObject(at: installedPluginsURL),
+              let plugins = root["plugins"] as? [String: Any] else {
+            return
+        }
+
+        let enabledPlugins = settingsURLs.reduce(into: [String: Bool]()) { result, url in
+            for (key, value) in claudeEnabledPlugins(at: url) {
+                result[key] = value
+            }
+        }
+        let isEnvironmentScan = projectRoot.pathComponents.suffix(2).joined(separator: "/") == ".orbita/this-mac"
+
+        for (selector, value) in plugins.sorted(by: { $0.key < $1.key }) {
+            guard let installs = value as? [[String: Any]] else { continue }
+            for install in installs {
+                let scopeValue = install["scope"] as? String ?? "user"
+                let scope = capabilityScope(forClaudeScope: scopeValue)
+                let projectPath = install["projectPath"] as? String
+                if !isEnvironmentScan, scope != .user, projectPath != projectRoot.path {
+                    continue
+                }
+                guard let installPath = install["installPath"] as? String else { continue }
+                let enabled = enabledPlugins[selector]
+                let pluginName = selector.split(separator: "@", maxSplits: 1).first.map(String.init) ?? selector
+                let marketplace = selector.split(separator: "@", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
+                var metadata: [String: String] = [
+                    "manager": "claude-code",
+                    "pluginSelector": selector,
+                    "marketplace": marketplace,
+                    "installedVersion": install["version"] as? String ?? "",
+                    "installedAt": install["installedAt"] as? String ?? "",
+                    "lastUpdated": install["lastUpdated"] as? String ?? "",
+                    "managerScope": scopeValue,
+                    "projectPath": projectPath ?? "",
+                    "checkCommand": "claude plugin list --json",
+                    "enableCommand": "claude plugin enable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
+                    "disableCommand": "claude plugin disable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
+                    "updateCommand": "claude plugin update \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
+                    "lifecycleNote": "Claude Code CLI exposes native plugin enable, disable, update, and list commands."
+                ].filter { !$0.value.isEmpty }
+                if let gitCommitSha = install["gitCommitSha"] as? String {
+                    metadata["gitCommitSha"] = gitCommitSha
+                }
+
+                capabilities.append(Capability(
+                    id: "plugin:claude:\(normalized(selector)):\(scopeValue):\(normalized(projectPath ?? "global"))",
+                    name: pluginDisplayName(pluginName),
+                    type: .plugin,
+                    scope: scope,
+                    statuses: statusList(enabled: enabled),
+                    risks: scope == .user ? [.info, .read, .global] : [.info, .read],
+                    source: CapabilitySource(kind: "claude-plugin", path: installPath, packageName: pluginName),
+                    summary: "Claude Code plugin",
+                    metadata: metadata
+                ))
+            }
+        }
+
+        if fileManager.fileExists(atPath: installedPluginsURL.path),
+           plugins.isEmpty {
+            issues.append(ScanIssue(severity: .warning, path: installedPluginsURL.path, message: "Claude plugin registry contains no plugins"))
+        }
+    }
+
+    private func claudeEnabledPlugins(at url: URL) -> [String: Bool] {
+        guard let object = jsonObject(at: url),
+              let enabledPlugins = object["enabledPlugins"] as? [String: Any] else {
+            return [:]
+        }
+        return enabledPlugins.compactMapValues { $0 as? Bool }
+    }
+
+    private func capabilityScope(forClaudeScope value: String) -> CapabilityScope {
+        switch value {
+        case "user":
+            return .user
+        case "project", "local":
+            return .project
+        default:
+            return .installed
+        }
+    }
+
+    private func statusList(enabled: Bool?) -> [CapabilityStatus] {
+        switch enabled {
+        case .some(true):
+            return [.enabled]
+        case .some(false):
+            return [.disabled]
+        case .none:
+            return [.discovered]
+        }
+    }
+
+    private func jsonObject(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object
     }
 
     private func fileMetadata(for url: URL, merging metadata: [String: String] = [:]) -> [String: String] {
@@ -655,4 +985,20 @@ func normalized(_ value: String) -> String {
         .replacingOccurrences(of: "@", with: "")
         .replacingOccurrences(of: "/", with: "-")
         .replacingOccurrences(of: "_", with: "-")
+}
+
+func pluginDisplayName(_ rawName: String) -> String {
+    let raw = rawName.split(separator: "/").last.map(String.init) ?? rawName
+    let trimmed = raw
+        .replacingOccurrences(of: "-skills", with: "")
+        .replacingOccurrences(of: "-plugin", with: "")
+        .replacingOccurrences(of: "agent-", with: "")
+    return trimmed
+        .split(separator: "-")
+        .map { word in word.prefix(1).uppercased() + String(word.dropFirst()) }
+        .joined(separator: " ")
+}
+
+func shellQuoted(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }

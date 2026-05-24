@@ -76,3 +76,7 @@ Codex app 的 Run action 已指向同一个脚本。
 - `docs/internal/mvp-architecture.md`：MVP 架构、Resolver、Adapter、Apply Plan、Trust Model 和交付切片。
 - `docs/internal/development-plan.md`：开发计划、技术选型、里程碑、批次、测试策略和风险决策。
 - `docs/internal/cli-design.md`：CLI-first 架构、命令设计、输出协议和 App 边界。
+
+## 生命周期规范
+
+- `docs/capability-lifecycle.md`：记录 `.agents`、Codex Desktop、Claude Code 在电脑维度和项目维度的启用、禁用、更新检查、更新触发和 GitHub 自动发版逻辑。
