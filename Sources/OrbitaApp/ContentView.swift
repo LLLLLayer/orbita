@@ -126,9 +126,7 @@ struct ContentView: View {
         }
         .onChange(of: selectedCapability) { _, capability in
             if capability != nil {
-                withAnimation(.snappy(duration: 0.22)) {
-                    inspectorVisible = true
-                }
+                inspectorVisible = true
             }
         }
         .onChange(of: selectedGroup) { _, _ in
@@ -215,7 +213,7 @@ struct ContentView: View {
                             }
                         )
                         .frame(width: OrbitaLayoutMetrics.inspectorWidth)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .transition(.opacity)
                     }
                 }
             }
@@ -278,11 +276,9 @@ struct ContentView: View {
                     selectEnvironment()
                 },
                 onSelectProject: { project in
-                    withAnimation(.snappy(duration: 0.2)) {
-                        selectedProject = project.path
-                        selectedCapability = nil
-                        expandedGroupIDs.removeAll()
-                    }
+                    selectedProject = project.path
+                    selectedCapability = nil
+                    expandedGroupIDs.removeAll()
                     store.openProject(URL(fileURLWithPath: project.path))
                 },
                 onRemoveProject: { project in
@@ -305,11 +301,9 @@ struct ContentView: View {
     }
 
     private func selectEnvironment() {
-        withAnimation(.snappy(duration: 0.2)) {
-            selectedProject = ProjectCapabilityStore.environmentSelectionID
-            selectedCapability = nil
-            expandedGroupIDs.removeAll()
-        }
+        selectedProject = ProjectCapabilityStore.environmentSelectionID
+        selectedCapability = nil
+        expandedGroupIDs.removeAll()
         store.openEnvironment()
     }
 
