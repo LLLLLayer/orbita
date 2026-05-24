@@ -74,7 +74,7 @@ struct ApplyPlanSheet: View {
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(.thinMaterial, in: Capsule())
+                            .background(OrbitaTheme.controlFill, in: Capsule())
                     }
                     Text(operation.description)
                         .font(.subheadline)
@@ -100,6 +100,6 @@ struct ApplyPlanSheet: View {
         }
         .padding()
         .frame(minWidth: 560, minHeight: 420)
-        .presentationBackground(.regularMaterial)
+        .presentationBackground(OrbitaTheme.canvas)
     }
 }

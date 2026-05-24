@@ -112,7 +112,7 @@ struct CapabilityMainView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+        .background(OrbitaTheme.canvas)
     }
 
     private func horizontalContentPadding(for width: CGFloat) -> CGFloat {
@@ -159,12 +159,8 @@ private struct HeaderSurface: View {
             }
 
         }
-        .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.secondary.opacity(0.12))
-        }
+        .padding(18)
+        .orbitaCard(cornerRadius: 22, shadowRadius: 12, shadowY: 7)
     }
 
     private func count(_ type: CapabilityType) -> Int {
@@ -224,12 +220,8 @@ private struct ProjectLoadingView: View {
                 Spacer()
                 HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
             }
-            .padding(16)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.secondary.opacity(0.12))
-            }
+            .padding(18)
+            .orbitaCard(cornerRadius: 22, shadowRadius: 12, shadowY: 7)
 
             if let errorMessage {
                 ContentUnavailableView(
@@ -254,11 +246,7 @@ private struct ProjectLoadingView: View {
                         .progressViewStyle(.linear)
                 }
                 .padding(16)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(.secondary.opacity(0.12))
-                }
+                .orbitaCard(cornerRadius: 16, shadowRadius: 8, shadowY: 4)
             }
 
             Spacer()
@@ -309,7 +297,7 @@ private struct HeaderCommandButton: View {
                 .frame(height: 30)
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .orbitaControlSurface(cornerRadius: 10)
     }
 }
 
@@ -324,7 +312,7 @@ private struct HeaderIconButton: View {
                 .frame(width: 30, height: 30)
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .orbitaControlSurface(cornerRadius: 10)
     }
 }
 
@@ -345,7 +333,7 @@ private struct HeaderRefreshButton: View {
             .frame(height: 30)
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .orbitaControlSurface(cornerRadius: 10)
         .help("Refresh")
     }
 }
@@ -397,7 +385,7 @@ struct CapabilityFilterBar: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .orbitaControlSurface(cornerRadius: 10)
                 .help("Add coding agent")
             }
 
@@ -436,13 +424,17 @@ private struct FilterChip: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 30)
-            .foregroundStyle(isSelected ? .white : .primary)
+            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : .primary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.08))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? OrbitaTheme.prominentControlFill : OrbitaTheme.controlFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(isSelected ? Color.clear : OrbitaTheme.border)
         }
         .scaleEffect(isSelected ? 1.02 : 1)
         .animation(.snappy(duration: 0.16), value: isSelected)
@@ -474,11 +466,7 @@ private struct SourceOverviewStrip: View {
                 }
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(.secondary.opacity(0.1))
-                }
+                .orbitaCard(cornerRadius: 14, shadowRadius: 5, shadowY: 2)
             }
         }
     }

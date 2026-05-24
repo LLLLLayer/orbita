@@ -34,7 +34,7 @@ struct OrbitaSidebarView: View {
                         .frame(width: 34, height: 30)
                 }
                 .buttonStyle(.plain)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .orbitaControlSurface(cornerRadius: 12)
                 .help("Collapse sidebar")
             }
             .frame(height: 54)
@@ -66,7 +66,7 @@ struct OrbitaSidebarView: View {
                                         .frame(width: 22, height: 20)
                                 }
                                 .buttonStyle(.plain)
-                                .foregroundStyle(isEditingProjects ? Color.accentColor : Color.secondary)
+                                .foregroundStyle(isEditingProjects ? .primary : .secondary)
                                 .help(isEditingProjects ? "Done reordering" : "Reorder projects")
                             }
 
@@ -148,7 +148,7 @@ struct OrbitaSidebarView: View {
         }
         .frame(width: OrbitaLayoutMetrics.sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(.bar)
+        .background(OrbitaTheme.sidebarBackground)
     }
 }
 
@@ -181,7 +181,7 @@ struct OrbitaSidebarRail: View {
         }
         .frame(width: OrbitaLayoutMetrics.sidebarRailWidth)
         .frame(maxHeight: .infinity)
-        .background(.bar)
+        .background(OrbitaTheme.sidebarBackground)
     }
 }
 
@@ -285,17 +285,17 @@ private struct SidebarNavigationRow: View {
             HStack(spacing: 10) {
                 Image(systemName: systemImage)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .foregroundStyle(isSelected ? .primary : .secondary)
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? .white : .primary)
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text(subtitle)
                         .font(.caption)
-                        .foregroundStyle(isSelected ? .white.opacity(0.78) : .secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -305,8 +305,13 @@ private struct SidebarNavigationRow: View {
             .frame(height: 46)
             .contentShape(Rectangle())
             .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor : .clear)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? OrbitaTheme.elevatedSurface : Color.clear)
+                    .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 8, x: 0, y: 4)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? OrbitaTheme.border : Color.clear)
             }
         }
         .buttonStyle(.plain)
@@ -325,11 +330,16 @@ private struct RailButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(isSelected ? .white : .secondary)
+                .foregroundStyle(isSelected ? .primary : .secondary)
                 .frame(width: 40, height: 40)
                 .background {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(isSelected ? Color.accentColor : Color.clear)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isSelected ? OrbitaTheme.elevatedSurface : Color.clear)
+                        .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 7, x: 0, y: 3)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(isSelected ? OrbitaTheme.border : Color.clear)
                 }
         }
         .buttonStyle(.plain)

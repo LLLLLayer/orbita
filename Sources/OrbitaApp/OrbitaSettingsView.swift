@@ -95,7 +95,7 @@ struct OrbitaSettingsView: View {
             settingsDetail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(.regularMaterial)
+        .background(OrbitaTheme.canvas)
     }
 
     private var settingsSidebar: some View {
@@ -110,7 +110,7 @@ struct OrbitaSettingsView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .orbitaControlSurface(cornerRadius: 10)
                 .help("Close settings")
             }
             .padding(.top, 28)
@@ -130,14 +130,19 @@ struct OrbitaSettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(selectedPage == page ? .primary : .secondary)
-                    .background(selectedPage == page ? Color.secondary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(selectedPage == page ? OrbitaTheme.elevatedSurface : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(selectedPage == page ? OrbitaTheme.border : Color.clear)
+                    }
+                    .shadow(color: selectedPage == page ? OrbitaTheme.selectedShadow : Color.clear, radius: 7, x: 0, y: 3)
                 }
             }
             .padding(.horizontal, 10)
 
             Spacer()
         }
-        .background(.bar)
+        .background(OrbitaTheme.sidebarBackground)
     }
 
     @ViewBuilder
@@ -160,7 +165,7 @@ struct OrbitaSettingsView: View {
             .padding(.bottom, 34)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+        .background(OrbitaTheme.canvas)
     }
 
     private var generalSettings: some View {
@@ -361,13 +366,9 @@ private struct SettingsCard<Content: View>: View {
                 .font(.headline)
             content()
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.secondary.opacity(0.1))
-        }
+        .orbitaCard(cornerRadius: 18, shadowRadius: 7, shadowY: 3)
     }
 }
 

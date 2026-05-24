@@ -90,9 +90,9 @@ struct CapabilityCollectionView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 28, height: 28)
-                .background(.thinMaterial, in: Circle())
+                .background(OrbitaTheme.controlFill, in: Circle())
                 .overlay {
-                    Circle().strokeBorder(.secondary.opacity(0.12))
+                    Circle().strokeBorder(OrbitaTheme.border)
                 }
         }
         .buttonStyle(.plain)
@@ -259,15 +259,15 @@ private struct ExpandedCapabilityGroupShelf: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
-                    .secondary.opacity(group.isVirtualPlugin ? 0.28 : 0.14),
+                    group.isVirtualPlugin ? OrbitaTheme.strongBorder : OrbitaTheme.border,
                     style: group.outlineStyle(lineWidth: 1)
                 )
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .transition(.asymmetric(
             insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)),
             removal: .opacity.combined(with: .scale(scale: 0.995, anchor: .top))
@@ -285,13 +285,13 @@ private struct CapabilityGroupTile: View {
         Button(action: action) {
             VStack(spacing: 8) {
                 ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.thinMaterial)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(OrbitaTheme.controlFill)
                         .frame(width: 56, height: 52)
                         .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .strokeBorder(
-                                    .secondary.opacity(group.isVirtualPlugin ? 0.48 : 0.2),
+                                    group.isVirtualPlugin ? OrbitaTheme.strongBorder : OrbitaTheme.border,
                                     style: group.outlineStyle(lineWidth: 1.2)
                                 )
                         }
@@ -306,7 +306,7 @@ private struct CapabilityGroupTile: View {
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(.regularMaterial, in: Capsule())
+                        .background(OrbitaTheme.elevatedSurface, in: Capsule())
                         .offset(x: 8, y: -7)
                 }
                 .frame(width: 66, height: 58)
@@ -331,18 +331,23 @@ private struct CapabilityGroupTile: View {
             .frame(maxWidth: .infinity, minHeight: 128, alignment: .top)
             .contentShape(Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(tileBorderColor, style: group.outlineStyle(lineWidth: isSelected ? 1.5 : 1))
             }
+            .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 10, x: 0, y: 5)
         }
         .buttonStyle(.plain)
     }
 
     private var tileBorderColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.62)
+            return OrbitaTheme.strongBorder
         }
-        return .secondary.opacity(group.isVirtualPlugin ? 0.18 : 0.12)
+        return group.isVirtualPlugin ? OrbitaTheme.strongBorder : OrbitaTheme.border
     }
 
     private var groupSubtitle: String {
@@ -411,13 +416,14 @@ private struct CapabilityTile: View {
             .frame(maxWidth: .infinity, minHeight: 128, alignment: .top)
             .contentShape(Rectangle())
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.clear)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(tileBorderColor, style: tileOutlineStyle)
             }
+            .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 10, x: 0, y: 5)
         }
         .buttonStyle(.plain)
         .animation(.snappy(duration: 0.18), value: isSelected)
@@ -425,12 +431,9 @@ private struct CapabilityTile: View {
 
     private var tileBorderColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.62)
+            return OrbitaTheme.strongBorder
         }
-        guard capability.type == .plugin else {
-            return .clear
-        }
-        return .secondary.opacity(capability.isVirtualPlugin ? 0.18 : 0.12)
+        return capability.isVirtualPlugin ? OrbitaTheme.strongBorder : OrbitaTheme.border
     }
 
     private var tileOutlineStyle: StrokeStyle {
@@ -455,13 +458,13 @@ private struct CapabilityTileIcon: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.075))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isSelected ? OrbitaTheme.controlHoverFill : OrbitaTheme.controlFill)
                 .frame(width: 56, height: 52)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .strokeBorder(
-                            isSelected ? Color.accentColor : .secondary.opacity(isVirtual ? 0.46 : 0.16),
+                            isSelected || isVirtual ? OrbitaTheme.strongBorder : OrbitaTheme.border,
                             style: StrokeStyle(lineWidth: isSelected ? 1.5 : 1, dash: isVirtual ? [5, 4] : [])
                         )
                 }

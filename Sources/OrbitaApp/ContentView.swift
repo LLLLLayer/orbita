@@ -47,7 +47,7 @@ struct ContentView: View {
             minWidth: OrbitaLayoutMetrics.minimumWindowWidth,
             minHeight: OrbitaLayoutMetrics.minimumWindowHeight
         )
-        .background(.regularMaterial)
+        .background(OrbitaTheme.canvas)
         .background(OrbitaWindowChrome().frame(width: 0, height: 0))
         .ignoresSafeArea(.container, edges: .top)
         .environment(\.locale, Locale(identifier: orbitaLanguageCode))

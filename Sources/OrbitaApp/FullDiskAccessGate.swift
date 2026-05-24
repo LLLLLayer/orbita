@@ -92,7 +92,7 @@ struct FullDiskAccessOnboardingView: View {
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.primary)
                         .frame(width: 52, height: 52)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Orbita needs Full Disk Access")
@@ -120,7 +120,7 @@ struct FullDiskAccessOnboardingView: View {
                         .foregroundStyle(.secondary)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
                 HStack(spacing: 10) {
@@ -147,16 +147,12 @@ struct FullDiskAccessOnboardingView: View {
             }
             .padding(28)
             .frame(width: 620, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(.secondary.opacity(0.14))
-            }
+            .orbitaCard(cornerRadius: 22, shadowRadius: 14, shadowY: 8)
 
             Spacer(minLength: 52)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+        .background(OrbitaTheme.canvas)
     }
 }
 
@@ -171,7 +167,7 @@ private struct PermissionStep: View {
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
-                .background(.thinMaterial, in: Circle())
+                .background(OrbitaTheme.controlFill, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

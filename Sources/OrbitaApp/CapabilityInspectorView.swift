@@ -23,7 +23,7 @@ struct CapabilityInspectorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        .background(OrbitaTheme.canvas)
     }
 
     private func inspectorContent(for capability: Capability) -> some View {
@@ -243,11 +243,12 @@ private struct InspectorActionStrip: View {
             }
         }
         .padding(3)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(OrbitaTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(.secondary.opacity(0.12))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
         }
+        .shadow(color: OrbitaTheme.cardShadow, radius: 8, x: 0, y: 4)
     }
 }
 
@@ -294,14 +295,17 @@ private struct InspectorToolbarButton: View {
         if tint == .green {
             return Color.green.opacity(0.1)
         }
-        return Color.primary.opacity(0.045)
+        return OrbitaTheme.controlFill
     }
 
     private var borderColor: Color {
         if isDestructive {
             return Color.red.opacity(0.2)
         }
-        return tint.opacity(0.12)
+        if tint == .green {
+            return Color.green.opacity(0.18)
+        }
+        return OrbitaTheme.border
     }
 }
 
@@ -331,7 +335,7 @@ private struct InspectorHeaderButton: View {
     }
 
     private var backgroundColor: Color {
-        isDestructive ? Color.red.opacity(0.11) : Color.primary.opacity(0.045)
+        isDestructive ? Color.red.opacity(0.11) : OrbitaTheme.controlFill
     }
 }
 
@@ -637,13 +641,9 @@ private struct InspectorSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             content()
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.secondary.opacity(0.1))
-        }
+        .orbitaCard(cornerRadius: 16, shadowRadius: 5, shadowY: 2)
     }
 }
 
@@ -714,7 +714,7 @@ private struct SourceFolderButton: View {
                 .frame(width: 24, height: 22)
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .orbitaControlSurface(cornerRadius: 8)
         .help("Open source folder")
         .disabled(!canOpen)
         .opacity(canOpen ? 1 : 0.45)
