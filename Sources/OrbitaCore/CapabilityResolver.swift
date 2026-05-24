@@ -1,0 +1,174 @@
+import Foundation
+
+public final class CapabilityResolver {
+    public init() {}
+
+    public func resolve(scanResult: ScanResult) -> CapabilityGraph {
+        var capabilities = scanResult.capabilities.filter { $0.source.kind != "agents-intent" }
+        applyAgentsIntent(from: scanResult.capabilities, to: &capabilities)
+        capabilities.append(contentsOf: inferredPlugins(from: capabilities))
+        markDuplicates(in: &capabilities)
+        markShadowedAndDrifted(in: &capabilities)
+
+        return CapabilityGraph(
+            projectRoot: scanResult.projectRoot,
+            capabilities: capabilities.sorted { $0.id < $1.id },
+            issues: scanResult.issues
+        )
+    }
+
+    private func applyAgentsIntent(from scannedCapabilities: [Capability], to capabilities: inout [Capability]) {
+        let intents = scannedCapabilities.filter { $0.source.kind == "agents-intent" }
+        guard !intents.isEmpty else { return }
+
+        for intent in intents {
+            guard let capabilityID = intent.metadata["capabilityID"],
+                  let manifestStatus = intent.metadata["manifestStatus"] else {
+                continue
+            }
+            guard let status = CapabilityStatus(rawValue: manifestStatus) else {
+                continue
+            }
+
+            let sourcePath = intent.metadata["sourcePath"]
+            if let index = capabilities.firstIndex(where: { $0.id == capabilityID || $0.source.path == sourcePath }) {
+                appendStatus(status, to: &capabilities[index])
+                capabilities[index].metadata["manifestStatus"] = manifestStatus
+                if status == .disabled {
+                    appendStatus(.drifted, to: &capabilities[index])
+                    capabilities[index].metadata["driftReason"] = "disabled in .agents but source remains discoverable"
+                }
+            } else {
+                var missingIntent = intent
+                missingIntent.id = capabilityID
+                missingIntent.statuses = status == .disabled ? [.disabled] : [status, .broken]
+                missingIntent.source = CapabilitySource(kind: "agents-intent-missing-source", path: intent.source.path)
+                missingIntent.metadata["manifestStatus"] = manifestStatus
+                capabilities.append(missingIntent)
+            }
+        }
+    }
+
+    private func inferredPlugins(from capabilities: [Capability]) -> [Capability] {
+        let grouped = Dictionary(grouping: capabilities.compactMap { capability -> (String, Capability)? in
+            guard let pluginID = capability.pluginID, let packageName = capability.source.packageName else {
+                return nil
+            }
+            return (pluginID + "|" + packageName, capability)
+        }, by: { $0.0 })
+
+        return grouped.map { key, values in
+            let parts = key.split(separator: "|", maxSplits: 1).map(String.init)
+            let pluginID = parts[0]
+            let packageName = parts.count > 1 ? parts[1] : pluginID
+            let children = values.map(\.1)
+            let risks = uniqueRisks(children.flatMap(\.risks))
+            let displayName = pluginDisplayName(packageName)
+            let sourcePath = children.first?.source.path ?? packageName
+            let scope = children.map(\.scope).min { lhs, rhs in
+                scopeRank(lhs) < scopeRank(rhs)
+            } ?? .project
+
+            return Capability(
+                id: pluginID,
+                name: displayName,
+                type: .plugin,
+                scope: scope,
+                statuses: [.discovered],
+                risks: risks.isEmpty ? [.info] : risks,
+                source: CapabilitySource(kind: "package", path: packageRootPath(from: sourcePath, packageName: packageName), packageName: packageName, inferred: true),
+                summary: "Inferred plugin from \(children.count) capabilities",
+                metadata: ["childCount": String(children.count)]
+            )
+        }
+    }
+
+    private func markDuplicates(in capabilities: inout [Capability]) {
+        let grouped = Dictionary(grouping: capabilities.indices) { index in
+            "\(capabilities[index].type.rawValue):\(normalized(capabilities[index].name))"
+        }
+
+        for indices in grouped.values where indices.count > 1 {
+            for index in indices {
+                if !capabilities[index].statuses.contains(.duplicate) {
+                    capabilities[index].statuses.append(.duplicate)
+                }
+            }
+        }
+    }
+
+    private func markShadowedAndDrifted(in capabilities: inout [Capability]) {
+        let grouped = Dictionary(grouping: capabilities.indices) { index in
+            "\(capabilities[index].type.rawValue):\(normalized(capabilities[index].name))"
+        }
+
+        for indices in grouped.values where indices.count > 1 {
+            let winner = indices.min { lhs, rhs in
+                scopeRank(capabilities[lhs].scope) < scopeRank(capabilities[rhs].scope)
+            }
+
+            for index in indices where index != winner {
+                appendStatus(.shadowed, to: &capabilities[index])
+            }
+
+            let hashes = Set(indices.compactMap { capabilities[$0].metadata["contentHash"] }.filter { !$0.isEmpty })
+            if hashes.count > 1 {
+                for index in indices {
+                    appendStatus(.drifted, to: &capabilities[index])
+                }
+            }
+        }
+    }
+
+    private func appendStatus(_ status: CapabilityStatus, to capability: inout Capability) {
+        if !capability.statuses.contains(status) {
+            capability.statuses.append(status)
+        }
+    }
+
+    private func scopeRank(_ scope: CapabilityScope) -> Int {
+        switch scope {
+        case .project:
+            return 0
+        case .user:
+            return 1
+        case .installed:
+            return 2
+        case .environment:
+            return 3
+        }
+    }
+
+    private func uniqueRisks(_ risks: [RiskLevel]) -> [RiskLevel] {
+        Array(Set(risks)).sorted { $0.rawValue < $1.rawValue }
+    }
+
+    private func pluginDisplayName(_ packageName: String) -> String {
+        let raw = packageName.split(separator: "/").last.map(String.init) ?? packageName
+        let trimmed = raw
+            .replacingOccurrences(of: "-skills", with: "")
+            .replacingOccurrences(of: "-plugin", with: "")
+            .replacingOccurrences(of: "agent-", with: "")
+        return trimmed
+            .split(separator: "-")
+            .map { word in word.prefix(1).uppercased() + String(word.dropFirst()) }
+            .joined(separator: " ")
+    }
+
+    private func packageRootPath(from sourcePath: String, packageName: String) -> String {
+        if let range = sourcePath.range(of: "/node_modules/\(packageName)") {
+            return String(sourcePath[..<range.upperBound])
+        }
+
+        if let range = sourcePath.range(of: "/.codex/plugins/cache/") {
+            let prefix = sourcePath[..<range.upperBound]
+            let suffix = sourcePath[range.upperBound...].split(separator: "/")
+            guard suffix.count >= 2 else {
+                return sourcePath
+            }
+            return String(prefix) + String(suffix[0]) + "/" + String(suffix[1])
+        }
+
+        return sourcePath
+    }
+}

@@ -1,0 +1,199 @@
+import XCTest
+@testable import OrbitaCLI
+import OrbitaCore
+
+final class OrbitaCLIErrorTests: XCTestCase {
+    func testGraphJSONCommandReturnsFixtureSnapshotFields() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["graph", root.path, "--no-user-scope", "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let graph = try JSONDecoder().decode(CapabilityGraph.self, from: data)
+        XCTAssertEqual(graph.schemaVersion, 1)
+        XCTAssertTrue(graph.capabilities.contains { $0.name == "lark-doc" && $0.type == .skill })
+        XCTAssertTrue(graph.capabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
+        XCTAssertTrue(graph.capabilities.contains { $0.name == "Legacy Cursor rules" && $0.source.kind == "legacy-cursor-rule" })
+    }
+
+    func testScanTextListsCapabilitiesWithSourcesAndRisks() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["scan", root.path, "--no-user-scope"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        XCTAssertTrue(result.stdout.contains("Capabilities:"))
+        XCTAssertTrue(result.stdout.contains("- lark-doc [skill]"))
+        XCTAssertTrue(result.stdout.contains("risk:"))
+        XCTAssertTrue(result.stdout.contains("source:"))
+        XCTAssertTrue(result.stdout.contains("/SKILL.md"))
+    }
+
+    func testStatusTextIncludesStatusAndRiskSummaries() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["status", root.path, "--no-user-scope"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        XCTAssertTrue(result.stdout.contains("By type:"))
+        XCTAssertTrue(result.stdout.contains("Status:"))
+        XCTAssertTrue(result.stdout.contains("- discovered:"))
+        XCTAssertTrue(result.stdout.contains("- risky:"))
+        XCTAssertTrue(result.stdout.contains("Risk:"))
+        XCTAssertTrue(result.stdout.contains("- exec:"))
+    }
+
+    func testMissingProjectRootReturnsJSONErrorAndNonZeroExit() throws {
+        let result = OrbitaCLI.runForTesting(arguments: ["scan", "/tmp/orbita-missing-\(UUID().uuidString)", "--json"])
+
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.stderr.isEmpty)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let payload = try JSONDecoder().decode(CLIErrorPayload.self, from: data)
+        XCTAssertEqual(payload.schemaVersion, 1)
+        XCTAssertTrue(payload.error.contains("Project root does not exist"))
+    }
+
+    func testAgentCodexJSONHidesClaudeSpecificCommands() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["agent", root.path, "--agent", "codex", "--no-user-scope", "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let view = try JSONDecoder().decode(AgentView.self, from: data)
+        XCTAssertTrue(view.visibleCapabilities.contains { $0.name == "bootstrap" && $0.source.kind == "codex-command" })
+        XCTAssertFalse(view.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
+    }
+
+    func testOverviewJSONReturnsAgentVisibilitySummary() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["overview", root.path, "--no-user-scope", "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let overview = try JSONDecoder().decode(AgentCapabilityOverview.self, from: data)
+        XCTAssertEqual(overview.schemaVersion, 1)
+        XCTAssertEqual(overview.agentSummaries.count, AgentID.allCases.count)
+        XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .codex && $0.visibleCount > 0 })
+        XCTAssertTrue(overview.differences.contains { $0.capabilityName == "lark-doc" && $0.visibleAgents == [.codex] })
+    }
+
+    func testOverviewTextPrintsAgentDifferenceSummary() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["overview", root.path, "--no-user-scope"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stdout.contains("Orbita agent overview"))
+        XCTAssertTrue(result.stdout.contains("codex:"))
+        XCTAssertTrue(result.stdout.contains("Differences:"))
+        XCTAssertTrue(result.stdout.contains("lark-doc"))
+    }
+
+    func testPlanMergeJSONReturnsWorkspaceMergePlan() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--merge", "--no-user-scope", "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let plan = try JSONDecoder().decode(ApplyPlan.self, from: data)
+        XCTAssertEqual(plan.action, .merge)
+        XCTAssertEqual(plan.capabilityID, "workspace")
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/manifest.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+        XCTAssertFalse(plan.operations.contains { $0.kind == .removePath })
+    }
+
+    func testPlanEnableAcceptsCapabilityName() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--enable", "lark-doc", "--no-user-scope", "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let plan = try JSONDecoder().decode(ApplyPlan.self, from: data)
+        XCTAssertEqual(plan.action, .enable)
+        XCTAssertTrue(plan.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+    }
+
+    func testPlanDisableAcceptsCapabilityName() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--disable", "lark-doc", "--no-user-scope", "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let plan = try JSONDecoder().decode(ApplyPlan.self, from: data)
+        XCTAssertEqual(plan.action, .disable)
+        XCTAssertTrue(plan.operations.contains { $0.kind == .removePath && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+    }
+
+    func testPlanTextPrintsOperationDescriptionsAndRisks() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--enable", "lark-doc", "--no-user-scope"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        XCTAssertTrue(result.stdout.contains("Operations:"))
+        XCTAssertTrue(result.stdout.contains("Read capability source before indexing"))
+        XCTAssertTrue(result.stdout.contains("[write]"))
+        XCTAssertTrue(result.stdout.contains("requiresConfirmation: true"))
+    }
+
+    func testJSONErrorPayloadIncludesApplyRecoveryDetails() throws {
+        let completed = ApplyOperation(
+            kind: .createDirectory,
+            path: "/tmp/project/.agents",
+            risk: .write,
+            description: "Create .agents root"
+        )
+        let failed = ApplyOperation(
+            kind: .writeFile,
+            path: "/tmp/project/outside.json",
+            content: "{}\n",
+            risk: .write,
+            description: "Unsafe write"
+        )
+        let pending = ApplyOperation(
+            kind: .writeFile,
+            path: "/tmp/project/.agents/manifest.json",
+            content: "{}\n",
+            risk: .write,
+            description: "Write manifest"
+        )
+        let error = ApplyExecutionError(
+            projectRoot: "/tmp/project",
+            completedOperations: [completed],
+            failedOperation: failed,
+            pendingOperations: [pending],
+            message: "Operation is outside .agents: /tmp/project/outside.json"
+        )
+
+        let payload = OrbitaCLI.jsonErrorPayload(for: error)
+
+        XCTAssertEqual(payload.schemaVersion, 1)
+        XCTAssertEqual(payload.error, error.message)
+        XCTAssertEqual(payload.completedOperations, [completed])
+        XCTAssertEqual(payload.failedOperation, failed)
+        XCTAssertEqual(payload.pendingOperations, [pending])
+    }
+
+    private func fixtureURL(_ name: String) -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("OrbitaCoreTests/Fixtures")
+            .appendingPathComponent(name)
+    }
+}

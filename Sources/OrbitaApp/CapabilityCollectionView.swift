@@ -1,0 +1,389 @@
+import SwiftUI
+import OrbitaCore
+
+struct CapabilityCollectionView: View {
+    let items: [CapabilityDisplayItem]
+    @Binding var selectedCapability: Capability?
+    @Binding var expandedGroupIDs: Set<String>
+
+    @State private var availableWidth: CGFloat = 760
+    @State private var expandedGroupOrder: [String] = []
+
+    private let itemMinWidth: CGFloat = 118
+    private let itemMaxWidth: CGFloat = 142
+    private let itemSpacing: CGFloat = 18
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            ForEach(displayRows) { row in
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                    ForEach(row.items) { item in
+                        tile(for: item)
+                    }
+                }
+
+                ForEach(expandedGroups(for: row)) { group in
+                    ExpandedCapabilityGroupShelf(
+                        group: group,
+                        selectedCapability: $selectedCapability
+                    )
+                }
+            }
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: CapabilityCollectionWidthKey.self, value: proxy.size.width)
+            }
+        }
+        .onPreferenceChange(CapabilityCollectionWidthKey.self) { width in
+            availableWidth = width
+        }
+        .onChange(of: expandedGroupIDs) { _, ids in
+            expandedGroupOrder.removeAll { !ids.contains($0) }
+        }
+    }
+
+    @ViewBuilder
+    private func tile(for item: CapabilityDisplayItem) -> some View {
+        switch item {
+        case let .capability(capability):
+            CapabilityTile(
+                capability: capability,
+                isSelected: selectedCapability?.id == capability.id
+            ) {
+                withAnimation(.snappy(duration: 0.18)) {
+                    selectedCapability = capability
+                }
+            }
+        case let .group(group):
+            let inspectionCapability = group.inspectionCapability
+            CapabilityGroupTile(
+                group: group,
+                isExpanded: expandedGroupIDs.contains(group.id),
+                isSelected: selectedCapability?.id == inspectionCapability.id
+            ) {
+                withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.08)) {
+                    selectedCapability = inspectionCapability
+                    toggleExpandedGroup(group.id)
+                }
+            }
+        }
+    }
+
+    private func expandedGroups(for row: CapabilityDisplayRow) -> [CapabilityGroup] {
+        row.expandedGroups
+            .filter { expandedGroupIDs.contains($0.id) }
+            .sorted { expansionRank(for: $0.id) < expansionRank(for: $1.id) }
+    }
+
+    private func expansionRank(for groupID: String) -> Int {
+        expandedGroupOrder.firstIndex(of: groupID) ?? Int.max
+    }
+
+    private func toggleExpandedGroup(_ groupID: String) {
+        expandedGroupOrder.removeAll { $0 == groupID }
+        if expandedGroupIDs.contains(groupID) {
+            expandedGroupIDs.remove(groupID)
+        } else {
+            expandedGroupIDs.insert(groupID)
+            expandedGroupOrder.insert(groupID, at: 0)
+        }
+    }
+
+    private var columns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: itemMinWidth, maximum: itemMaxWidth), spacing: itemSpacing, alignment: .top),
+            count: columnCount
+        )
+    }
+
+    private var columnCount: Int {
+        let count = Int((availableWidth + itemSpacing) / (itemMaxWidth + itemSpacing))
+        return max(1, count)
+    }
+
+    private var displayRows: [CapabilityDisplayRow] {
+        var rows: [CapabilityDisplayRow] = []
+        var start = 0
+        while start < items.count {
+            let end = min(items.count, start + columnCount)
+            let rowItems = Array(items[start..<end])
+            rows.append(CapabilityDisplayRow(items: rowItems))
+            start = end
+        }
+        return rows
+    }
+}
+
+private struct CapabilityDisplayRow: Identifiable {
+    let items: [CapabilityDisplayItem]
+
+    var id: String {
+        items.map(\.id).joined(separator: "|")
+    }
+
+    var expandedGroups: [CapabilityGroup] {
+        items.compactMap { item in
+            guard case let .group(group) = item else {
+                return nil
+            }
+            return group
+        }
+    }
+}
+
+private struct CapabilityCollectionWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 760
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ExpandedCapabilityGroupShelf: View {
+    let group: CapabilityGroup
+    @Binding var selectedCapability: Capability?
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 108, maximum: 132), spacing: 16, alignment: .top)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                ForEach(group.capabilities) { capability in
+                    CapabilityTile(
+                        capability: capability,
+                        isSelected: selectedCapability?.id == capability.id
+                    ) {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            selectedCapability = capability
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    .secondary.opacity(group.isVirtualPlugin ? 0.28 : 0.14),
+                    style: group.outlineStyle(lineWidth: 1)
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .transition(.asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)),
+            removal: .opacity.combined(with: .scale(scale: 0.995, anchor: .top))
+        ))
+    }
+}
+
+private struct CapabilityGroupTile: View {
+    let group: CapabilityGroup
+    let isExpanded: Bool
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.thinMaterial)
+                        .frame(width: 56, height: 52)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(
+                                    .secondary.opacity(group.isVirtualPlugin ? 0.48 : 0.2),
+                                    style: group.outlineStyle(lineWidth: 1.2)
+                                )
+                        }
+
+                    Image(systemName: group.systemImage)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(width: 56, height: 52)
+
+                    Text("\(group.capabilities.count)")
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.regularMaterial, in: Capsule())
+                        .offset(x: 8, y: -7)
+                }
+                .frame(width: 66, height: 58)
+
+                VStack(spacing: 3) {
+                    Text(group.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(groupSubtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 128, alignment: .top)
+            .contentShape(Rectangle())
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(tileBorderColor, style: group.outlineStyle(lineWidth: isSelected ? 1.5 : 1))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var tileBorderColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.62)
+        }
+        return .secondary.opacity(group.isVirtualPlugin ? 0.18 : 0.12)
+    }
+
+    private var groupSubtitle: String {
+        if group.kind == .plugin {
+            return "Plugin - \(group.capabilities.count) capabilities"
+        }
+        let typeNames = Set(group.capabilities.map { $0.type.displayName }).sorted()
+        return typeNames.prefix(2).joined(separator: ", ")
+    }
+}
+
+private extension CapabilityGroup {
+    var systemImage: String {
+        switch kind {
+        case .plugin:
+            return CapabilityVisuals.iconName(for: .plugin)
+        case .prefix:
+            return "square.stack.3d.up.fill"
+        }
+    }
+
+    var isVirtualPlugin: Bool {
+        switch kind {
+        case .prefix:
+            return true
+        case .plugin:
+            return false
+        }
+    }
+
+    func outlineStyle(lineWidth: CGFloat) -> StrokeStyle {
+        StrokeStyle(lineWidth: lineWidth, dash: isVirtualPlugin ? [5, 4] : [])
+    }
+}
+
+private struct CapabilityTile: View {
+    let capability: Capability
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                CapabilityTileIcon(
+                    capability: capability,
+                    isVirtual: capability.isVirtualPlugin,
+                    isSelected: isSelected
+                )
+
+                VStack(spacing: 3) {
+                    Text(capability.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .truncationMode(.middle)
+                        .frame(minHeight: 32)
+
+                    Text(sourceLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 128, alignment: .top)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.clear)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(tileBorderColor, style: tileOutlineStyle)
+            }
+        }
+        .buttonStyle(.plain)
+        .animation(.snappy(duration: 0.18), value: isSelected)
+    }
+
+    private var tileBorderColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.62)
+        }
+        guard capability.type == .plugin else {
+            return .clear
+        }
+        return .secondary.opacity(capability.isVirtualPlugin ? 0.18 : 0.12)
+    }
+
+    private var tileOutlineStyle: StrokeStyle {
+        StrokeStyle(lineWidth: isSelected ? 1.5 : 1, dash: capability.isVirtualPlugin ? [5, 4] : [])
+    }
+
+    private var sourceLabel: String {
+        "\(capability.type.displayName) - \(CapabilitySourceClassifier.label(for: capability))"
+    }
+}
+
+private extension Capability {
+    var isVirtualPlugin: Bool {
+        type == .plugin && source.kind == "virtual-plugin"
+    }
+}
+
+private struct CapabilityTileIcon: View {
+    let capability: Capability
+    let isVirtual: Bool
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.075))
+                .frame(width: 56, height: 52)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(
+                            isSelected ? Color.accentColor : .secondary.opacity(isVirtual ? 0.46 : 0.16),
+                            style: StrokeStyle(lineWidth: isSelected ? 1.5 : 1, dash: isVirtual ? [5, 4] : [])
+                        )
+                }
+
+            Image(systemName: CapabilityVisuals.iconName(for: capability.type))
+                .font(.system(size: 21, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 56, height: 52)
+
+            Circle()
+                .fill(CapabilityVisuals.statusColor(for: capability))
+                .frame(width: 8, height: 8)
+                .offset(x: 4, y: -4)
+                .help(CapabilityVisuals.statusLabel(for: capability))
+        }
+        .frame(width: 66, height: 58)
+    }
+}

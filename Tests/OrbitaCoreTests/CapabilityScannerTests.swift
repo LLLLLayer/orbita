@@ -1,0 +1,1115 @@
+import XCTest
+@testable import OrbitaCore
+
+final class CapabilityScannerTests: XCTestCase {
+    func testSnapshotStorePersistsGraphByProjectRoot() throws {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaSnapshotTests-\(UUID().uuidString)")
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: cacheRoot)
+            try? FileManager.default.removeItem(at: projectRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let graph = CapabilityGraph(
+            projectRoot: projectRoot.path,
+            generatedAt: "2026-05-23T00:00:00Z",
+            capabilities: [
+                Capability(
+                    id: "skill:lark-doc",
+                    name: "lark-doc",
+                    type: .skill,
+                    scope: .project,
+                    source: CapabilitySource(kind: "skill", path: projectRoot.appendingPathComponent("SKILL.md").path)
+                )
+            ],
+            issues: []
+        )
+
+        let store = CapabilitySnapshotStore(root: cacheRoot)
+        try store.save(graph)
+        let loaded = try store.load(projectRoot: projectRoot)
+
+        XCTAssertEqual(loaded?.graph.projectRoot, graph.projectRoot)
+        XCTAssertEqual(loaded?.graph.capabilities.first?.name, "lark-doc")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cacheRoot.appendingPathComponent("snapshots").path).count, 1)
+    }
+
+    func testProjectLibraryPersistsLastProjectAndSupportsRemoval() throws {
+        let libraryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProjectLibraryTests-\(UUID().uuidString)")
+        let projectA = FileManager.default.temporaryDirectory.appendingPathComponent("ProjectA-\(UUID().uuidString)")
+        let projectB = FileManager.default.temporaryDirectory.appendingPathComponent("ProjectB-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: libraryRoot)
+            try? FileManager.default.removeItem(at: projectA)
+            try? FileManager.default.removeItem(at: projectB)
+        }
+        try FileManager.default.createDirectory(at: projectA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectB, withIntermediateDirectories: true)
+
+        let store = ProjectLibraryStore(root: libraryRoot)
+        var library = try store.load()
+        library.upsert(projectRoot: projectA)
+        library.upsert(projectRoot: projectB)
+        try store.save(library)
+
+        var loaded = try store.load()
+        XCTAssertEqual(loaded.projects.map(\.name), [projectB.lastPathComponent, projectA.lastPathComponent])
+        XCTAssertEqual(loaded.lastProjectPath, projectB.standardizedFileURL.resolvingSymlinksInPath().path)
+
+        loaded.remove(projectPath: projectB.path)
+        try store.save(loaded)
+        let reloaded = try store.load()
+
+        XCTAssertEqual(reloaded.projects.map(\.name), [projectA.lastPathComponent])
+        XCTAssertEqual(reloaded.lastProjectPath, projectA.standardizedFileURL.resolvingSymlinksInPath().path)
+    }
+
+    func testCapabilityDisplayGrouperAggregatesSharedNamePrefixes() {
+        let capabilities = [
+            displayCapability(name: "lark-doc"),
+            displayCapability(name: "lark-im"),
+            displayCapability(name: "lark-calendar"),
+            displayCapability(name: "obsidian-cli")
+        ]
+
+        let items = CapabilityDisplayGrouper().items(for: capabilities, minimumGroupSize: 3)
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.contains { item in
+            guard case let .group(group) = item else { return false }
+            return group.name == "lark"
+                && group.capabilities.map(\.name) == ["lark-calendar", "lark-doc", "lark-im"]
+                && group.inspectionCapability.type == .plugin
+                && group.inspectionCapability.source.kind == "virtual-plugin"
+                && group.inspectionCapability.metadata["childCount"] == "3"
+        })
+        XCTAssertTrue(items.contains { item in
+            guard case let .capability(capability) = item else { return false }
+            return capability.name == "obsidian-cli"
+        })
+    }
+
+    func testCapabilityDisplayGrouperAggregatesPluginChildrenUnderPluginCell() {
+        let plugin = Capability(
+            id: "plugin:codex-cache:openai-curated:superpowers",
+            name: "Superpowers",
+            type: .plugin,
+            scope: .user,
+            source: CapabilitySource(kind: "package", path: "/tmp/superpowers", packageName: "superpowers", inferred: true)
+        )
+        let brainstorming = displayCapability(
+            name: "brainstorming",
+            pluginID: plugin.id,
+            packageName: "superpowers"
+        )
+        let writingPlans = displayCapability(
+            name: "writing-plans",
+            pluginID: plugin.id,
+            packageName: "superpowers"
+        )
+
+        let items = CapabilityDisplayGrouper().items(for: [brainstorming, plugin, writingPlans])
+
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected plugin group")
+        }
+        XCTAssertEqual(group.kind, .plugin)
+        XCTAssertEqual(group.name, "Superpowers")
+        XCTAssertEqual(group.representative?.id, plugin.id)
+        XCTAssertEqual(group.capabilities.map(\.name), ["brainstorming", "writing-plans"])
+    }
+
+    func testCapabilityDisplayGrouperSynthesizesSelectablePluginGroup() {
+        let capabilities = [
+            displayCapability(name: "brainstorming", pluginID: "plugin:codex-cache:openai-curated:superpowers", packageName: "superpowers"),
+            displayCapability(name: "browser", pluginID: "plugin:codex-cache:openai-curated:superpowers", packageName: "superpowers"),
+            displayCapability(name: "executing-plans", pluginID: "plugin:codex-cache:openai-curated:superpowers", packageName: "superpowers")
+        ]
+
+        let items = CapabilityDisplayGrouper().items(for: capabilities)
+
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected synthetic plugin group")
+        }
+        XCTAssertNil(group.representative)
+        XCTAssertEqual(group.kind, .plugin)
+        XCTAssertEqual(group.name, "Superpowers")
+        XCTAssertEqual(group.inspectionCapability.id, group.id)
+        XCTAssertEqual(group.inspectionCapability.name, "Superpowers")
+        XCTAssertEqual(group.inspectionCapability.source.kind, "virtual-plugin")
+        XCTAssertEqual(group.inspectionCapability.source.packageName, "superpowers")
+        XCTAssertEqual(group.inspectionCapability.pluginID, "plugin:codex-cache:openai-curated:superpowers")
+    }
+
+    func testScansMixedProjectFixture() throws {
+        let root = try fixtureURL("MixedProject")
+
+        let result = try scanProjectOnly(root)
+
+        XCTAssertTrue(result.capabilities.contains { $0.name == "Agent instructions" && $0.type == .instruction })
+        XCTAssertTrue(result.capabilities.contains { $0.name == "Claude Code instructions" && $0.type == .instruction })
+        XCTAssertTrue(result.capabilities.contains { $0.name == "lark-doc" && $0.type == .skill })
+        XCTAssertTrue(result.capabilities.contains { $0.name == "lark" && $0.type == .mcpServer })
+        XCTAssertTrue(result.capabilities.contains { $0.name == "project" && $0.type == .rule })
+    }
+
+    func testScannerEmitsProgressEventsForMajorPhases() throws {
+        let root = try fixtureURL("MixedProject")
+        let recorder = ScanProgressRecorder()
+
+        _ = try CapabilityScanner().scan(
+            projectRoot: root,
+            options: ScanOptions(includeUserScope: false, progressHandler: { event in
+                recorder.append(event)
+            })
+        )
+
+        let names = recorder.events.map(\.name)
+        XCTAssertTrue(names.contains("scan.start"))
+        XCTAssertTrue(names.contains("scan.codex.start"))
+        XCTAssertTrue(names.contains("scan.skills.start"))
+        XCTAssertTrue(names.contains("scan.finish"))
+    }
+
+    func testProjectSkillScanSkipsGeneratedDirectories() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let realSkill = temporaryRoot.appendingPathComponent("skills/real")
+        let generatedSkill = temporaryRoot.appendingPathComponent("dist/generated")
+        try FileManager.default.createDirectory(at: realSkill, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: generatedSkill, withIntermediateDirectories: true)
+        try """
+        ---
+        name: real-skill
+        ---
+        """.write(to: realSkill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try """
+        ---
+        name: generated-skill
+        ---
+        """.write(to: generatedSkill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(projectRoot: temporaryRoot, options: ScanOptions(includeUserScope: false))
+
+        XCTAssertTrue(result.capabilities.contains { $0.name == "real-skill" })
+        XCTAssertFalse(result.capabilities.contains { $0.name == "generated-skill" })
+    }
+
+    func testScansCodexProjectCommands() throws {
+        let root = try fixtureURL("MixedProject")
+
+        let result = try scanProjectOnly(root)
+
+        let command = result.capabilities.first { $0.name == "bootstrap" && $0.type == .command }
+        XCTAssertEqual(command?.source.kind, "codex-command")
+        XCTAssertEqual(command?.scope, .project)
+        XCTAssertEqual(command?.risks, [.info, .read])
+    }
+
+    func testScansCursorLegacyRulesAndClaudeWorkspaceFiles() throws {
+        let root = try fixtureURL("MixedProject")
+
+        let result = try scanProjectOnly(root)
+
+        let legacyRule = result.capabilities.first { $0.name == "Legacy Cursor rules" && $0.type == .rule }
+        XCTAssertEqual(legacyRule?.source.kind, "legacy-cursor-rule")
+        XCTAssertTrue(legacyRule?.source.path.hasSuffix("/.cursorrules") == true)
+
+        let claudeCommand = result.capabilities.first { $0.name == "review" && $0.type == .command }
+        XCTAssertEqual(claudeCommand?.source.kind, "claude-command")
+
+        let claudeSettings = result.capabilities.first { $0.name == "Claude Code settings" && $0.type == .hook }
+        XCTAssertEqual(claudeSettings?.source.kind, "claude-settings")
+        XCTAssertTrue(claudeSettings?.risks.contains(.exec) == true)
+    }
+
+    func testClaudeCodeSeesNativeAndSharedAgentsSkills() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let nativeClaudeSkill = temporaryRoot.appendingPathComponent(".claude/skills/review-helper/SKILL.md")
+        let sharedAgentsSkill = temporaryRoot.appendingPathComponent(".agents/skills/shared-doc/SKILL.md")
+
+        try FileManager.default.createDirectory(at: nativeClaudeSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sharedAgentsSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "review-helper", body: "Claude native helper").write(to: nativeClaudeSkill, atomically: true, encoding: .utf8)
+        try skillText(name: "shared-doc", body: "Shared agent skill").write(to: sharedAgentsSkill, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let claude = AgentViewResolver().view(for: .claudeCode, graph: graph)
+        let codex = AgentViewResolver().view(for: .codex, graph: graph)
+
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "review-helper" && $0.source.kind == "claude-skill" })
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
+        XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
+    }
+
+    func testFileCapabilitiesIncludeStableContentHash() throws {
+        let root = try fixtureURL("MixedProject")
+
+        let result = try scanProjectOnly(root)
+
+        let skill = try XCTUnwrap(result.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let hash = try XCTUnwrap(skill.metadata["contentHash"])
+        XCTAssertEqual(hash.count, 64)
+        XCTAssertTrue(hash.allSatisfy(\.isHexDigit))
+    }
+
+    func testResolverInfersPluginFromNodeModuleSkills() throws {
+        let root = try fixtureURL("MixedProject")
+        let scan = try scanProjectOnly(root)
+
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let plugin = graph.capabilities.first { $0.type == .plugin && $0.name == "Lark" }
+        XCTAssertNotNil(plugin)
+        XCTAssertEqual(plugin?.source.packageName, "@orbita/lark-skills")
+        XCTAssertEqual(plugin?.source.inferred, true)
+    }
+
+    func testResolverInfersPluginFromCodexPluginCacheSkills() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaPluginCache-\(UUID().uuidString)")
+            .appendingPathComponent(".codex/plugins/cache")
+        let skillFile = cacheRoot
+            .appendingPathComponent("openai-curated")
+            .appendingPathComponent("superpowers")
+            .appendingPathComponent("6188456f")
+            .appendingPathComponent("skills")
+            .appendingPathComponent("brainstorming")
+            .appendingPathComponent("SKILL.md")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: cacheRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: skillFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "brainstorming", body: "Use for ideation.")
+            .write(to: skillFile, atomically: true, encoding: .utf8)
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(userSkillRoots: [cacheRoot])
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let skill = try XCTUnwrap(graph.capabilities.first { $0.name == "brainstorming" && $0.type == .skill })
+        XCTAssertEqual(skill.pluginID, "plugin:codex-cache:openai-curated:superpowers")
+        XCTAssertEqual(skill.source.packageName, "superpowers")
+
+        let plugin = try XCTUnwrap(graph.capabilities.first { $0.id == "plugin:codex-cache:openai-curated:superpowers" })
+        XCTAssertEqual(plugin.name, "Superpowers")
+        XCTAssertEqual(plugin.type, .plugin)
+        XCTAssertEqual(plugin.scope, .user)
+        XCTAssertTrue(plugin.source.path.hasSuffix("/.codex/plugins/cache/openai-curated/superpowers"))
+    }
+
+    func testBrokenAgentsSkillSymlinkIsReported() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let skillsRoot = temporaryRoot.appendingPathComponent(".agents/skills")
+        try FileManager.default.createDirectory(at: skillsRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: skillsRoot.appendingPathComponent("missing-skill"),
+            withDestinationURL: URL(fileURLWithPath: "../missing-skill")
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let result = try scanProjectOnly(temporaryRoot)
+
+        XCTAssertTrue(result.capabilities.contains { capability in
+            capability.name == "missing-skill" && capability.statuses.contains(.broken)
+        })
+    }
+
+    func testScansConfiguredUserSkillRootsOnlyWhenEnabled() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let userRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaUserSkills-\(UUID().uuidString)")
+        let userSkill = userRoot.appendingPathComponent("skills/global-doc/SKILL.md")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: userSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        ---
+        name: global-doc
+        description: User-global documentation helper.
+        ---
+
+        # Global Doc
+        """.write(to: userSkill, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: userRoot)
+        }
+
+        let enabled = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: true, userSkillRoots: [userRoot])
+        )
+        let disabled = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: false, userSkillRoots: [userRoot])
+        )
+
+        XCTAssertTrue(enabled.capabilities.contains { $0.name == "global-doc" && $0.scope == .user && $0.source.kind == "user-skill" })
+        XCTAssertFalse(disabled.capabilities.contains { $0.name == "global-doc" })
+    }
+
+    func testResolverMarksUserCapabilityShadowedAndDriftedByProjectCapability() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let projectSkill = projectRoot.appendingPathComponent("skills/global-doc/SKILL.md")
+        let userRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaUserSkills-\(UUID().uuidString)")
+        let userSkill = userRoot.appendingPathComponent("skills/global-doc/SKILL.md")
+        try FileManager.default.createDirectory(at: projectSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: userSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "global-doc", body: "project version").write(to: projectSkill, atomically: true, encoding: .utf8)
+        try skillText(name: "global-doc", body: "user version").write(to: userSkill, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: userRoot)
+        }
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: true, userSkillRoots: [userRoot])
+        )
+
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let project = try XCTUnwrap(graph.capabilities.first { $0.name == "global-doc" && $0.scope == .project })
+        let user = try XCTUnwrap(graph.capabilities.first { $0.name == "global-doc" && $0.scope == .user })
+        XCTAssertFalse(project.statuses.contains(.shadowed))
+        XCTAssertTrue(project.statuses.contains(.drifted))
+        XCTAssertTrue(user.statuses.contains(.shadowed))
+        XCTAssertTrue(user.statuses.contains(.drifted))
+    }
+
+    func testResolverAppliesAgentsManifestDisabledStatusAndMarksDriftedWhenSourceStillExists() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let manifest = temporaryRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {
+              "id": "\(skill.id)",
+              "name": "\(skill.name)",
+              "type": "\(skill.type.rawValue)",
+              "status": "disabled",
+              "sourcePath": "\(skill.source.path)"
+            }
+          ]
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+
+        let resolvedSkill = try XCTUnwrap(graph.capabilities.first { $0.id == skill.id })
+        XCTAssertTrue(resolvedSkill.statuses.contains(.disabled))
+        XCTAssertTrue(resolvedSkill.statuses.contains(.drifted))
+        XCTAssertEqual(resolvedSkill.metadata["manifestStatus"], "disabled")
+    }
+
+    func testAgentViewFiltersCodexVisibleCapabilities() throws {
+        let root = try fixtureURL("MixedProject")
+        let scan = try scanProjectOnly(root)
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let view = AgentViewResolver().view(for: .codex, graph: graph)
+
+        XCTAssertTrue(view.visibleCapabilities.contains { $0.type == .skill })
+        XCTAssertTrue(view.visibleCapabilities.contains { $0.type == .plugin })
+        XCTAssertFalse(view.visibleCapabilities.contains { $0.type == .rule })
+    }
+
+    func testAgentViewsRespectClientSpecificCommandSources() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let codex = AgentViewResolver().view(for: .codex, graph: graph)
+        let claude = AgentViewResolver().view(for: .claudeCode, graph: graph)
+        let cursor = AgentViewResolver().view(for: .cursor, graph: graph)
+
+        XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "bootstrap" && $0.source.kind == "codex-command" })
+        XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "Claude Code settings" && $0.source.kind == "claude-settings" })
+        XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
+    }
+
+    func testAgentOverviewSummarizesPerAgentVisibilityDifferences() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let overview = AgentOverviewBuilder().overview(graph: graph)
+
+        XCTAssertEqual(overview.agentSummaries.count, AgentID.allCases.count)
+        XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .codex && $0.visibleCount > 0 && $0.hiddenCount > 0 })
+        XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .claudeCode && $0.visibleCount > 0 && $0.hiddenCount > 0 })
+        XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .cursor && $0.visibleCount > 0 && $0.hiddenCount > 0 })
+
+        let larkDoc = try XCTUnwrap(overview.differences.first { $0.capabilityName == "lark-doc" })
+        XCTAssertEqual(larkDoc.visibleAgents, [.codex])
+        XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
+        XCTAssertTrue(larkDoc.hiddenAgents.contains(.cursor))
+    }
+
+    func testCapabilityExplanationIncludesAgentVisibility() throws {
+        let root = try fixtureURL("MixedProject")
+        let scan = try scanProjectOnly(root)
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+        let skill = try XCTUnwrap(graph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+
+        let explanation = try CapabilityExplainer().explain(capabilityID: skill.id, graph: graph)
+
+        XCTAssertEqual(explanation.capability.id, skill.id)
+        XCTAssertTrue(explanation.visibleAgents.contains(.codex))
+        XCTAssertFalse(explanation.visibleAgents.contains(.claudeCode))
+        XCTAssertFalse(explanation.visibleAgents.contains(.cursor))
+        XCTAssertTrue(explanation.hiddenAgents.contains(.claudeCode))
+        XCTAssertTrue(explanation.hiddenAgents.contains(.cursor))
+    }
+
+    func testAdapterPreviewExplainsCodexGeneratedFilesAndUnsupportedCapabilities() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let preview = AdapterPreviewBuilder().preview(for: .codex, graph: graph)
+
+        XCTAssertEqual(preview.agent, .codex)
+        XCTAssertTrue(preview.generatedFiles.contains { $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
+        XCTAssertTrue(preview.supportedCapabilities.contains { $0.name == "lark-doc" && $0.type == .skill })
+        XCTAssertTrue(preview.unsupportedCapabilities.contains { $0.type == .rule })
+        XCTAssertFalse(preview.appliesChanges)
+    }
+
+    func testAdapterPreviewIncludesCapabilityMappingReasons() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+        let skill = try XCTUnwrap(graph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+
+        let codexPreview = AdapterPreviewBuilder().preview(for: .codex, graph: graph)
+        let cursorPreview = AdapterPreviewBuilder().preview(for: .cursor, graph: graph)
+
+        let codexMapping = try XCTUnwrap(codexPreview.capabilityMappings.first { $0.capabilityID == skill.id })
+        XCTAssertTrue(codexMapping.supported)
+        XCTAssertEqual(codexMapping.targetPath?.hasSuffix("/.agents/skills/lark-doc"), true)
+        XCTAssertTrue(codexMapping.reason.contains("Codex loads skills"))
+
+        let cursorMapping = try XCTUnwrap(cursorPreview.capabilityMappings.first { $0.capabilityID == skill.id })
+        XCTAssertFalse(cursorMapping.supported)
+        XCTAssertNil(cursorMapping.targetPath)
+        XCTAssertTrue(cursorMapping.reason.contains("does not load skill"))
+    }
+
+    func testAdapterPreviewGeneratedFileContainsMappingJSON() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let preview = AdapterPreviewBuilder().preview(for: .cursor, graph: graph)
+        let content = try XCTUnwrap(preview.generatedFiles.first?.content)
+
+        XCTAssertTrue(content.contains("\"mappings\""))
+        XCTAssertTrue(content.contains("\"supported\""))
+        XCTAssertFalse(content.trimmingCharacters(in: .whitespacesAndNewlines) == "{}")
+    }
+
+    func testDriftReportExplainsAgentVisibilityDifferences() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let report = DriftReportBuilder().report(graph: graph)
+
+        let larkDoc = try XCTUnwrap(report.items.first { $0.capabilityName == "lark-doc" })
+        XCTAssertEqual(larkDoc.visibleAgents, [.codex])
+        XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
+        XCTAssertTrue(larkDoc.hiddenAgents.contains(.cursor))
+        XCTAssertTrue(larkDoc.reasons.contains { $0.contains("visible to codex") })
+    }
+
+    func testDriftReportIncludesClientSpecificSourceReasons() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let report = DriftReportBuilder().report(graph: graph)
+
+        let claudeCommand = try XCTUnwrap(report.items.first { $0.capabilityName == "review" })
+        XCTAssertEqual(claudeCommand.visibleAgents, [.claudeCode])
+        XCTAssertTrue(claudeCommand.hiddenAgents.contains(.codex))
+        XCTAssertTrue(claudeCommand.hiddenAgents.contains(.cursor))
+        XCTAssertTrue(claudeCommand.reasons.contains { $0.contains("claude-command") && $0.contains("Claude Code") })
+        XCTAssertTrue(claudeCommand.reasons.contains { $0.contains("Codex") && $0.contains("does not load") })
+    }
+
+    func testDriftReportExplainsDisabledManifestIntentStillDiscoverable() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let manifest = temporaryRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {
+              "id": "\(skill.id)",
+              "name": "\(skill.name)",
+              "type": "\(skill.type.rawValue)",
+              "status": "disabled",
+              "sourcePath": "\(skill.source.path)"
+            }
+          ]
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let report = DriftReportBuilder().report(graph: graph)
+
+        let item = try XCTUnwrap(report.items.first { $0.capabilityID == skill.id })
+        XCTAssertTrue(item.statuses.contains(.disabled))
+        XCTAssertTrue(item.reasons.contains { $0.contains("disabled in .agents") && $0.contains("source remains discoverable") })
+    }
+
+    func testEnableSkillPlanIsDryRunAndWritesAgentsIndex() throws {
+        let root = try fixtureURL("MixedProject")
+        let scan = try scanProjectOnly(root)
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+        let skill = try XCTUnwrap(graph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+
+        let plan = try ApplyPlanBuilder().planEnable(capabilityID: skill.id, graph: graph)
+
+        XCTAssertEqual(plan.action, .enable)
+        XCTAssertEqual(plan.capabilityID, skill.id)
+        XCTAssertFalse(plan.appliesChanges)
+        XCTAssertTrue(plan.requiresConfirmation)
+        XCTAssertTrue(plan.operations.contains { $0.kind == .createDirectory && $0.path.hasSuffix("/.agents/skills") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") && $0.target == skill.source.path.replacingOccurrences(of: "/SKILL.md", with: "") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/manifest.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/lock.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/claude-code/capabilities.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/cursor/capabilities.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .appendLog && $0.path.hasSuffix("/.agents/logs/apply.log") })
+    }
+
+    func testMergePlanIndexesDiscoveredProjectCapabilitiesWithoutDeletingSources() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let plan = try ApplyPlanBuilder().planMerge(graph: graph)
+
+        XCTAssertEqual(plan.action, .merge)
+        XCTAssertEqual(plan.capabilityID, "workspace")
+        XCTAssertFalse(plan.appliesChanges)
+        XCTAssertTrue(plan.requiresConfirmation)
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/manifest.json") && ($0.content ?? "").contains("lark-doc") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/lock.json") && ($0.content ?? "").contains("contentHash") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/claude-code/capabilities.json") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/cursor/capabilities.json") })
+        XCTAssertFalse(plan.operations.contains { $0.kind == .removePath })
+    }
+
+    func testMergePlanExecutorWritesAgentsWorkspaceAndKeepsOriginalSources() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let plan = try ApplyPlanBuilder().planMerge(graph: graph)
+
+        let result = try ApplyPlanExecutor().apply(plan)
+
+        XCTAssertEqual(result.completedOperations.count, plan.operations.count)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/manifest.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/lock.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".codex/commands/bootstrap.md").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".claude/commands/review.md").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".cursor/rules/project.md").path))
+    }
+
+    func testApplyPlanExecutorWritesOnlyAgentsIndex() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let scan = try scanProjectOnly(temporaryRoot)
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+        let skill = try XCTUnwrap(graph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let plan = try ApplyPlanBuilder().planEnable(capabilityID: skill.id, graph: graph)
+
+        let result = try ApplyPlanExecutor().apply(plan)
+
+        XCTAssertEqual(result.completedOperations.count, plan.operations.count)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/manifest.json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/lock.json").path))
+
+        let symlink = temporaryRoot.appendingPathComponent(".agents/skills/lark-doc")
+        let values = try symlink.resourceValues(forKeys: [.isSymbolicLinkKey])
+        XCTAssertEqual(values.isSymbolicLink, true)
+        let actualTarget = URL(fileURLWithPath: try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path)).resolvingSymlinksInPath().path
+        let expectedTarget = temporaryRoot.appendingPathComponent("node_modules/@orbita/lark-skills/skills/lark-doc").resolvingSymlinksInPath().path
+        XCTAssertEqual(actualTarget, expectedTarget)
+
+        let manifestText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/manifest.json"), encoding: .utf8)
+        let lockText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/lock.json"), encoding: .utf8)
+        let logText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/logs/apply.log"), encoding: .utf8)
+        XCTAssertTrue(manifestText.contains(skill.id))
+        XCTAssertTrue(lockText.contains(try XCTUnwrap(skill.metadata["contentHash"])))
+        XCTAssertTrue(logText.contains("enable"))
+        XCTAssertTrue(logText.contains(skill.id))
+    }
+
+    func testDisableSkillPlanRemovesAgentsSymlinkWithoutDeletingSource() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        _ = try ApplyPlanExecutor().apply(try ApplyPlanBuilder().planEnable(capabilityID: skill.id, graph: initialGraph))
+
+        let enabledGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let plan = try ApplyPlanBuilder().planDisable(capabilityID: skill.id, graph: enabledGraph)
+        let result = try ApplyPlanExecutor().apply(plan)
+
+        XCTAssertEqual(plan.action, .disable)
+        XCTAssertEqual(result.completedOperations.count, plan.operations.count)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/skills/lark-doc").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: skill.source.path))
+
+        let manifestText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/manifest.json"), encoding: .utf8)
+        let logText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/logs/apply.log"), encoding: .utf8)
+        XCTAssertTrue(manifestText.contains(CapabilityStatus.disabled.rawValue))
+        XCTAssertTrue(logText.contains("disable"))
+    }
+
+    func testDisableAfterMergePreservesOtherManifestEntries() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let command = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "bootstrap" && $0.type == .command })
+        let executor = ApplyPlanExecutor()
+        _ = try executor.apply(try ApplyPlanBuilder().planMerge(graph: initialGraph))
+
+        let mergedGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        _ = try executor.apply(try ApplyPlanBuilder().planDisable(capabilityID: skill.id, graph: mergedGraph))
+
+        let manifestText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/manifest.json"), encoding: .utf8)
+        XCTAssertTrue(manifestText.contains(skill.id))
+        XCTAssertTrue(manifestText.contains(command.id))
+        XCTAssertTrue(manifestText.contains(CapabilityStatus.disabled.rawValue))
+        XCTAssertTrue(manifestText.contains(CapabilityStatus.enabled.rawValue))
+    }
+
+    func testDeleteAfterMergeRemovesCapabilityIntentAndSkillLinkOnly() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let command = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "bootstrap" && $0.type == .command })
+        let executor = ApplyPlanExecutor()
+        _ = try executor.apply(try ApplyPlanBuilder().planMerge(graph: initialGraph))
+
+        let mergedGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let plan = try ApplyPlanBuilder().planDelete(capabilityID: skill.id, graph: mergedGraph)
+        _ = try executor.apply(plan)
+
+        let manifestText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/manifest.json"), encoding: .utf8)
+        XCTAssertEqual(plan.action, .delete)
+        XCTAssertFalse(manifestText.contains(skill.id))
+        XCTAssertTrue(manifestText.contains(command.id))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/skills/lark-doc").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: skill.source.path))
+    }
+
+    func testEnableAfterDisablePreservesOtherManifestEntries() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let command = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "bootstrap" && $0.type == .command })
+        let executor = ApplyPlanExecutor()
+        _ = try executor.apply(try ApplyPlanBuilder().planMerge(graph: initialGraph))
+
+        let mergedGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        _ = try executor.apply(try ApplyPlanBuilder().planDisable(capabilityID: skill.id, graph: mergedGraph))
+
+        let disabledGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        _ = try executor.apply(try ApplyPlanBuilder().planEnable(capabilityID: skill.id, graph: disabledGraph))
+
+        let manifestText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/manifest.json"), encoding: .utf8)
+        XCTAssertTrue(manifestText.contains(skill.id))
+        XCTAssertTrue(manifestText.contains(command.id))
+        XCTAssertFalse(manifestText.contains(CapabilityStatus.disabled.rawValue))
+        XCTAssertTrue(manifestText.contains(CapabilityStatus.enabled.rawValue))
+    }
+
+    func testDisableSkillPlanExecutorRegeneratesAdaptersWithoutDisabledSkill() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let executor = ApplyPlanExecutor()
+        _ = try executor.apply(try ApplyPlanBuilder().planEnable(capabilityID: skill.id, graph: initialGraph))
+        let enabledGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+
+        let disablePlan = try ApplyPlanBuilder().planDisable(capabilityID: skill.id, graph: enabledGraph)
+        _ = try executor.apply(disablePlan)
+
+        let adapterPath = temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json")
+        let adapterText = try String(contentsOf: adapterPath, encoding: .utf8)
+        XCTAssertTrue(adapterText.contains("\"agent\" : \"codex\""))
+        XCTAssertFalse(adapterText.contains("\"id\" : \"\(skill.id)\""))
+    }
+
+    func testRollbackPlanInvertsLastApplyLogAction() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let executor = ApplyPlanExecutor()
+        _ = try executor.apply(try ApplyPlanBuilder().planEnable(capabilityID: skill.id, graph: initialGraph))
+        let enabledGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        _ = try executor.apply(try ApplyPlanBuilder().planDisable(capabilityID: skill.id, graph: enabledGraph))
+
+        let rollback = try ApplyPlanBuilder().planRollback(graph: enabledGraph)
+
+        XCTAssertEqual(rollback.action, .rollback)
+        XCTAssertEqual(rollback.capabilityID, skill.id)
+        XCTAssertTrue(rollback.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+        XCTAssertTrue(rollback.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
+        XCTAssertTrue(rollback.operations.contains { $0.kind == .appendLog && ($0.content ?? "").contains("rollback") })
+    }
+
+    func testRollbackPlanRejectsMergeLogEntryWithSpecificError() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        let logPath = temporaryRoot.appendingPathComponent(".agents/logs/apply.log")
+        try FileManager.default.createDirectory(at: logPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "2026-05-23T00:00:00Z merge workspace\n".write(to: logPath, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+
+        do {
+            _ = try ApplyPlanBuilder().planRollback(graph: graph)
+            XCTFail("Expected merge apply log entries to be rejected")
+        } catch let error as OrbitaError {
+            XCTAssertEqual(error.errorDescription, "Invalid apply plan: Cannot rollback a merge entry")
+        }
+    }
+
+    func testCleanPlanRemovesBrokenAgentsSymlinksOnly() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let skillsRoot = temporaryRoot.appendingPathComponent(".agents/skills")
+        try FileManager.default.createDirectory(at: skillsRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: skillsRoot.appendingPathComponent("missing-skill"),
+            withDestinationURL: URL(fileURLWithPath: "../missing-skill")
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+
+        let plan = try ApplyPlanBuilder().planClean(graph: graph)
+
+        XCTAssertEqual(plan.action, .clean)
+        XCTAssertEqual(plan.capabilityID, "workspace")
+        XCTAssertTrue(plan.operations.contains { $0.kind == .removePath && $0.path.hasSuffix("/.agents/skills/missing-skill") })
+        XCTAssertFalse(plan.operations.contains { $0.path.contains("node_modules") })
+    }
+
+    func testCleanPlanRemovesStaleAdapterFilesReferencingMissingCapabilities() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        let adapterFile = temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json")
+        try FileManager.default.createDirectory(at: adapterFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "agent": "codex",
+          "capabilities": [
+            {
+              "id": "missing-capability",
+              "name": "Missing",
+              "type": "skill",
+              "scope": "project",
+              "sourcePath": "/tmp/missing",
+              "statuses": ["discovered"],
+              "risks": ["info"]
+            }
+          ],
+          "mappings": []
+        }
+        """.write(to: adapterFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+
+        let plan = try ApplyPlanBuilder().planClean(graph: graph)
+
+        XCTAssertTrue(plan.operations.contains { operation in
+            operation.kind == .removePath
+                && operation.path.hasSuffix("/.agents/adapters/codex/capabilities.json")
+                && operation.description.contains("stale adapter")
+        })
+        XCTAssertFalse(plan.operations.contains { $0.path.contains("node_modules") })
+    }
+
+    func testCleanPlanRemovesAdapterFilesReferencingDisabledCapabilities() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let initialGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(initialGraph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let manifest = temporaryRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {
+              "id": "\(skill.id)",
+              "name": "\(skill.name)",
+              "type": "\(skill.type.rawValue)",
+              "status": "disabled",
+              "sourcePath": "\(skill.source.path)"
+            }
+          ]
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+
+        let adapterFile = temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json")
+        try FileManager.default.createDirectory(at: adapterFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "agent": "codex",
+          "capabilities": [
+            {
+              "id": "\(skill.id)",
+              "name": "\(skill.name)",
+              "type": "\(skill.type.rawValue)",
+              "scope": "\(skill.scope.rawValue)",
+              "sourcePath": "\(skill.source.path)",
+              "statuses": ["discovered"],
+              "risks": ["info"]
+            }
+          ],
+          "mappings": []
+        }
+        """.write(to: adapterFile, atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+
+        let plan = try ApplyPlanBuilder().planClean(graph: graph)
+
+        XCTAssertTrue(plan.operations.contains { operation in
+            operation.kind == .removePath
+                && operation.path.hasSuffix("/.agents/adapters/codex/capabilities.json")
+                && operation.description.contains("disabled")
+        })
+    }
+
+    func testCleanPlanExecutorRemovesBrokenSymlinks() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let skillsRoot = temporaryRoot.appendingPathComponent(".agents/skills")
+        let symlink = skillsRoot.appendingPathComponent("missing-skill")
+        try FileManager.default.createDirectory(at: skillsRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: symlink,
+            withDestinationURL: URL(fileURLWithPath: "../missing-skill")
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        XCTAssertNoThrow(try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path))
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let plan = try ApplyPlanBuilder().planClean(graph: graph)
+
+        _ = try ApplyPlanExecutor().apply(plan)
+
+        XCTAssertThrowsError(try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path))
+    }
+
+    func testCleanPlanIsNoopWhenThereAreNoBrokenAgentsSymlinks() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+
+        let plan = try ApplyPlanBuilder().planClean(graph: graph)
+
+        XCTAssertEqual(plan.action, .clean)
+        XCTAssertEqual(plan.operations.count, 0)
+        XCTAssertFalse(plan.requiresConfirmation)
+    }
+
+    func testApplyPlanExecutorReportsCompletedFailedAndPendingOperations() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let completedOperation = ApplyOperation(
+            kind: .createDirectory,
+            path: temporaryRoot.appendingPathComponent(".agents").path,
+            risk: .write,
+            description: "Create .agents root"
+        )
+        let failedOperation = ApplyOperation(
+            kind: .writeFile,
+            path: temporaryRoot.appendingPathComponent("outside.json").path,
+            content: "{}\n",
+            risk: .write,
+            description: "Attempt unsafe write"
+        )
+        let pendingOperation = ApplyOperation(
+            kind: .writeFile,
+            path: temporaryRoot.appendingPathComponent(".agents/manifest.json").path,
+            content: "{}\n",
+            risk: .write,
+            description: "Pending safe write"
+        )
+        let plan = ApplyPlan(
+            projectRoot: temporaryRoot.path,
+            action: .enable,
+            capabilityID: "test",
+            requiresConfirmation: true,
+            operations: [completedOperation, failedOperation, pendingOperation]
+        )
+
+        do {
+            _ = try ApplyPlanExecutor().apply(plan)
+            XCTFail("Expected apply to throw partial failure details")
+        } catch let error as ApplyExecutionError {
+            XCTAssertEqual(error.completedOperations, [completedOperation])
+            XCTAssertEqual(error.failedOperation, failedOperation)
+            XCTAssertEqual(error.pendingOperations, [pendingOperation])
+            XCTAssertTrue(error.errorDescription?.contains("outside .agents") == true)
+        }
+    }
+
+    func testDoctorReportChecksUserCapabilityDirectories() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaDoctorTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".codex/skills"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let report = DoctorReportBuilder().report(
+            currentDirectory: home.path,
+            homeDirectory: home,
+            swiftVersion: "test-swift"
+        )
+
+        XCTAssertEqual(report.swiftVersion, "test-swift")
+        XCTAssertTrue(report.checks.contains { check in
+            check.id == "codex-skills" && check.status == .ok && check.path?.hasSuffix("/.codex/skills") == true
+        })
+        XCTAssertTrue(report.checks.contains { check in
+            check.id == "agents-skills" && check.status == .warning && check.message.contains("does not exist")
+        })
+    }
+
+    private func fixtureURL(_ name: String) throws -> URL {
+        #if SWIFT_PACKAGE
+        return Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Fixtures")!
+        #else
+        throw XCTSkip("Fixtures require Swift Package resources")
+        #endif
+    }
+
+    private func scanProjectOnly(_ root: URL) throws -> ScanResult {
+        try CapabilityScanner().scan(projectRoot: root, options: ScanOptions(includeUserScope: false))
+    }
+
+    private func skillText(name: String, body: String) -> String {
+        """
+        ---
+        name: \(name)
+        description: test skill
+        ---
+
+        \(body)
+        """
+    }
+}
+
+private func displayCapability(name: String, pluginID: String? = nil, packageName: String? = nil) -> Capability {
+    Capability(
+        id: "skill:\(name)",
+        name: name,
+        type: .skill,
+        scope: .project,
+        source: CapabilitySource(kind: "skill", path: "/tmp/\(name)/SKILL.md", packageName: packageName),
+        pluginID: pluginID
+    )
+}
+
+private final class ScanProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedEvents: [ScanProgressEvent] = []
+
+    var events: [ScanProgressEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedEvents
+    }
+
+    func append(_ event: ScanProgressEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+        storedEvents.append(event)
+    }
+}

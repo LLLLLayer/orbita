@@ -1,0 +1,245 @@
+import SwiftUI
+import OrbitaCore
+
+enum AgentBehavior: String, Codable, CaseIterable, Sendable {
+    case agentsSource
+    case codexSource
+    case claudeSource
+    case codexLike
+    case claudeLike
+    case generic
+}
+
+struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
+    var id: String
+    var displayName: String
+    var behavior: AgentBehavior
+
+    static let agents = AgentSelection(id: "built-in:agents", displayName: "Agents", behavior: .agentsSource)
+    static let codex = AgentSelection(id: "built-in:codex", displayName: "Codex", behavior: .codexSource)
+    static let claudeCode = AgentSelection(id: "built-in:claude-code", displayName: "Claude Code", behavior: .claudeSource)
+    static let defaultAgents = [agents, codex, claudeCode]
+
+    func visibleCapabilities(in graph: CapabilityGraph) -> [Capability] {
+        switch behavior {
+        case .agentsSource:
+            return sourceCapabilities(.agents, in: graph)
+        case .codexSource:
+            return sourceCapabilities(.codex, in: graph)
+        case .claudeSource:
+            return sourceCapabilities(.claude, in: graph)
+        case .codexLike:
+            return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
+        case .claudeLike:
+            return AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
+        case .generic:
+            return graph.capabilities
+                .filter { capability in
+                    !capability.statuses.contains(.broken)
+                        && !capability.statuses.contains(.disabled)
+                }
+                .sorted { $0.id < $1.id }
+        }
+    }
+
+    private func sourceCapabilities(_ sourceKind: CapabilitySourceClassifier.SourceKind, in graph: CapabilityGraph) -> [Capability] {
+        graph.capabilities
+            .filter { CapabilitySourceClassifier.sourceKind(for: $0) == sourceKind }
+            .sorted { $0.id < $1.id }
+    }
+
+    var systemImage: String {
+        if id == Self.agents.id {
+            return "point.3.connected.trianglepath.dotted"
+        }
+        if id == Self.codex.id {
+            return "command"
+        }
+        if id == Self.claudeCode.id {
+            return "text.bubble"
+        }
+        switch behavior {
+        case .agentsSource:
+            return "point.3.connected.trianglepath.dotted"
+        case .codexSource:
+            return "command"
+        case .claudeSource:
+            return "text.bubble"
+        case .codexLike:
+            return "command"
+        case .claudeLike:
+            return "text.bubble"
+        case .generic:
+            return "person.crop.circle"
+        }
+    }
+}
+
+enum CapabilityCategory: String, CaseIterable, Identifiable {
+    case all
+    case plugin
+    case skill
+    case command
+    case mcp
+    case hook
+    case instruction
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "All"
+        case .plugin:
+            return "Plugins"
+        case .skill:
+            return "Skills"
+        case .command:
+            return "Commands"
+        case .mcp:
+            return "MCP"
+        case .hook:
+            return "Hooks"
+        case .instruction:
+            return "Instructions"
+        }
+    }
+
+    func matches(_ capability: Capability) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .plugin:
+            return capability.type == .plugin
+        case .skill:
+            return capability.type == .skill
+        case .command:
+            return capability.type == .command
+        case .mcp:
+            return capability.type == .mcpServer
+        case .hook:
+            return capability.type == .hook
+        case .instruction:
+            return capability.type == .instruction || capability.type == .rule
+        }
+    }
+}
+
+enum CapabilitySortOrder: String, CaseIterable, Identifiable {
+    case name
+    case modifiedAt
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .name:
+            return "Name"
+        case .modifiedAt:
+            return "Modified"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .name:
+            return "textformat"
+        case .modifiedAt:
+            return "clock"
+        }
+    }
+}
+
+struct CapabilityDisplaySection: Identifiable {
+    enum Kind: String, Identifiable {
+        case enabled
+        case disabled
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .enabled:
+                return "Enabled"
+            case .disabled:
+                return "Disabled"
+            }
+        }
+    }
+
+    let kind: Kind
+    let items: [CapabilityDisplayItem]
+    let capabilityCount: Int
+
+    var id: String { kind.rawValue }
+}
+
+enum CapabilityVisuals {
+    static func iconName(for type: CapabilityType) -> String {
+        switch type {
+        case .plugin:
+            return "shippingbox"
+        case .skill:
+            return "wand.and.stars"
+        case .mcpServer:
+            return "server.rack"
+        case .rule:
+            return "doc.text"
+        case .instruction:
+            return "text.book.closed"
+        case .hook:
+            return "link"
+        case .command:
+            return "terminal"
+        case .unknown:
+            return "questionmark.square"
+        }
+    }
+
+    static func statusColor(for capability: Capability) -> Color {
+        if capability.statuses.contains(.broken) { return .red }
+        if capability.statuses.contains(.drifted) || capability.statuses.contains(.shadowed) { return .orange }
+        if capability.statuses.contains(.risky) { return .yellow }
+        return .green
+    }
+
+    static func statusLabel(for capability: Capability) -> String {
+        capability.statuses.map(\.rawValue).joined(separator: ", ")
+    }
+}
+
+extension AgentID {
+    var displayName: String {
+        switch self {
+        case .codex:
+            return "Codex"
+        case .claudeCode:
+            return "Claude Code"
+        case .cursor:
+            return "Cursor"
+        }
+    }
+}
+
+extension CapabilityType {
+    var displayName: String {
+        switch self {
+        case .plugin:
+            return "Plugin"
+        case .skill:
+            return "Skill"
+        case .mcpServer:
+            return "MCP"
+        case .rule:
+            return "Rule"
+        case .instruction:
+            return "Instruction"
+        case .hook:
+            return "Hook"
+        case .command:
+            return "Command"
+        case .unknown:
+            return "Unknown"
+        }
+    }
+}

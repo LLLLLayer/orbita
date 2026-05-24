@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "lark": {
+      "command": "lark-cli",
+      "args": ["mcp"],
+      "env": {
+        "LARK_TOKEN": "test"
+      }
+    },
+    "docs": {
+      "url": "https://example.com/mcp"
+    }
+  }
+}
