@@ -36,21 +36,22 @@ struct CapabilityInspectorView: View {
 
                                 Spacer(minLength: 8)
 
-                                InspectorHeaderButton(
-                                    systemImage: "sidebar.right",
-                                    tint: .secondary,
-                                    help: "Hide inspector",
-                                    action: onClose
-                                )
-                            }
-
-                            if canApplyActions(to: capability) {
-                                InspectorActionStrip(
-                                    capability: capability,
-                                    onEnable: onEnable,
-                                    onDisable: onDisable,
-                                    onDelete: onDelete
-                                )
+                                if canApplyActions(to: capability) {
+                                    InspectorActionStrip(
+                                        capability: capability,
+                                        onEnable: onEnable,
+                                        onDisable: onDisable,
+                                        onDelete: onDelete,
+                                        onClose: onClose
+                                    )
+                                } else {
+                                    InspectorHeaderButton(
+                                        systemImage: "sidebar.right",
+                                        tint: .secondary,
+                                        help: "Hide inspector",
+                                        action: onClose
+                                    )
+                                }
                             }
                         }
                         .padding(.top, 10)
@@ -168,93 +169,98 @@ private struct InspectorActionStrip: View {
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
     let onDelete: (Capability) -> Void
+    let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            InspectorTextActionButton(
-                title: "Enable",
-                systemImage: "checkmark.circle",
-                tint: .green
-            ) {
-                onEnable(capability)
+        HStack(spacing: 6) {
+            if capability.statuses.contains(.disabled) {
+                InspectorToolbarButton(
+                    systemImage: "checkmark.circle",
+                    tint: .green,
+                    help: "Enable"
+                ) {
+                    onEnable(capability)
+                }
+            } else {
+                InspectorToolbarButton(
+                    systemImage: "minus.circle",
+                    tint: .secondary,
+                    help: "Disable"
+                ) {
+                    onDisable(capability)
+                }
             }
 
-            InspectorTextActionButton(
-                title: "Disable",
-                systemImage: "minus.circle",
-                tint: .secondary
+            InspectorToolbarButton(
+                systemImage: "trash",
+                tint: .red,
+                help: "Delete",
+                isDestructive: true
             ) {
-                onDisable(capability)
-            }
-
-            Spacer(minLength: 4)
-
-            InspectorDeleteButton {
                 onDelete(capability)
             }
+
+            Divider()
+                .frame(height: 22)
+                .padding(.horizontal, 2)
+
+            InspectorToolbarButton(
+                systemImage: "sidebar.right",
+                tint: .secondary,
+                help: "Hide inspector"
+            ) {
+                onClose()
+            }
+        }
+        .padding(4)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.secondary.opacity(0.12))
         }
     }
 }
 
-private struct InspectorTextActionButton: View {
-    let title: String
+private struct InspectorToolbarButton: View {
     let systemImage: String
     let tint: Color
+    let help: String
+    var isDestructive = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
-                .frame(width: 96, height: 46)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .frame(width: 36, height: 32)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(tint.opacity(0.18), lineWidth: 1.1)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(borderColor)
                 }
         }
         .buttonStyle(.plain)
-        .help(title)
-        .accessibilityLabel(title)
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private var backgroundColor: Color {
-        if tint == .green {
-            return Color.green.opacity(0.09)
+        if isDestructive {
+            return Color.red.opacity(0.12)
         }
-        if tint == .red {
-            return Color.red.opacity(0.11)
+        if tint == .green {
+            return Color.green.opacity(0.1)
         }
         return Color.primary.opacity(0.045)
     }
-}
 
-private struct InspectorDeleteButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "trash")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.red)
-                .frame(width: 56, height: 46)
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(Color.red.opacity(0.24), lineWidth: 1.2)
-                }
+    private var borderColor: Color {
+        if isDestructive {
+            return Color.red.opacity(0.2)
         }
-        .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .help("Delete")
-        .accessibilityLabel("Delete")
+        return tint.opacity(0.12)
     }
 }
 
