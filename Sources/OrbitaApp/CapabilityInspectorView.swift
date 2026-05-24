@@ -176,7 +176,7 @@ private struct InspectorActionStrip: View {
     let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             if capability.source.kind != "virtual-plugin", capability.statuses.contains(.disabled) {
                 InspectorToolbarButton(
                     systemImage: "checkmark.circle",
@@ -207,8 +207,8 @@ private struct InspectorActionStrip: View {
             }
 
             Divider()
-                .frame(height: 22)
-                .padding(.horizontal, 2)
+                .frame(height: 20)
+                .padding(.horizontal, 1)
 
             InspectorToolbarButton(
                 systemImage: "sidebar.right",
@@ -218,10 +218,10 @@ private struct InspectorActionStrip: View {
                 onClose()
             }
         }
-        .padding(4)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(3)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .strokeBorder(.secondary.opacity(0.12))
         }
     }
@@ -239,24 +239,26 @@ private struct InspectorToolbarButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 15)
                 if let title {
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
                 .foregroundStyle(tint)
-                .frame(width: title == nil ? 36 : nil, height: 32)
-                .padding(.horizontal, title == nil ? 0 : 10)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(width: title == nil ? 38 : 92, height: 30)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .strokeBorder(borderColor)
                 }
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .help(help)
         .accessibilityLabel(help)
     }

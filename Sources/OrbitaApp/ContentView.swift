@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var addingAgentPresented = false
     @State private var settingsPresented = false
     @State private var pendingPlan: ApplyPlan?
+    @State private var pendingDeletePlan: PendingDeletePlan?
     @State private var importerPresented = false
     @State private var didPrepareStore = false
 
@@ -59,16 +60,32 @@ struct ContentView: View {
             ApplyPlanSheet(plan: plan) {
                 pendingPlan = nil
             } onApply: {
-                withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08)) {
-                    store.apply(plan)
-                }
+                apply(plan)
                 pendingPlan = nil
-                if plan.action == .delete {
-                    selectedCapability = nil
-                } else if let updatedCapability = store.capability(id: plan.capabilityID) {
-                    selectedCapability = updatedCapability
-                }
             }
+        }
+        .alert(
+            pendingDeletePlan.map { "Delete \($0.name)?" } ?? "Delete capability?",
+            isPresented: Binding(
+                get: { pendingDeletePlan != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingDeletePlan = nil
+                    }
+                }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                pendingDeletePlan = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let plan = pendingDeletePlan?.plan {
+                    apply(plan)
+                }
+                pendingDeletePlan = nil
+            }
+        } message: {
+            Text(deleteConfirmationMessage)
         }
         .sheet(isPresented: $addingAgentPresented) {
             AddAgentSheet { agent in
@@ -182,7 +199,12 @@ struct ContentView: View {
                                 pendingPlan = store.planDisable(capability)
                             },
                             onDelete: { capability in
-                                pendingPlan = store.planDelete(capability)
+                                if let plan = store.planDelete(capability) {
+                                    pendingDeletePlan = PendingDeletePlan(
+                                        plan: plan,
+                                        name: capability.name
+                                    )
+                                }
                             },
                             onNativePluginChanged: {
                                 store.reload(force: true)
@@ -343,6 +365,28 @@ struct ContentView: View {
         return agents
     }
 
+    private func apply(_ plan: ApplyPlan) {
+        withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08)) {
+            store.apply(plan)
+        }
+        if plan.action == .delete {
+            selectedCapability = nil
+        } else if let updatedCapability = store.capability(id: plan.capabilityID) {
+            selectedCapability = updatedCapability
+        }
+    }
+
+    private var deleteConfirmationMessage: String {
+        guard let pendingDeletePlan else {
+            return "This will remove the selected capability from Orbita."
+        }
+        let affectedCount = pendingDeletePlan.plan.affectedCapabilityIDs?.count ?? 1
+        if affectedCount > 1 {
+            return "This will remove \(affectedCount) capabilities in this virtual plugin from Orbita."
+        }
+        return "This will remove this capability from Orbita."
+    }
+
     private var currentSortOption: CapabilitySortOption {
         CapabilitySortOption(rawValue: capabilitySortOption) ?? .nameAscending
     }
@@ -368,6 +412,15 @@ private enum CapabilitySectionKind: String, CaseIterable {
         case .disabled:
             return "Disabled"
         }
+    }
+}
+
+private struct PendingDeletePlan: Identifiable {
+    let plan: ApplyPlan
+    let name: String
+
+    var id: String {
+        plan.id
     }
 }
 
