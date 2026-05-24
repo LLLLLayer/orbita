@@ -8,6 +8,7 @@ struct CapabilityCollectionView: View {
 
     @State private var availableWidth: CGFloat = 760
     @State private var expandedGroupOrder: [String] = []
+    @State private var collapsedSectionIDs: Set<String> = []
 
     private let itemMinWidth: CGFloat = 118
     private let itemMaxWidth: CGFloat = 142
@@ -17,28 +18,32 @@ struct CapabilityCollectionView: View {
         VStack(alignment: .leading, spacing: 24) {
             ForEach(sectionRows) { section in
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    HStack(alignment: .center, spacing: 8) {
                         Text(section.title)
                             .font(.headline)
                         Text(section.subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
+                        sectionCollapseButton(for: section)
                     }
 
-                    ForEach(section.rows) { row in
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                            ForEach(row.items) { item in
-                                tile(for: item)
+                    if !collapsedSectionIDs.contains(section.id) {
+                        ForEach(section.rows) { row in
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                                ForEach(row.items) { item in
+                                    tile(for: item)
+                                }
+                            }
+
+                            ForEach(expandedGroups(for: row)) { group in
+                                ExpandedCapabilityGroupShelf(
+                                    group: group,
+                                    selectedCapability: $selectedCapability
+                                )
                             }
                         }
-
-                        ForEach(expandedGroups(for: row)) { group in
-                            ExpandedCapabilityGroupShelf(
-                                group: group,
-                                selectedCapability: $selectedCapability
-                            )
-                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -57,6 +62,35 @@ struct CapabilityCollectionView: View {
         .onChange(of: expandedGroupIDs) { _, ids in
             expandedGroupOrder.removeAll { !ids.contains($0) }
         }
+        .onChange(of: sections.map(\.id)) { _, ids in
+            collapsedSectionIDs = collapsedSectionIDs.filter { ids.contains($0) }
+        }
+    }
+
+    private func sectionCollapseButton(for section: CapabilityDisplaySectionRows) -> some View {
+        let isCollapsed = collapsedSectionIDs.contains(section.id)
+        return Button {
+            withAnimation(.snappy(duration: 0.18)) {
+                if isCollapsed {
+                    collapsedSectionIDs.remove(section.id)
+                } else {
+                    collapsedSectionIDs.insert(section.id)
+                }
+            }
+        } label: {
+            Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(.thinMaterial, in: Circle())
+                .overlay {
+                    Circle().strokeBorder(.secondary.opacity(0.12))
+                }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Circle())
+        .help(isCollapsed ? "Expand \(section.title)" : "Collapse \(section.title)")
+        .accessibilityLabel(isCollapsed ? "Expand \(section.title)" : "Collapse \(section.title)")
     }
 
     @ViewBuilder

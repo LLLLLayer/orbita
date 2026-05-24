@@ -16,28 +16,10 @@ struct CapabilityInspectorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "sidebar.right")
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 34, height: 30)
-                }
-                .buttonStyle(.plain)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .help("Hide inspector")
-            }
-            .padding(.top, 28)
-            .padding(.leading, 24)
-            .padding(.trailing, 22)
-            .padding(.bottom, 10)
-
-            Divider()
-
             ScrollView {
                 if let capability {
                     VStack(alignment: .leading, spacing: 16) {
-                        HStack(alignment: .top, spacing: 10) {
+                        HStack(alignment: .top, spacing: 12) {
                             Image(systemName: CapabilityVisuals.iconName(for: capability.type))
                                 .font(.system(size: 19, weight: .medium))
                                 .frame(width: 26, height: 26)
@@ -49,46 +31,33 @@ struct CapabilityInspectorView: View {
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
+                            .layoutPriority(1)
+
+                            Spacer(minLength: 8)
+
+                            InspectorHeaderActionBar(
+                                capability: capability,
+                                canApplyActions: canApplyActions(to: capability),
+                                onEnable: onEnable,
+                                onDisable: onDisable,
+                                onDelete: onDelete,
+                                onClose: onClose
+                            )
                         }
+                        .padding(.top, 10)
 
-                        InspectorSection {
-                            InspectorField("Scope", value: capability.scope.rawValue)
-                            InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
-                            InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
-                            InspectorPathField("Source", path: sourcePath(for: capability))
-                            if let childCount = capability.metadata["childCount"] {
-                                InspectorField("Children", value: childCount)
+                        VStack(alignment: .leading, spacing: 16) {
+                            InspectorSection {
+                                InspectorField("Scope", value: capability.scope.rawValue)
+                                InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
+                                InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
+                                InspectorPathField("Source", path: sourcePath(for: capability))
+                                if let childCount = capability.metadata["childCount"] {
+                                    InspectorField("Children", value: childCount)
+                                }
                             }
-                        }
 
-                        StatusReasonSection(capability: capability)
-
-                        if canApplyActions(to: capability) {
-                            HStack(spacing: 8) {
-                                Button {
-                                    onEnable(capability)
-                                } label: {
-                                    Label("Enable", systemImage: "checkmark.circle")
-                                }
-                                Button {
-                                    onDisable(capability)
-                                } label: {
-                                    Label("Disable", systemImage: "minus.circle")
-                                }
-                                Button(role: .destructive) {
-                                    onDelete(capability)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                Spacer(minLength: 0)
-                                Button(action: onClose) {
-                                    Label("Collapse", systemImage: "sidebar.right")
-                                        .labelStyle(.iconOnly)
-                                }
-                                .help("Collapse inspector")
-                            }
-                            .buttonStyle(.bordered)
-                            .padding(.top, 2)
+                            StatusReasonSection(capability: capability)
                         }
 
                         if !nativePluginActions(for: capability).isEmpty {
@@ -107,9 +76,9 @@ struct CapabilityInspectorView: View {
                             MarkdownPreviewCard(sourcePath: markdownPath)
                         }
                     }
-                    .padding(.top, 18)
+                    .padding(.top, 24)
                     .padding(.leading, 24)
-                    .padding(.trailing, 24)
+                    .padding(.trailing, 22)
                     .padding(.bottom, 18)
                 } else {
                     ContentUnavailableView(
@@ -182,6 +151,89 @@ struct CapabilityInspectorView: View {
                 }
             }
         }
+    }
+}
+
+private struct InspectorHeaderActionBar: View {
+    let capability: Capability
+    let canApplyActions: Bool
+    let onEnable: (Capability) -> Void
+    let onDisable: (Capability) -> Void
+    let onDelete: (Capability) -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if canApplyActions {
+                InspectorHeaderButton(
+                    systemImage: "checkmark.circle",
+                    tint: .green,
+                    help: "Enable"
+                ) {
+                    onEnable(capability)
+                }
+
+                InspectorHeaderButton(
+                    systemImage: "minus.circle",
+                    tint: .secondary,
+                    help: "Disable"
+                ) {
+                    onDisable(capability)
+                }
+
+                InspectorHeaderButton(
+                    systemImage: "trash",
+                    tint: .red,
+                    help: "Delete",
+                    isDestructive: true
+                ) {
+                    onDelete(capability)
+                }
+
+                Divider()
+                    .frame(height: 18)
+                    .padding(.horizontal, 2)
+            }
+
+            InspectorHeaderButton(
+                systemImage: "sidebar.right",
+                tint: .secondary,
+                help: "Hide inspector",
+                action: onClose
+            )
+        }
+        .padding(4)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.secondary.opacity(0.12))
+        }
+    }
+}
+
+private struct InspectorHeaderButton: View {
+    let systemImage: String
+    let tint: Color
+    let help: String
+    var isDestructive = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 28)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var backgroundColor: Color {
+        isDestructive ? Color.red.opacity(0.11) : Color.primary.opacity(0.045)
     }
 }
 
