@@ -368,22 +368,47 @@ struct CapabilityFilterBar: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                Label("Sort", systemImage: "arrow.up.arrow.down")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Picker("Sort", selection: Binding(
-                    get: { sortOption },
-                    set: { onChangeSort($0) }
-                )) {
-                    ForEach(CapabilitySortOption.allCases) { option in
-                        Text(option.title).tag(option)
+            SortMenuButton(sortOption: sortOption, onChangeSort: onChangeSort)
+        }
+    }
+}
+
+private struct SortMenuButton: View {
+    let sortOption: CapabilitySortOption
+    let onChangeSort: (CapabilitySortOption) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(CapabilitySortOption.allCases) { option in
+                Button {
+                    onChangeSort(option)
+                } label: {
+                    if option == sortOption {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
                     }
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 380)
             }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(sortOption.title)
+                    .font(.subheadline.weight(.medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 11)
+            .frame(height: 30)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Sort capabilities")
     }
 }
 

@@ -9,7 +9,7 @@ if [[ -z "$VERSION" ]]; then
   exit 2
 fi
 
-if [[ ! "$VERSION" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+([-.][A-Za-z0-9._-]+)?$ ]]; then
+if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9._-]+)?$ ]]; then
   echo "release version must look like v0.1.0" >&2
   exit 2
 fi
@@ -36,7 +36,11 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build
 
+APP=".build/release-local/Build/Products/Release/Orbita.app"
+DMG="dist/Orbita-${VERSION}.dmg"
+script/package_dmg.sh "$APP" "$VERSION" "$DMG"
+
 git tag -a "$VERSION" -m "Orbita $VERSION"
 git push origin "$VERSION"
 
-echo "Pushed $VERSION. GitHub Actions will build and publish the release."
+echo "Created $DMG locally and pushed $VERSION. GitHub Actions will publish the DMG release."

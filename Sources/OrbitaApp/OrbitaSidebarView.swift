@@ -1,5 +1,6 @@
 import SwiftUI
 import OrbitaCore
+import UniformTypeIdentifiers
 
 struct OrbitaSidebarView: View {
     let projects: [ProjectRecord]
@@ -9,7 +10,11 @@ struct OrbitaSidebarView: View {
     let onSelectThisMac: () -> Void
     let onSelectProject: (ProjectRecord) -> Void
     let onRemoveProject: (ProjectRecord) -> Void
+    let onMoveProjects: (IndexSet, Int) -> Void
     let onOpenSettings: () -> Void
+
+    @State private var isEditingProjects = false
+    @State private var draggedProjectPath: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -41,13 +46,30 @@ struct OrbitaSidebarView: View {
                 SidebarSection(
                     title: "Projects",
                     trailing: {
-                        Button(action: onAddProject) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 13, weight: .semibold))
-                                .frame(width: 22, height: 20)
+                        HStack(spacing: 4) {
+                            if !projects.isEmpty {
+                                Button {
+                                    withAnimation(.snappy(duration: 0.18)) {
+                                        isEditingProjects.toggle()
+                                    }
+                                } label: {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(width: 22, height: 20)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(isEditingProjects ? Color.accentColor : Color.secondary)
+                                .help(isEditingProjects ? "Done reordering" : "Reorder projects")
+                            }
+
+                            Button(action: onAddProject) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .frame(width: 22, height: 20)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open project")
                         }
-                        .buttonStyle(.plain)
-                        .help("Open project")
                     },
                     content: {
                         if projects.isEmpty {
@@ -61,17 +83,43 @@ struct OrbitaSidebarView: View {
                         } else {
                             VStack(spacing: 4) {
                                 ForEach(projects) { project in
-                                    ProjectSidebarRow(
-                                        project: project,
-                                        isSelected: selection == project.path,
-                                        onSelect: {
-                                            selection = project.path
-                                            onSelectProject(project)
-                                        },
-                                        onRemove: {
-                                            onRemoveProject(project)
+                                    if isEditingProjects {
+                                        ProjectSidebarRow(
+                                            project: project,
+                                            isSelected: selection == project.path,
+                                            isEditing: true,
+                                            onSelect: {},
+                                            onRemove: {
+                                                onRemoveProject(project)
+                                            }
+                                        )
+                                        .onDrag {
+                                            draggedProjectPath = project.path
+                                            return NSItemProvider(object: project.path as NSString)
                                         }
-                                    )
+                                        .onDrop(
+                                            of: [UTType.text],
+                                            delegate: ProjectReorderDropDelegate(
+                                                project: project,
+                                                projects: projects,
+                                                draggedProjectPath: $draggedProjectPath,
+                                                onMoveProjects: onMoveProjects
+                                            )
+                                        )
+                                    } else {
+                                        ProjectSidebarRow(
+                                            project: project,
+                                            isSelected: selection == project.path,
+                                            isEditing: false,
+                                            onSelect: {
+                                                selection = project.path
+                                                onSelectProject(project)
+                                            },
+                                            onRemove: {
+                                                onRemoveProject(project)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -123,6 +171,29 @@ struct OrbitaSidebarRail: View {
     }
 }
 
+private struct ProjectReorderDropDelegate: DropDelegate {
+    let project: ProjectRecord
+    let projects: [ProjectRecord]
+    @Binding var draggedProjectPath: String?
+    let onMoveProjects: (IndexSet, Int) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedProjectPath,
+              draggedProjectPath != project.path,
+              let fromIndex = projects.firstIndex(where: { $0.path == draggedProjectPath }),
+              let toIndex = projects.firstIndex(where: { $0.path == project.path })
+        else {
+            return
+        }
+        onMoveProjects(IndexSet(integer: fromIndex), toIndex > fromIndex ? toIndex + 1 : toIndex)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedProjectPath = nil
+        return true
+    }
+}
+
 private struct SidebarSection<Content: View, Trailing: View>: View {
     let title: String
     @ViewBuilder var trailing: () -> Trailing
@@ -158,20 +229,33 @@ private struct SidebarSection<Content: View, Trailing: View>: View {
 private struct ProjectSidebarRow: View {
     let project: ProjectRecord
     let isSelected: Bool
+    let isEditing: Bool
     let onSelect: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
-        SidebarNavigationRow(
-            title: project.name,
-            subtitle: project.path,
-            systemImage: "folder",
-            isSelected: isSelected,
-            action: onSelect
-        )
+        HStack(spacing: 0) {
+            if isEditing {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                    .padding(.leading, 14)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+            SidebarNavigationRow(
+                title: project.name,
+                subtitle: project.path,
+                systemImage: "folder",
+                isSelected: isSelected,
+                action: onSelect
+            )
+            .disabled(isEditing)
+        }
         .contextMenu {
             Button("Remove from Orbita", role: .destructive, action: onRemove)
         }
+        .animation(.snappy(duration: 0.16), value: isEditing)
     }
 }
 

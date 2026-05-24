@@ -115,94 +115,100 @@ struct ContentView: View {
     }
 
     private var mainAppLayout: some View {
-        HStack(spacing: 0) {
-            sidebar
-
-            Divider()
-
+        Group {
             if settingsPresented {
-                OrbitaSettingsView(
-                    refreshPolicy: $scanRefreshPolicy,
-                    languageCode: $orbitaLanguageCode,
-                    sortOption: $capabilitySortOption,
-                    projectName: store.projectName,
-                    projectRootPath: store.activeRootPath,
-                    onRefresh: {
-                        store.reload(force: true)
-                    },
-                    onClose: {
-                        settingsPresented = false
-                    }
-                )
-                .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
-                .transition(.opacity)
+                settingsView
             } else {
-                CapabilityMainView(
-                    projectName: store.projectName,
-                    hasActiveContext: store.hasActiveContext,
-                    graph: store.graph,
-                    isScanning: store.isScanning,
-                    scanMessage: store.scanMessage,
-                    scanProgress: store.scanProgress,
-                    lastRefreshLabel: store.lastRefreshLabel,
-                    errorMessage: store.errorMessage,
-                    selectedAgent: $selectedAgent,
-                    selectedGroup: $selectedGroup,
-                    sortOption: currentSortOption,
-                    agentOptions: agentOptions,
-                    displaySections: capabilityDisplaySections,
-                    selectedCapability: $selectedCapability,
-                    expandedGroupIDs: $expandedGroupIDs,
-                    onAddAgent: {
-                        addingAgentPresented = true
-                    },
-                    onOpenProject: {
-                        importerPresented = true
-                    },
-                    onRefresh: {
-                        store.reload(force: true)
-                    },
-                    onMerge: {
-                        pendingPlan = store.planMerge()
-                    },
-                    onClean: {
-                        pendingPlan = store.planClean()
-                    },
-                    onChangeSort: { option in
-                        capabilitySortOption = option.rawValue
-                    }
-                )
-                .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
-            }
+                HStack(spacing: 0) {
+                    sidebar
 
-            if !settingsPresented, store.hasActiveContext, inspectorVisible {
-                Divider()
-                    .transition(.opacity)
-                CapabilityInspectorView(
-                    capability: selectedCapability,
-                    onClose: {
-                        withAnimation(.snappy(duration: 0.22)) {
-                            inspectorVisible = false
-                            selectedCapability = nil
+                    Divider()
+
+                    CapabilityMainView(
+                        projectName: store.projectName,
+                        hasActiveContext: store.hasActiveContext,
+                        graph: store.graph,
+                        isScanning: store.isScanning,
+                        scanMessage: store.scanMessage,
+                        scanProgress: store.scanProgress,
+                        lastRefreshLabel: store.lastRefreshLabel,
+                        errorMessage: store.errorMessage,
+                        selectedAgent: $selectedAgent,
+                        selectedGroup: $selectedGroup,
+                        sortOption: currentSortOption,
+                        agentOptions: agentOptions,
+                        displaySections: capabilityDisplaySections,
+                        selectedCapability: $selectedCapability,
+                        expandedGroupIDs: $expandedGroupIDs,
+                        onAddAgent: {
+                            addingAgentPresented = true
+                        },
+                        onOpenProject: {
+                            importerPresented = true
+                        },
+                        onRefresh: {
+                            store.reload(force: true)
+                        },
+                        onMerge: {
+                            pendingPlan = store.planMerge()
+                        },
+                        onClean: {
+                            pendingPlan = store.planClean()
+                        },
+                        onChangeSort: { option in
+                            capabilitySortOption = option.rawValue
                         }
-                    },
-                    onEnable: { capability in
-                        pendingPlan = store.planEnable(capability)
-                    },
-                    onDisable: { capability in
-                        pendingPlan = store.planDisable(capability)
-                    },
-                    onDelete: { capability in
-                        pendingPlan = store.planDelete(capability)
-                    },
-                    onNativePluginChanged: {
-                        store.reload(force: true)
+                    )
+                    .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+
+                    if store.hasActiveContext, inspectorVisible {
+                        Divider()
+                            .transition(.opacity)
+                        CapabilityInspectorView(
+                            capability: selectedCapability,
+                            onClose: {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    inspectorVisible = false
+                                    selectedCapability = nil
+                                }
+                            },
+                            onEnable: { capability in
+                                pendingPlan = store.planEnable(capability)
+                            },
+                            onDisable: { capability in
+                                pendingPlan = store.planDisable(capability)
+                            },
+                            onDelete: { capability in
+                                pendingPlan = store.planDelete(capability)
+                            },
+                            onNativePluginChanged: {
+                                store.reload(force: true)
+                            }
+                        )
+                        .frame(width: 340)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
-                )
-                .frame(width: 340)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
+    }
+
+    private var settingsView: some View {
+        OrbitaSettingsView(
+            refreshPolicy: $scanRefreshPolicy,
+            languageCode: $orbitaLanguageCode,
+            sortOption: $capabilitySortOption,
+            projectName: store.projectName,
+            projectRootPath: store.activeRootPath,
+            onRefresh: {
+                store.reload(force: true)
+            },
+            onClose: {
+                settingsPresented = false
+            }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -255,6 +261,9 @@ struct ContentView: View {
                     if selectedProject == project.path {
                         selectEnvironment()
                     }
+                },
+                onMoveProjects: { source, destination in
+                    store.moveProjects(from: source, to: destination)
                 },
                 onOpenSettings: {
                     settingsPresented = true

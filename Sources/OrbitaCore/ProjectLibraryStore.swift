@@ -27,8 +27,12 @@ public struct ProjectLibrary: Codable, Sendable {
     public mutating func upsert(projectRoot: URL) {
         let normalizedPath = normalizedPath(projectRoot)
         let name = projectRoot.lastPathComponent.isEmpty ? normalizedPath : projectRoot.lastPathComponent
-        projects.removeAll { $0.path == normalizedPath }
-        projects.insert(ProjectRecord(name: name, path: normalizedPath), at: 0)
+        if let index = projects.firstIndex(where: { $0.path == normalizedPath }) {
+            projects[index].name = name
+            projects[index].lastOpenedAt = ISO8601DateFormatter().string(from: Date())
+        } else {
+            projects.append(ProjectRecord(name: name, path: normalizedPath))
+        }
         lastProjectPath = normalizedPath
     }
 
@@ -38,6 +42,21 @@ public struct ProjectLibrary: Codable, Sendable {
         if lastProjectPath == normalized {
             lastProjectPath = projects.first?.path
         }
+    }
+
+    public mutating func moveProjects(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let indexes = source.filter { projects.indices.contains($0) }.sorted()
+        guard !indexes.isEmpty else { return }
+        let moved = indexes.map { projects[$0] }
+        var adjustedDestination = destination
+        for index in indexes.reversed() {
+            projects.remove(at: index)
+            if index < adjustedDestination {
+                adjustedDestination -= 1
+            }
+        }
+        let insertionIndex = min(max(adjustedDestination, 0), projects.count)
+        projects.insert(contentsOf: moved, at: insertionIndex)
     }
 
     private func normalizedPath(_ url: URL) -> String {

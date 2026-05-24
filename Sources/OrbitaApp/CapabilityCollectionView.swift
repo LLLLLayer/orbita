@@ -41,8 +41,10 @@ struct CapabilityCollectionView: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             GeometryReader { proxy in
                 Color.clear

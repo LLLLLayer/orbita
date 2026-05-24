@@ -56,8 +56,14 @@ final class CapabilityScannerTests: XCTestCase {
         try store.save(library)
 
         var loaded = try store.load()
-        XCTAssertEqual(loaded.projects.map(\.name), [projectB.lastPathComponent, projectA.lastPathComponent])
+        XCTAssertEqual(loaded.projects.map(\.name), [projectA.lastPathComponent, projectB.lastPathComponent])
         XCTAssertEqual(loaded.lastProjectPath, projectB.standardizedFileURL.resolvingSymlinksInPath().path)
+
+        loaded.upsert(projectRoot: projectA)
+        XCTAssertEqual(loaded.projects.map(\.name), [projectA.lastPathComponent, projectB.lastPathComponent])
+
+        loaded.moveProjects(fromOffsets: IndexSet(integer: 0), toOffset: 2)
+        XCTAssertEqual(loaded.projects.map(\.name), [projectB.lastPathComponent, projectA.lastPathComponent])
 
         loaded.remove(projectPath: projectB.path)
         try store.save(loaded)

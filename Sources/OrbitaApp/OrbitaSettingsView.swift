@@ -158,7 +158,7 @@ struct OrbitaSettingsView: View {
             .padding(.top, 30)
             .padding(.horizontal, 30)
             .padding(.bottom, 34)
-            .frame(maxWidth: 760, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
@@ -174,12 +174,19 @@ struct OrbitaSettingsView: View {
                 .pickerStyle(.radioGroup)
             }
             SettingsCard(title: "Display", systemImage: "arrow.up.arrow.down") {
-                Picker("Capability sort", selection: $sortOption) {
-                    ForEach(CapabilitySortOption.allCases) { option in
-                        Text(option.title).tag(option.rawValue)
+                HStack(spacing: 12) {
+                    Text("Capability sort")
+                        .font(.callout)
+                    Spacer()
+                    Picker("Capability sort", selection: $sortOption) {
+                        ForEach(CapabilitySortOption.allCases) { option in
+                            Text(option.title).tag(option.rawValue)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 180)
                 }
-                .pickerStyle(.segmented)
             }
             SettingsCard(title: "Language", systemImage: "globe") {
                 Picker("Display language", selection: $languageCode) {
@@ -226,7 +233,7 @@ struct OrbitaSettingsView: View {
             SettingsCard(title: "GitHub Actions", systemImage: "shippingbox") {
                 SettingsInfoRow(title: "Workflow", value: ".github/workflows/release.yml")
                 SettingsInfoRow(title: "Trigger", value: "Push a tag like v\(VersionInfo.current.version)")
-                SettingsInfoRow(title: "Artifact", value: "Orbita.app.zip")
+                SettingsInfoRow(title: "Artifact", value: "Orbita-v\(VersionInfo.current.version).dmg")
             }
             CommandCard(
                 title: "Check GitHub CLI",
@@ -237,7 +244,7 @@ struct OrbitaSettingsView: View {
             )
             CommandCard(
                 title: "Tag current version",
-                detail: "Create and push the release tag. The GitHub workflow builds and publishes the release automatically.",
+                detail: "Create a local DMG, push the release tag, then let GitHub Actions publish the DMG.",
                 command: "script/release_github.sh v\(VersionInfo.current.version)",
                 isRunning: isRunningCommand,
                 onRun: { runCommand("script/release_github.sh v\(VersionInfo.current.version)") }

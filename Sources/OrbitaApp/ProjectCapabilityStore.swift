@@ -304,6 +304,16 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
+    func moveProjects(from source: IndexSet, to destination: Int) {
+        library.moveProjects(fromOffsets: source, toOffset: destination)
+        projects = library.projects
+        do {
+            try projectLibraryStore.save(library)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func planEnable(_ capability: Capability) -> ApplyPlan? {
         guard let graph else { return nil }
         do {

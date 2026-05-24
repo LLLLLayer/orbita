@@ -148,7 +148,8 @@ Orbita releases are tag-driven.
 - CI trigger: push a tag matching `v*`, or run the Release workflow manually.
 - CI workflow: `.github/workflows/release.yml`
 - Build: Xcode Release build with `CODE_SIGNING_ALLOWED=NO`
-- Artifact: `Orbita-vX.Y.Z.app.zip`
+- Package: `script/package_dmg.sh <Orbita.app> vX.Y.Z <output.dmg>` creates a compressed DMG with `Orbita.app` and an `/Applications` shortcut.
+- Artifact: `Orbita-vX.Y.Z.dmg`
 - Publish: GitHub Release with generated release notes.
 
 Version information displayed in Settings comes from the app bundle:

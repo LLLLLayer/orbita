@@ -43,16 +43,16 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Package app
+      - name: Package DMG
         run: |
           APP=".build/release/Build/Products/Release/Orbita.app"
           test -d "$APP"
-          ditto -c -k --keepParent "$APP" "Orbita-${{ steps.version.outputs.value }}.app.zip"
+          script/package_dmg.sh "$APP" "${{ steps.version.outputs.value }}" "Orbita-${{ steps.version.outputs.value }}.dmg"
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.value }}
           name: Orbita ${{ steps.version.outputs.value }}
-          files: Orbita-${{ steps.version.outputs.value }}.app.zip
+          files: Orbita-${{ steps.version.outputs.value }}.dmg
           generate_release_notes: true
