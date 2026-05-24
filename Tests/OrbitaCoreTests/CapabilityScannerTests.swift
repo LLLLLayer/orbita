@@ -764,6 +764,45 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: skill.source.path))
     }
 
+    func testDeleteManifestOnlyCapabilityRemovesRecordedSourcePathNotManifest() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let recordedSource = temporaryRoot
+            .appendingPathComponent("external")
+            .appendingPathComponent("orphan")
+            .appendingPathComponent("SKILL.md")
+        let manifest = temporaryRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {
+              "id": "skill:external-orphan",
+              "name": "external-orphan",
+              "type": "skill",
+              "status": "enabled",
+              "sourcePath": "\(recordedSource.path)"
+            }
+          ]
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let capability = try XCTUnwrap(graph.capabilities.first { $0.id == "skill:external-orphan" })
+        let plan = try ApplyPlanBuilder().planDelete(capabilityID: capability.id, graph: graph)
+
+        XCTAssertTrue(plan.operations.contains {
+            $0.kind == .removePath && $0.path == recordedSource.deletingLastPathComponent().path
+        })
+        XCTAssertFalse(plan.operations.contains {
+            $0.kind == .removePath && $0.path == manifest.path
+        })
+    }
+
     func testEnableAfterDisablePreservesOtherManifestEntries() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")

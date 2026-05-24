@@ -107,13 +107,22 @@ struct CapabilityInspectorView: View {
     }
 
     private func sourcePath(for capability: Capability) -> String {
+        if let path = capability.metadata["sourcePath"],
+           !path.isEmpty,
+           !isInternalOrbitaIndexPath(path) {
+            return path
+        }
+        if isInternalOrbitaIndexPath(capability.source.path) {
+            return "-"
+        }
         if !capability.source.path.isEmpty {
             return capability.source.path
         }
-        if let path = capability.metadata["sourcePath"], !path.isEmpty {
-            return path
-        }
         return "-"
+    }
+
+    private func isInternalOrbitaIndexPath(_ path: String) -> Bool {
+        path.contains("/.orbita/this-mac/")
     }
 
     private func markdownPreviewPath(for capability: Capability) -> String? {
@@ -690,17 +699,31 @@ private struct InspectorPathField: View {
                 .frame(width: 58, alignment: .leading)
                 .padding(.top, 1)
 
-            Text(path.isEmpty ? "-" : path)
+            Text(displayPath)
                 .font(.caption.monospaced())
-                .textSelection(.enabled)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .truncationMode(.middle)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(path.isEmpty ? "-" : path)
 
             SourceFolderButton(path: path)
+                .padding(.top, 1)
         }
+    }
+
+    private var displayPath: String {
+        let value = path.isEmpty ? "-" : path.replacingOccurrences(
+            of: FileManager.default.homeDirectoryForCurrentUser.path,
+            with: "~"
+        )
+        guard value.count > 42 else {
+            return value
+        }
+        let components = value.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard components.count > 4 else {
+            return value
+        }
+        return "…/" + components.suffix(3).joined(separator: "/")
     }
 }
 

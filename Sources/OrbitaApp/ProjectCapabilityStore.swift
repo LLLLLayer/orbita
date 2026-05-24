@@ -481,10 +481,16 @@ final class ProjectCapabilityStore: ObservableObject {
                 return
             }
             let affectedIDs = Set(syncedCapabilities.map(\.id))
-            let affectedPaths = Set(syncedCapabilities.map(\.source.path))
+            let affectedPaths = Set(syncedCapabilities.flatMap { capability in
+                [capability.source.path, capability.metadata["sourcePath"]]
+                    .compactMap { $0 }
+                    .filter { !$0.isEmpty }
+            })
             let initialCount = snapshot.graph.capabilities.count
             snapshot.graph.capabilities.removeAll { capability in
-                affectedIDs.contains(capability.id) || affectedPaths.contains(capability.source.path)
+                affectedIDs.contains(capability.id)
+                    || affectedPaths.contains(capability.source.path)
+                    || affectedPaths.contains(capability.metadata["sourcePath"] ?? "")
             }
             guard snapshot.graph.capabilities.count != initialCount else { return }
             snapshot.graph.generatedAt = ISO8601DateFormatter().string(from: Date())

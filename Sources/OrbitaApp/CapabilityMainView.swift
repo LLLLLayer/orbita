@@ -26,6 +26,8 @@ struct CapabilityMainView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let graph {
                 GeometryReader { proxy in
+                    let contentPadding = horizontalContentPadding(for: proxy.size.width)
+                    let contentWidth = max(1, proxy.size.width - contentPadding * 2)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
                             HeaderSurface(
@@ -58,21 +60,25 @@ struct CapabilityMainView: View {
                             }
 
                             if displaySections.isEmpty {
-                                ContentUnavailableView("No capabilities", systemImage: "tray")
-                                    .frame(maxWidth: .infinity, minHeight: 280)
+                                EmptyCapabilitiesState()
+                                    .frame(
+                                        width: contentWidth,
+                                        height: emptyStateHeight(for: proxy.size.height),
+                                        alignment: .center
+                                    )
                             } else {
-                                let horizontalPadding = horizontalContentPadding(for: proxy.size.width)
                                 CapabilityCollectionView(
                                     sections: displaySections,
                                     selectedCapability: $selectedCapability,
                                     expandedGroupIDs: $expandedGroupIDs,
-                                    availableWidth: max(1, proxy.size.width - horizontalPadding * 2)
+                                    availableWidth: contentWidth
                                 )
                                 .padding(.top, 4)
                             }
                         }
+                        .frame(width: contentWidth, alignment: .topLeading)
                         .padding(.top, 28)
-                        .padding(.horizontal, horizontalContentPadding(for: proxy.size.width))
+                        .padding(.horizontal, contentPadding)
                         .padding(.bottom, 28)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
@@ -125,6 +131,10 @@ struct CapabilityMainView: View {
             return 22
         }
         return 28
+    }
+
+    private func emptyStateHeight(for height: CGFloat) -> CGFloat {
+        max(360, height - 360)
     }
 }
 
@@ -448,27 +458,37 @@ private struct SourceOverviewStrip: View {
     let overview: AgentCapabilityOverview
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(sourceSummaries, id: \.kind) { summary in
-                HStack(spacing: 10) {
-                    Image(systemName: summary.kind.systemImage)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(summary.kind.title)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Text(subtitle(for: summary))
-                            .font(.caption)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(sourceSummaries, id: \.kind) { summary in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: summary.kind.systemImage)
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
+                            .frame(width: 20, height: 22)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(summary.kind.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(primaryDetail(for: summary))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Text(secondaryDetail(for: summary))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(width: 258, alignment: .topLeading)
+                    .frame(minHeight: 76, alignment: .topLeading)
+                    .orbitaCard(cornerRadius: 16, shadowRadius: 5, shadowY: 2)
                 }
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-                .orbitaCard(cornerRadius: 14, shadowRadius: 5, shadowY: 2)
             }
         }
     }
@@ -478,19 +498,34 @@ private struct SourceOverviewStrip: View {
         let agentSummaries = Dictionary(uniqueKeysWithValues: overview.agentSummaries.map { ($0.agent, $0) })
         return CapabilitySourceClassifier.SourceKind.headerKinds
             .map { kind in
-                SourceSummary(
+                let sourceCapabilities = grouped[kind] ?? []
+                return SourceSummary(
                     kind: kind,
-                    count: grouped[kind]?.count ?? 0,
+                    count: sourceCapabilities.count,
+                    enabledCount: sourceCapabilities.filter { $0.statuses.contains(.enabled) }.count,
+                    disabledCount: sourceCapabilities.filter { $0.statuses.contains(.disabled) }.count,
+                    driftedCount: sourceCapabilities.filter { $0.statuses.contains(.drifted) }.count,
                     agentSummary: agentSummary(for: kind, in: agentSummaries)
                 )
             }
     }
 
-    private func subtitle(for summary: SourceSummary) -> String {
+    private func primaryDetail(for summary: SourceSummary) -> String {
         guard let agentSummary = summary.agentSummary else {
-            return "\(summary.count) capabilities"
+            return "\(summary.count) indexed · \(summary.enabledCount) enabled"
         }
-        return "\(agentSummary.visibleCount) visible, \(agentSummary.hiddenCount) hidden"
+        return "\(agentSummary.visibleCount) visible · \(agentSummary.hiddenCount) hidden"
+    }
+
+    private func secondaryDetail(for summary: SourceSummary) -> String {
+        if let agentSummary = summary.agentSummary {
+            let drift = agentSummary.driftedCount == 0 ? "no drift" : "\(agentSummary.driftedCount) drift"
+            let risk = agentSummary.riskyCount == 0 ? "ready" : "\(agentSummary.riskyCount) review"
+            return "\(risk) · \(drift) · native \(summary.kind.title) loading"
+        }
+        let disabled = summary.disabledCount == 0 ? "no disabled entries" : "\(summary.disabledCount) disabled"
+        let drift = summary.driftedCount == 0 ? "sync ready" : "\(summary.driftedCount) drift"
+        return "\(disabled) · \(drift) · shared across agents"
     }
 
     private func agentSummary(
@@ -510,7 +545,25 @@ private struct SourceOverviewStrip: View {
     private struct SourceSummary {
         let kind: CapabilitySourceClassifier.SourceKind
         let count: Int
+        let enabledCount: Int
+        let disabledCount: Int
+        let driftedCount: Int
         let agentSummary: AgentCapabilitySummary?
+    }
+}
+
+private struct EmptyCapabilitiesState: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "tray")
+                .font(.system(size: 38, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+            Text("No capabilities")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 

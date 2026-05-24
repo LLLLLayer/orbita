@@ -801,8 +801,11 @@ public final class ApplyPlanBuilder {
     }
 
     private func hardDeleteSourcePath(for capability: Capability) -> String? {
-        let path = capability.source.path
+        let path = capability.metadata["sourcePath"] ?? capability.source.path
         guard !path.isEmpty, path != "-" else {
+            return nil
+        }
+        guard !isInternalOrbitaIndexPath(path) else {
             return nil
         }
         if capability.type == .skill, path.hasSuffix("/SKILL.md") {
@@ -812,6 +815,10 @@ public final class ApplyPlanBuilder {
                 .path
         }
         return URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func isInternalOrbitaIndexPath(_ path: String) -> Bool {
+        path.contains("/.orbita/this-mac/")
     }
 
     private func manifestCapabilityID(for capability: Capability) -> String {
