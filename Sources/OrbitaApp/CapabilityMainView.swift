@@ -30,7 +30,6 @@ struct CapabilityMainView: View {
                         HeaderSurface(
                             projectName: projectName,
                             graph: graph,
-                            selectedAgent: selectedAgent,
                             isScanning: isScanning,
                             lastRefreshLabel: lastRefreshLabel,
                             onRefresh: onRefresh,
@@ -45,12 +44,24 @@ struct CapabilityMainView: View {
                             )
                         }
 
+                        if let errorMessage, !errorMessage.isEmpty {
+                            InlineErrorBanner(message: errorMessage)
+                        }
+
                         CapabilityFilterBar(
                             agentOptions: agentOptions,
                             selectedAgent: $selectedAgent,
                             selectedGroup: $selectedGroup,
                             onAddAgent: onAddAgent
                         )
+
+                        if selectedAgent == nil {
+                            SourceOverviewStrip(
+                                capabilities: graph.capabilities,
+                                overview: AgentOverviewBuilder().overview(graph: graph)
+                            )
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
 
                         if displaySections.isEmpty {
                             ContentUnavailableView("No capabilities", systemImage: "tray")
@@ -113,7 +124,6 @@ struct CapabilityMainView: View {
 private struct HeaderSurface: View {
     let projectName: String
     let graph: CapabilityGraph
-    let selectedAgent: AgentSelection?
     let isScanning: Bool
     let lastRefreshLabel: String
     let onRefresh: () -> Void
@@ -148,12 +158,6 @@ private struct HeaderSurface: View {
                 }
             }
 
-            if selectedAgent == nil {
-                SourceOverviewStrip(
-                    capabilities: graph.capabilities,
-                    overview: AgentOverviewBuilder().overview(graph: graph)
-                )
-            }
         }
         .padding(16)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -169,6 +173,31 @@ private struct HeaderSurface: View {
 
     private func statusCount(_ status: CapabilityStatus) -> Int {
         graph.capabilities.filter { $0.statuses.contains(status) }.count
+    }
+}
+
+private struct InlineErrorBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.red)
+                .frame(width: 18)
+            Text(message)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.red.opacity(0.18))
+        }
     }
 }
 
@@ -447,9 +476,9 @@ private struct SourceOverviewStrip: View {
 
     private func subtitle(for summary: SourceSummary) -> String {
         guard let agentSummary = summary.agentSummary else {
-            return ".agents - \(summary.count) capabilities"
+            return "\(summary.count) capabilities"
         }
-        return "\(agentSummary.visibleCount) visible, \(agentSummary.hiddenCount) hidden · \(summary.kind.sourceRoot) \(summary.count)"
+        return "\(agentSummary.visibleCount) visible, \(agentSummary.hiddenCount) hidden"
     }
 
     private func agentSummary(

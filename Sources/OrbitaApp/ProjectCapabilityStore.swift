@@ -4,6 +4,10 @@ import OrbitaCore
 @MainActor
 final class ProjectCapabilityStore: ObservableObject {
     static let environmentSelectionID = "environment"
+    static let environmentRoot = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".orbita/this-mac", isDirectory: true)
+        .standardizedFileURL
+        .resolvingSymlinksInPath()
 
     @Published var graph: CapabilityGraph?
     @Published var errorMessage: String?
@@ -284,8 +288,7 @@ final class ProjectCapabilityStore: ObservableObject {
     }
 
     func openEnvironment() {
-        let root = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".orbita/this-mac", isDirectory: true)
+        let root = Self.environmentRoot
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         } catch {
@@ -419,15 +422,77 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
-    func apply(_ plan: ApplyPlan) {
+    @discardableResult
+    func apply(_ plan: ApplyPlan) -> Bool {
+        let affectedCapabilities = affectedCapabilities(for: plan)
+        errorMessage = nil
         do {
             let result = try ApplyPlanExecutor().apply(plan)
             OrbitaTelemetry.apply.notice("apply.finish action=\(plan.action.rawValue, privacy: .public) operations=\(result.completedOperations.count, privacy: .public)")
             optimisticallyApply(plan)
-            reload(force: true, preserveCurrentGraph: true)
+            if plan.action == .delete {
+                finishFastDeleteSync(affectedCapabilities: affectedCapabilities)
+            } else {
+                reload(force: true, preserveCurrentGraph: true)
+            }
+            return true
         } catch {
             errorMessage = error.localizedDescription
             OrbitaTelemetry.apply.error("apply.failed action=\(plan.action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    private func affectedCapabilities(for plan: ApplyPlan) -> [Capability] {
+        guard let graph else { return [] }
+        let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
+        return graph.capabilities.filter { affectedIDs.contains($0.id) }
+    }
+
+    private func finishFastDeleteSync(affectedCapabilities: [Capability]) {
+        scanTask?.cancel()
+        scanTask = nil
+        isScanning = false
+        scanMessage = nil
+        scanProgress = 0
+        saveCurrentSnapshot()
+        syncEnvironmentSnapshotDelete(affectedCapabilities: affectedCapabilities)
+    }
+
+    private func saveCurrentSnapshot() {
+        guard let graph else { return }
+        lastRefreshedAt = Date()
+        do {
+            try snapshotStore.save(graph)
+            OrbitaTelemetry.scan.notice("snapshot.saved.fast-delete root=\(graph.projectRoot, privacy: .private)")
+        } catch {
+            errorMessage = error.localizedDescription
+            OrbitaTelemetry.scan.error("snapshot.save.fast-delete.failed root=\(graph.projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func syncEnvironmentSnapshotDelete(affectedCapabilities: [Capability]) {
+        guard !isEnvironment else { return }
+        let syncedCapabilities = affectedCapabilities.filter { $0.scope == .user || $0.risks.contains(.global) }
+        guard !syncedCapabilities.isEmpty else { return }
+
+        do {
+            guard var snapshot = try snapshotStore.load(projectRoot: Self.environmentRoot) else {
+                return
+            }
+            let affectedIDs = Set(syncedCapabilities.map(\.id))
+            let affectedPaths = Set(syncedCapabilities.map(\.source.path))
+            let initialCount = snapshot.graph.capabilities.count
+            snapshot.graph.capabilities.removeAll { capability in
+                affectedIDs.contains(capability.id) || affectedPaths.contains(capability.source.path)
+            }
+            guard snapshot.graph.capabilities.count != initialCount else { return }
+            snapshot.graph.generatedAt = ISO8601DateFormatter().string(from: Date())
+            try snapshotStore.save(snapshot.graph)
+            OrbitaTelemetry.scan.notice("snapshot.this-mac.synced-delete capabilities=\(initialCount - snapshot.graph.capabilities.count, privacy: .public)")
+        } catch {
+            errorMessage = error.localizedDescription
+            OrbitaTelemetry.scan.error("snapshot.this-mac.sync-delete.failed error=\(error.localizedDescription, privacy: .public)")
         }
     }
 

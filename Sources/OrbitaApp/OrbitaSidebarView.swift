@@ -2,6 +2,12 @@ import SwiftUI
 import OrbitaCore
 import UniformTypeIdentifiers
 
+enum OrbitaLayoutMetrics {
+    static let sidebarWidth: CGFloat = 224
+    static let sidebarRailWidth: CGFloat = 64
+    static let inspectorWidth: CGFloat = 340
+}
+
 struct OrbitaSidebarView: View {
     let projects: [ProjectRecord]
     @Binding var selection: String?
@@ -138,7 +144,7 @@ struct OrbitaSidebarView: View {
             )
             .padding(.bottom, 16)
         }
-        .frame(width: 224)
+        .frame(width: OrbitaLayoutMetrics.sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(.bar)
     }
@@ -171,7 +177,7 @@ struct OrbitaSidebarRail: View {
             .padding(.top, 12)
             .padding(.bottom, 16)
         }
-        .frame(width: 64)
+        .frame(width: OrbitaLayoutMetrics.sidebarRailWidth)
         .frame(maxHeight: .infinity)
         .background(.bar)
     }

@@ -15,96 +15,97 @@ struct CapabilityInspectorView: View {
     @State private var nativeActionResult: CommandRunResult?
 
     var body: some View {
+        Group {
+            if let capability {
+                inspectorContent(for: capability)
+            } else {
+                EmptyInspectorSelectionView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial)
+    }
+
+    private func inspectorContent(for capability: Capability) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
-                if let capability {
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack {
-                                Spacer(minLength: 0)
-                                if canApplyActions(to: capability) {
-                                    InspectorActionStrip(
-                                        capability: capability,
-                                        onEnable: onEnable,
-                                        onDisable: onDisable,
-                                        onDelete: onDelete,
-                                        onClose: onClose
-                                    )
-                                } else {
-                                    InspectorHeaderButton(
-                                        systemImage: "sidebar.right",
-                                        tint: .secondary,
-                                        help: "Hide inspector",
-                                        action: onClose
-                                    )
-                                }
-                            }
-
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: CapabilityVisuals.iconName(for: capability.type))
-                                    .font(.system(size: 20, weight: .medium))
-                                    .frame(width: 28, height: 28)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(capability.name)
-                                        .font(.title3.weight(.semibold))
-                                        .lineLimit(2)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Text(capability.type.displayName)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Spacer(minLength: 0)
+                            if canApplyActions(to: capability) {
+                                InspectorActionStrip(
+                                    capability: capability,
+                                    onEnable: onEnable,
+                                    onDisable: onDisable,
+                                    onDelete: onDelete,
+                                    onClose: onClose
+                                )
+                            } else {
+                                InspectorHeaderButton(
+                                    systemImage: "sidebar.right",
+                                    tint: .secondary,
+                                    help: "Hide inspector",
+                                    action: onClose
+                                )
                             }
                         }
-                        .padding(.top, 10)
 
-                        VStack(alignment: .leading, spacing: 16) {
-                            InspectorSection {
-                                InspectorField("Scope", value: capability.scope.rawValue)
-                                InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
-                                InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
-                                InspectorPathField("Source", path: sourcePath(for: capability))
-                                if let childCount = capability.metadata["childCount"] {
-                                    InspectorField("Children", value: childCount)
-                                }
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: CapabilityVisuals.iconName(for: capability.type))
+                                .font(.system(size: 20, weight: .medium))
+                                .frame(width: 28, height: 28)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(capability.name)
+                                    .font(.title3.weight(.semibold))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(capability.type.displayName)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
                             }
-
-                            StatusReasonSection(capability: capability)
-                        }
-
-                        if !nativePluginActions(for: capability).isEmpty {
-                            NativePluginActionSection(
-                                capability: capability,
-                                actions: nativePluginActions(for: capability),
-                                runningActionID: runningNativeActionID,
-                                result: nativeActionResult,
-                                onRun: { action in
-                                    runNativePluginAction(action, capability: capability)
-                                }
-                            )
-                        }
-
-                        if let markdownPath = markdownPreviewPath(for: capability) {
-                            MarkdownPreviewCard(sourcePath: markdownPath)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .padding(.top, 24)
-                    .padding(.leading, 24)
-                    .padding(.trailing, 22)
-                    .padding(.bottom, 18)
-                } else {
-                    ContentUnavailableView(
-                        "No Selection",
-                        systemImage: "sidebar.right",
-                        description: Text("Select a capability to inspect source, scope, access, and loading path.")
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 360)
-                    .padding(24)
+                    .padding(.top, 10)
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        InspectorSection {
+                            InspectorField("Scope", value: capability.scope.rawValue)
+                            InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
+                            InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
+                            InspectorPathField("Source", path: sourcePath(for: capability))
+                            if let childCount = capability.metadata["childCount"] {
+                                InspectorField("Children", value: childCount)
+                            }
+                        }
+
+                        StatusReasonSection(capability: capability)
+                    }
+
+                    if !nativePluginActions(for: capability).isEmpty {
+                        NativePluginActionSection(
+                            capability: capability,
+                            actions: nativePluginActions(for: capability),
+                            runningActionID: runningNativeActionID,
+                            result: nativeActionResult,
+                            onRun: { action in
+                                runNativePluginAction(action, capability: capability)
+                            }
+                        )
+                    }
+
+                    if let markdownPath = markdownPreviewPath(for: capability) {
+                        MarkdownPreviewCard(sourcePath: markdownPath)
+                    }
                 }
+                .padding(.top, 24)
+                .padding(.leading, 24)
+                .padding(.trailing, 22)
+                .padding(.bottom, 18)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(.regularMaterial)
     }
 
     private func sourcePath(for capability: Capability) -> String {
@@ -165,6 +166,29 @@ struct CapabilityInspectorView: View {
                 }
             }
         }
+    }
+}
+
+private struct EmptyInspectorSelectionView: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 38, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text("No Selection")
+                    .font(.title2.weight(.semibold))
+                Text("Select a capability to inspect source, scope, access, and loading path.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+        }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 

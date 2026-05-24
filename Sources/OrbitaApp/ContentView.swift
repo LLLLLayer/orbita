@@ -210,7 +210,7 @@ struct ContentView: View {
                                 store.reload(force: true)
                             }
                         )
-                        .frame(width: 340)
+                        .frame(width: OrbitaLayoutMetrics.inspectorWidth)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -256,7 +256,7 @@ struct ContentView: View {
                     settingsPresented = true
                 }
             )
-            .frame(width: 64)
+            .frame(width: OrbitaLayoutMetrics.sidebarRailWidth)
             .transition(.move(edge: .leading).combined(with: .opacity))
         } else {
             OrbitaSidebarView(
@@ -294,7 +294,7 @@ struct ContentView: View {
                     settingsPresented = true
                 }
             )
-            .frame(width: 224)
+            .frame(width: OrbitaLayoutMetrics.sidebarWidth)
             .clipped()
             .transition(.move(edge: .leading).combined(with: .opacity))
         }
@@ -366,8 +366,12 @@ struct ContentView: View {
     }
 
     private func apply(_ plan: ApplyPlan) {
+        var didApply = false
         withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08)) {
-            store.apply(plan)
+            didApply = store.apply(plan)
+        }
+        guard didApply else {
+            return
         }
         if plan.action == .delete {
             selectedCapability = nil

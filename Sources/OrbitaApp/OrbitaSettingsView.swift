@@ -90,7 +90,7 @@ struct OrbitaSettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             settingsSidebar
-                .frame(width: 224)
+                .frame(width: OrbitaLayoutMetrics.sidebarWidth)
             Divider()
             settingsDetail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
