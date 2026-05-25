@@ -237,8 +237,18 @@ private struct ExpandedCapabilityGroupShelf: View {
                 }
             }
         }
-        .padding(.top, 2)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(OrbitaTheme.elevatedSurface)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+        .shadow(color: OrbitaTheme.cardShadow, radius: 8, x: 0, y: 4)
+        .padding(.top, 2)
         .transition(.asymmetric(
             insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)),
             removal: .opacity.combined(with: .scale(scale: 0.995, anchor: .top))

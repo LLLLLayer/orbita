@@ -504,7 +504,9 @@ public final class CapabilityScanner {
         issues: inout [ScanIssue],
         scope: CapabilityScope = .project,
         sourceKind: String = "skill",
-        projectRoot: URL? = nil
+        projectRoot: URL? = nil,
+        codexConfigPath: String? = nil,
+        codexPluginStates: [String: Bool] = [:]
     ) {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -539,7 +541,14 @@ public final class CapabilityScanner {
                 break
             }
 
-            capabilities.append(scanSkill(at: url, projectRoot: projectRoot ?? root, scope: scope, sourceKind: sourceKind))
+            capabilities.append(scanSkill(
+                at: url,
+                projectRoot: projectRoot ?? root,
+                scope: scope,
+                sourceKind: sourceKind,
+                codexConfigPath: codexConfigPath,
+                codexPluginStates: codexPluginStates
+            ))
         }
 
         emitProgress("scan.skills.finish", path: root.path, count: count, options: options)
@@ -547,6 +556,7 @@ public final class CapabilityScanner {
 
     private func scanUserSkillRoots(projectRoot: URL, options: ScanOptions, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
         guard options.includeUserScope else { return }
+        let codexStates = codexPluginStates(at: options.codexConfigURL)
         for root in options.userSkillRoots {
             let standardizedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
             scanSkillFiles(
@@ -556,7 +566,9 @@ public final class CapabilityScanner {
                 issues: &issues,
                 scope: .user,
                 sourceKind: userSkillSourceKind(for: standardizedRoot),
-                projectRoot: projectRoot
+                projectRoot: projectRoot,
+                codexConfigPath: options.codexConfigURL.path,
+                codexPluginStates: codexStates
             )
         }
     }
@@ -572,18 +584,47 @@ public final class CapabilityScanner {
         return "user-skill"
     }
 
-    private func scanSkill(at url: URL, projectRoot: URL, scope: CapabilityScope, sourceKind: String) -> Capability {
+    private func scanSkill(
+        at url: URL,
+        projectRoot: URL,
+        scope: CapabilityScope,
+        sourceKind: String,
+        codexConfigPath: String?,
+        codexPluginStates: [String: Bool]
+    ) -> Capability {
         let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
         let parentName = url.deletingLastPathComponent().lastPathComponent
         let name = frontmatter["name"] ?? parentName
         let packageInfo = packageInfo(for: url, projectRoot: projectRoot)
+        let codexCacheInfo = codexPluginCacheInfo(for: url)
         var metadata = fileMetadata(for: url, merging: frontmatter)
+        var statuses: [CapabilityStatus]
         if sourceKind == "agents-skill" {
             metadata["manager"] = "agents-skills"
             metadata["pluginSelector"] = name
             metadata["checkCommand"] = scope == .user ? "npx skills list -g" : "npx skills list"
             metadata["updateCommand"] = "npx skills update \(shellQuoted(name)) \(scope == .user ? "-g" : "-p") -y"
             metadata["lifecycleNote"] = "Skills CLI updates installed .agents skills by name; disabling is modeled as removal or .agents manifest intent."
+            statuses = [.enabled]
+        } else if let codexCacheInfo, scope == .user {
+            let selector = "\(codexCacheInfo.pluginName)@\(codexCacheInfo.marketplace)"
+            let configPath = codexConfigPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/config.toml").path
+            metadata["manager"] = "codex"
+            metadata["pluginSelector"] = selector
+            metadata["marketplace"] = codexCacheInfo.marketplace
+            metadata["installedVersion"] = codexCacheInfo.version
+            metadata["configPath"] = configPath
+            metadata["checkCommand"] = "codex plugin marketplace upgrade \(shellQuoted(codexCacheInfo.marketplace)) && codex plugin list --marketplace \(shellQuoted(codexCacheInfo.marketplace))"
+            metadata["updateCommand"] = "codex plugin marketplace upgrade \(shellQuoted(codexCacheInfo.marketplace)) && codex plugin add \(shellQuoted(selector))"
+            metadata["enableMode"] = "plugin-add"
+            metadata["enableCommand"] = "codex plugin add \(shellQuoted(selector))"
+            metadata["disableMode"] = "config"
+            metadata["disableCommand"] = "Set [plugins.\"\(selector)\"].enabled = false in \(configPath)"
+            metadata["deleteCommand"] = "codex plugin remove \(shellQuoted(selector))"
+            metadata["lifecycleNote"] = "This skill is bundled inside the \(pluginDisplayName(codexCacheInfo.pluginName)) Codex plugin; enable, disable, update, and delete apply to the plugin package."
+            statuses = statusList(enabled: codexPluginStates[selector])
+        } else {
+            statuses = [.discovered]
         }
 
         return Capability(
@@ -591,7 +632,7 @@ public final class CapabilityScanner {
             name: name,
             type: .skill,
             scope: scope,
-            statuses: sourceKind == "agents-skill" ? [.enabled] : [.discovered],
+            statuses: statuses,
             risks: scope == .user ? [.read, .global] : [.read],
             source: CapabilitySource(kind: sourceKind, path: url.path, packageName: packageInfo?.packageName),
             pluginID: packageInfo?.pluginID,
@@ -697,9 +738,9 @@ public final class CapabilityScanner {
             metadata["marketplace"] = manifest.marketplace
             metadata["installedVersion"] = manifest.version
             metadata["configPath"] = configPath
-            metadata["checkCommand"] = "codex plugin list --marketplace \(shellQuoted(manifest.marketplace))"
-            metadata["updateCommand"] = "codex plugin marketplace upgrade \(shellQuoted(manifest.marketplace)) && codex plugin add \(shellQuoted(manifest.selector))"
             if scope == .user {
+                metadata["checkCommand"] = "codex plugin marketplace upgrade \(shellQuoted(manifest.marketplace)) && codex plugin list --marketplace \(shellQuoted(manifest.marketplace))"
+                metadata["updateCommand"] = "codex plugin marketplace upgrade \(shellQuoted(manifest.marketplace)) && codex plugin add \(shellQuoted(manifest.selector))"
                 metadata["enableMode"] = "plugin-add"
                 metadata["enableCommand"] = "codex plugin add \(shellQuoted(manifest.selector))"
                 metadata["deleteCommand"] = "codex plugin remove \(shellQuoted(manifest.selector))"
@@ -853,7 +894,7 @@ public final class CapabilityScanner {
                     "lastUpdated": install["lastUpdated"] as? String ?? "",
                     "managerScope": scopeValue,
                     "projectPath": projectPath ?? "",
-                    "checkCommand": "claude plugin list --json",
+                    "checkCommand": "(claude plugin update \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue)) --dry-run 2>/dev/null) || claude plugin list --json --available",
                     "enableCommand": "claude plugin enable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
                     "disableCommand": "claude plugin disable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
                     "updateCommand": "claude plugin update \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
@@ -972,16 +1013,24 @@ public final class CapabilityScanner {
             return (packageName, "plugin:\(normalized(packageName))")
         }
 
-        guard let cacheIndex = codexPluginCacheIndex(in: components),
-              cacheIndex + 2 < components.count else {
+        guard let cacheInfo = codexPluginCacheInfo(for: url) else {
             return nil
         }
 
+        return (cacheInfo.pluginName, cacheInfo.pluginID)
+    }
+
+    private func codexPluginCacheInfo(for url: URL) -> (marketplace: String, pluginName: String, version: String, pluginID: String)? {
+        let components = url.pathComponents
+        guard let cacheIndex = codexPluginCacheIndex(in: components),
+              cacheIndex + 3 < components.count else {
+            return nil
+        }
         let marketplace = components[cacheIndex + 1]
         let pluginName = components[cacheIndex + 2]
-        let packageName = pluginName
+        let version = components[cacheIndex + 3]
         let pluginID = "plugin:codex-cache:\(normalized(marketplace)):\(normalized(pluginName))"
-        return (packageName, pluginID)
+        return (marketplace, pluginName, version, pluginID)
     }
 
     private func codexPluginCacheIndex(in components: [String]) -> Int? {

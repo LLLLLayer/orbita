@@ -12,7 +12,7 @@ struct CapabilityInspectorView: View {
     let onNativePluginChanged: () -> Void
 
     @State private var runningNativeActionID: String?
-    @State private var nativeActionResult: CommandRunResult?
+    @State private var nativeActionResult: NativePluginActionResult?
 
     var body: some View {
         Group {
@@ -24,6 +24,10 @@ struct CapabilityInspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(OrbitaTheme.canvas)
+        .onChange(of: capability?.id) { _, _ in
+            runningNativeActionID = nil
+            nativeActionResult = nil
+        }
     }
 
     private func inspectorContent(for capability: Capability) -> some View {
@@ -161,7 +165,7 @@ struct CapabilityInspectorView: View {
                 result = ShellCommandRunner.run(action.command, workingDirectory: FileManager.default.currentDirectoryPath)
             }
             await MainActor.run {
-                nativeActionResult = result
+                nativeActionResult = NativePluginActionResult(action: action, result: result)
                 runningNativeActionID = nil
                 if result.exitCode == 0 {
                     onNativePluginChanged()
@@ -352,12 +356,12 @@ private struct NativePluginActionSection: View {
     let capability: Capability
     let actions: [NativePluginAction]
     let runningActionID: String?
-    let result: CommandRunResult?
+    let result: NativePluginActionResult?
     let onRun: (NativePluginAction) -> Void
 
     var body: some View {
         InspectorSection {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Native Plugin", systemImage: "shippingbox")
                         .font(.caption.weight(.semibold))
@@ -377,25 +381,349 @@ private struct NativePluginActionSection: View {
 
                 HStack(spacing: 8) {
                     ForEach(actions) { action in
-                        Button {
+                        NativePluginInlineButton(
+                            title: runningActionID == action.id ? "Running" : action.title,
+                            systemImage: runningActionID == action.id ? "hourglass" : action.systemImage,
+                            isDisabled: runningActionID != nil
+                        ) {
                             onRun(action)
-                        } label: {
-                            Label(runningActionID == action.id ? "Running" : action.title, systemImage: runningActionID == action.id ? "hourglass" : action.systemImage)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(runningActionID != nil)
                         .help(action.command)
                     }
                 }
 
                 if let result {
-                    Divider()
-                    Text(result.output.isEmpty ? "(no output)" : result.output)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .lineLimit(8)
+                    NativePluginActionResultView(capability: capability, actionResult: result)
                 }
             }
+        }
+    }
+}
+
+private struct NativePluginInlineButton: View {
+    let title: String
+    let systemImage: String
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 15)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isDisabled ? .secondary : .primary)
+            .frame(height: 32)
+            .padding(.horizontal, 12)
+            .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(OrbitaTheme.border)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+}
+
+private struct NativePluginActionResult: Identifiable {
+    var id: String { "\(action.id):\(result.command):\(result.exitCode):\(result.output)" }
+    let action: NativePluginAction
+    let result: CommandRunResult
+}
+
+private struct NativePluginActionResultView: View {
+    let capability: Capability
+    let actionResult: NativePluginActionResult
+
+    var body: some View {
+        let summary = NativePluginResultSummary(
+            capability: capability,
+            action: actionResult.action,
+            result: actionResult.result
+        )
+
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: summary.systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(summary.tint)
+                .frame(width: 18, alignment: .center)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(summary.title)
+                    .font(.caption.weight(.semibold))
+                Text(summary.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+    }
+}
+
+private struct NativePluginResultSummary {
+    enum Tone {
+        case success
+        case warning
+        case failure
+    }
+
+    let title: String
+    let detail: String
+    let systemImage: String
+    let tone: Tone
+
+    init(capability: Capability, action: NativePluginAction, result: CommandRunResult) {
+        if result.exitCode != 0 {
+            self.title = "\(action.title) failed"
+            self.detail = Self.conciseOutput(result.output, fallback: "The command failed before returning readable plugin details.")
+            self.systemImage = "exclamationmark.triangle"
+            self.tone = .failure
+            return
+        }
+
+        switch action.kind {
+        case .check:
+            self = Self.checkSummary(capability: capability, output: result.output)
+        case .update:
+            self = Self.updateSummary(capability: capability, output: result.output)
+        case .enable:
+            self.title = "Enabled"
+            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) is enabled. Restart the host app if it does not pick up the change immediately.")
+            self.systemImage = "checkmark.circle"
+            self.tone = .success
+        case .disable:
+            self.title = "Disabled"
+            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) is disabled. Restart the host app if it does not pick up the change immediately.")
+            self.systemImage = "minus.circle"
+            self.tone = .success
+        }
+    }
+
+    var tint: Color {
+        switch tone {
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .failure:
+            return .red
+        }
+    }
+
+    private static func checkSummary(capability: Capability, output: String) -> NativePluginResultSummary {
+        if let update = updateVersionChange(in: output) {
+            return NativePluginResultSummary(
+                title: "Update available",
+                detail: "\(capability.name) can move from \(update.from) to \(update.to). Use Update to apply it.",
+                systemImage: "arrow.down.circle",
+                tone: .warning
+            )
+        }
+
+        if let record = matchingPluginRecord(in: output, capability: capability) {
+            let installed = stringValue(record["installedVersion"])
+                ?? stringValue(record["version"])
+                ?? capability.metadata["installedVersion"]
+            let latest = stringValue(record["latestVersion"])
+                ?? stringValue(record["availableVersion"])
+                ?? stringValue(record["marketplaceVersion"])
+            if let installed, let latest, installed != latest {
+                return NativePluginResultSummary(
+                    title: "Update available",
+                    detail: "\(capability.name) can move from \(installed) to \(latest). Use Update to apply it.",
+                    systemImage: "arrow.down.circle",
+                    tone: .warning
+                )
+            }
+            let state = boolValue(record["enabled"]).map { $0 ? "enabled" : "disabled" }
+            let versionText = installed.map { "Version \($0)" } ?? "Plugin found"
+            return NativePluginResultSummary(
+                title: "Checked",
+                detail: [versionText, state].compactMap { $0 }.joined(separator: ", "),
+                systemImage: "checkmark.circle",
+                tone: .success
+            )
+        }
+
+        if let codexLine = matchingCodexListLine(in: output, capability: capability) {
+            return NativePluginResultSummary(
+                title: "Checked",
+                detail: codexLine,
+                systemImage: "checkmark.circle",
+                tone: .success
+            )
+        }
+
+        return NativePluginResultSummary(
+            title: "Checked",
+            detail: conciseOutput(output, fallback: "The plugin command completed, but did not return version details for this plugin."),
+            systemImage: "checkmark.circle",
+            tone: .success
+        )
+    }
+
+    private static func updateSummary(capability: Capability, output: String) -> NativePluginResultSummary {
+        if let update = updateVersionChange(in: output) {
+            return NativePluginResultSummary(
+                title: "Updated",
+                detail: "\(capability.name) moved from \(update.from) to \(update.to). Restart the host app if it does not pick up the new version immediately.",
+                systemImage: "checkmark.circle",
+                tone: .success
+            )
+        }
+
+        let lowercased = output.lowercased()
+        if lowercased.contains("already") || lowercased.contains("up to date") || lowercased.contains("no update") {
+            return NativePluginResultSummary(
+                title: "Already up to date",
+                detail: conciseOutput(output, fallback: "\(capability.name) is already on the latest available version."),
+                systemImage: "checkmark.circle",
+                tone: .success
+            )
+        }
+
+        return NativePluginResultSummary(
+            title: "Update completed",
+            detail: conciseOutput(output, fallback: "\(capability.name) was updated. Restart the host app if it does not pick up the change immediately."),
+            systemImage: "checkmark.circle",
+            tone: .success
+        )
+    }
+
+    private init(title: String, detail: String, systemImage: String, tone: Tone) {
+        self.title = title
+        self.detail = detail
+        self.systemImage = systemImage
+        self.tone = tone
+    }
+
+    private static func matchingCodexListLine(in output: String, capability: Capability) -> String? {
+        let selector = capability.metadata["pluginSelector"] ?? capability.name
+        return output
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { $0.hasPrefix(selector + " ") || $0.hasPrefix(selector + "(") || $0.contains(selector) }
+    }
+
+    private static func matchingPluginRecord(in output: String, capability: Capability) -> [String: Any]? {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) else {
+            return nil
+        }
+        let selector = capability.metadata["pluginSelector"] ?? capability.name
+        let pluginName = selector.split(separator: "@", maxSplits: 1).first.map(String.init) ?? capability.name
+        return pluginRecords(in: json).first { record in
+            let values = ["id", "selector", "name", "plugin", "pluginName", "packageName"]
+                .compactMap { stringValue(record[$0]) }
+            return values.contains(selector)
+                || values.contains(pluginName)
+                || values.contains(capability.name)
+                || values.contains(where: { $0.hasPrefix(selector) })
+        }
+    }
+
+    private static func pluginRecords(in value: Any) -> [[String: Any]] {
+        if let array = value as? [Any] {
+            return array.flatMap(pluginRecords)
+        }
+
+        guard let dictionary = value as? [String: Any] else {
+            return []
+        }
+
+        var records: [[String: Any]] = []
+        if dictionary.keys.contains(where: { ["id", "selector", "name", "version", "enabled"].contains($0) }) {
+            records.append(dictionary)
+        }
+
+        for key in ["plugins", "items", "data", "installed", "available"] {
+            guard let nested = dictionary[key] else { continue }
+            if let keyed = nested as? [String: Any] {
+                for (id, value) in keyed {
+                    if var record = value as? [String: Any] {
+                        record["id"] = record["id"] ?? id
+                        records.append(record)
+                    } else if let array = value as? [Any] {
+                        records.append(contentsOf: array.flatMap(pluginRecords).map { record in
+                            var record = record
+                            record["id"] = record["id"] ?? id
+                            return record
+                        })
+                    }
+                }
+            } else {
+                records.append(contentsOf: pluginRecords(in: nested))
+            }
+        }
+        return records
+    }
+
+    private static func updateVersionChange(in output: String) -> (from: String, to: String)? {
+        let pattern = #"(?:would\s+update|updated|update)\s+from\s+([^\s]+)\s+to\s+([^\s]+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = regex.firstMatch(in: output, range: range),
+              match.numberOfRanges >= 3,
+              let fromRange = Range(match.range(at: 1), in: output),
+              let toRange = Range(match.range(at: 2), in: output) else {
+            return nil
+        }
+        return (String(output[fromRange]).trimmingCharacters(in: .punctuationCharacters),
+                String(output[toRange]).trimmingCharacters(in: .punctuationCharacters))
+    }
+
+    private static func conciseOutput(_ output: String, fallback: String) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return fallback
+        }
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+            return fallback
+        }
+        let lines = trimmed
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return lines.prefix(2).joined(separator: " ")
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        switch value {
+        case let string as String:
+            return string.isEmpty ? nil : string
+        case let number as NSNumber:
+            return number.stringValue
+        default:
+            return nil
+        }
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool? {
+        switch value {
+        case let bool as Bool:
+            return bool
+        case let number as NSNumber:
+            return number.boolValue
+        case let string as String:
+            return Bool(string.lowercased())
+        default:
+            return nil
         }
     }
 }

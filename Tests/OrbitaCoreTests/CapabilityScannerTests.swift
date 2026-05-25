@@ -319,6 +319,50 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(plugin.source.path.hasSuffix("/.codex/plugins/cache/openai-curated/superpowers"))
     }
 
+    func testCodexPluginCacheSkillInheritsPluginLifecycleCommands() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let registryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaPluginCache-\(UUID().uuidString)")
+        let cacheRoot = registryRoot.appendingPathComponent(".codex/plugins/cache")
+        let config = registryRoot.appendingPathComponent(".codex/config.toml")
+        let skillFile = cacheRoot
+            .appendingPathComponent("openai-curated")
+            .appendingPathComponent("superpowers")
+            .appendingPathComponent("6188456f")
+            .appendingPathComponent("skills")
+            .appendingPathComponent("brainstorming")
+            .appendingPathComponent("SKILL.md")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: registryRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: skillFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "brainstorming", body: "Use for ideation.")
+            .write(to: skillFile, atomically: true, encoding: .utf8)
+        try """
+        [plugins."superpowers@openai-curated"]
+        enabled = true
+        """.write(to: config, atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(userSkillRoots: [cacheRoot], codexConfigURL: config)
+        )
+
+        let skill = try XCTUnwrap(result.capabilities.first { $0.name == "brainstorming" && $0.type == .skill })
+        XCTAssertEqual(skill.statuses, [.enabled])
+        XCTAssertEqual(skill.metadata["manager"], "codex")
+        XCTAssertEqual(skill.metadata["pluginSelector"], "superpowers@openai-curated")
+        XCTAssertEqual(skill.metadata["enableMode"], "plugin-add")
+        XCTAssertEqual(skill.metadata["disableMode"], "config")
+        XCTAssertTrue(skill.metadata["checkCommand"]?.contains("codex plugin marketplace upgrade 'openai-curated'") == true)
+        XCTAssertTrue(skill.metadata["updateCommand"]?.contains("codex plugin add 'superpowers@openai-curated'") == true)
+        XCTAssertTrue(skill.metadata["deleteCommand"]?.contains("codex plugin remove 'superpowers@openai-curated'") == true)
+    }
+
     func testBrokenAgentsSkillSymlinkIsReported() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
