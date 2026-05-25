@@ -1203,6 +1203,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(plugin.metadata["installedVersion"], "1.2.3")
         XCTAssertEqual(plugin.metadata["enableMode"], "plugin-add")
         XCTAssertTrue(plugin.metadata["enableCommand"]?.contains("codex plugin add 'sample-plugin@test-marketplace'") == true)
+        XCTAssertTrue(plugin.metadata["deleteCommand"]?.contains("codex plugin remove 'sample-plugin@test-marketplace'") == true)
         XCTAssertEqual(plugin.metadata["disableMode"], "config")
         XCTAssertTrue(plugin.metadata["disableCommand"]?.contains("[plugins.\"sample-plugin@test-marketplace\"]") == true)
         XCTAssertTrue(plugin.metadata["updateCommand"]?.contains("codex plugin marketplace upgrade 'test-marketplace'") == true)

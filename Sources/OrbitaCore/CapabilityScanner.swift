@@ -702,6 +702,7 @@ public final class CapabilityScanner {
             if scope == .user {
                 metadata["enableMode"] = "plugin-add"
                 metadata["enableCommand"] = "codex plugin add \(shellQuoted(manifest.selector))"
+                metadata["deleteCommand"] = "codex plugin remove \(shellQuoted(manifest.selector))"
                 metadata["lifecycleNote"] = "Codex Desktop requires codex plugin add to install the plugin cache and mark it enabled; disabling keeps the cache and writes enabled=false."
             } else {
                 metadata["enableMode"] = "config"

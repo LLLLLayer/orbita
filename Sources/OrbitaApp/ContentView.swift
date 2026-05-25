@@ -85,6 +85,9 @@ struct ContentView: View {
             Button("Delete", role: .destructive) {
                 if let plan = pendingDeletePlan?.plan {
                     apply(plan)
+                } else if let pendingDeletePlan,
+                          let command = pendingDeletePlan.nativeCommand {
+                    runNativeDelete(command: command, workingDirectory: pendingDeletePlan.workingDirectory)
                 }
                 pendingDeletePlan = nil
             }
@@ -201,11 +204,15 @@ struct ContentView: View {
                                 pendingPlan = store.planDisable(capability)
                             },
                             onDelete: { capability in
-                                if let plan = store.planDelete(capability) {
+                                if let command = capability.metadata["deleteCommand"],
+                                   capability.metadata["manager"] == "codex" {
                                     pendingDeletePlan = PendingDeletePlan(
-                                        plan: plan,
-                                        name: capability.name
+                                        name: capability.name,
+                                        nativeCommand: command,
+                                        workingDirectory: FileManager.default.currentDirectoryPath
                                     )
+                                } else if let plan = store.planDelete(capability) {
+                                    pendingDeletePlan = PendingDeletePlan(plan: plan, name: capability.name)
                                 }
                             },
                             onNativePluginChanged: {
@@ -378,11 +385,29 @@ struct ContentView: View {
         }
     }
 
+    private func runNativeDelete(command: String, workingDirectory: String) {
+        Task.detached {
+            let result = ShellCommandRunner.run(command, workingDirectory: workingDirectory)
+            await MainActor.run {
+                if result.exitCode == 0 {
+                    selectedCapability = nil
+                    store.reload(force: true)
+                } else {
+                    let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    store.errorMessage = output.isEmpty ? "Delete command failed: \(command)" : output
+                }
+            }
+        }
+    }
+
     private var deleteConfirmationMessage: String {
         guard let pendingDeletePlan else {
             return "This will permanently delete the selected capability source."
         }
-        let affectedCount = pendingDeletePlan.plan.affectedCapabilityIDs?.count ?? 1
+        if pendingDeletePlan.nativeCommand != nil {
+            return "This will remove the installed Codex plugin cache and local config entry."
+        }
+        let affectedCount = pendingDeletePlan.plan?.affectedCapabilityIDs?.count ?? 1
         if affectedCount > 1 {
             return "This will permanently delete \(affectedCount) capability sources in this virtual plugin."
         }
@@ -418,11 +443,27 @@ private enum CapabilitySectionKind: String, CaseIterable {
 }
 
 private struct PendingDeletePlan: Identifiable {
-    let plan: ApplyPlan
     let name: String
+    let plan: ApplyPlan?
+    let nativeCommand: String?
+    let workingDirectory: String
 
     var id: String {
-        plan.id
+        plan?.id ?? nativeCommand ?? name
+    }
+
+    init(plan: ApplyPlan, name: String) {
+        self.name = name
+        self.plan = plan
+        self.nativeCommand = nil
+        self.workingDirectory = FileManager.default.currentDirectoryPath
+    }
+
+    init(name: String, nativeCommand: String, workingDirectory: String) {
+        self.name = name
+        self.plan = nil
+        self.nativeCommand = nativeCommand
+        self.workingDirectory = workingDirectory
     }
 }
 
