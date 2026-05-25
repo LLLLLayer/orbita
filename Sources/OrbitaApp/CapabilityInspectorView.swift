@@ -149,7 +149,9 @@ struct CapabilityInspectorView: View {
 
         Task.detached {
             let result: CommandRunResult
-            if action.manager == "codex", action.kind == .enable || action.kind == .disable {
+            let codexEnableUsesConfig = action.kind == .enable
+                && (capability.metadata["enableMode"] == "config" || action.command.hasPrefix("Set [plugins."))
+            if action.manager == "codex", action.kind == .disable || codexEnableUsesConfig {
                 result = CodexPluginConfigUpdater.setEnabled(
                     action.kind == .enable,
                     selector: capability.metadata["pluginSelector"] ?? capability.name,

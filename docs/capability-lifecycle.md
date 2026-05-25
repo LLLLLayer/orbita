@@ -57,6 +57,9 @@ Computer dimension:
 - Installed plugin cache is under `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/`.
 - A Codex plugin manifest is `<plugin-root>/.codex-plugin/plugin.json`; some compatible marketplace entries may use `.claude-plugin/plugin.json`.
 - Enabled state is stored in `~/.codex/config.toml` as `[plugins."<plugin>@<marketplace>"] enabled = true|false`.
+- Marketplace-visible enablement must go through `codex plugin add <plugin>@<marketplace>`. This creates or refreshes the installed plugin cache and writes the local enablement state. Only writing `enabled = true` is a config fallback and can leave Codex Desktop's marketplace UI showing the plugin as off.
+- Disable currently has no public `codex plugin disable` CLI command. Orbita keeps the installed cache and writes `enabled = false` in `config.toml`.
+- Delete/uninstall should use `codex plugin remove <plugin>@<marketplace>` when the intent is to remove the installed plugin cache and local config entry.
 - Marketplace update check is `codex plugin marketplace upgrade [marketplace]`.
 - Reinstall/update trigger is `codex plugin add <plugin>@<marketplace>` after marketplace snapshots are refreshed.
 
@@ -69,7 +72,9 @@ Project dimension:
 Orbita implementation:
 
 - Scan Codex plugin cache manifests and map `config.toml` enablement into `enabled`/`disabled`.
-- For Codex enable/disable, update the relevant `[plugins."<selector>"] enabled` key in the config file.
+- For user-scope Codex enable, run `codex plugin add <selector>` so Codex owns both installed-cache creation and enabled state.
+- For project-local Codex plugin enablement, update the relevant project `[plugins."<selector>"] enabled` key because there is no marketplace install command for raw project plugin sources.
+- For Codex disable, update the relevant `[plugins."<selector>"] enabled = false` key until the Codex CLI exposes a native disable command.
 - For update check, run `codex plugin marketplace upgrade <marketplace>`.
 - For update trigger, run `codex plugin marketplace upgrade <marketplace> && codex plugin add <plugin>@<marketplace>`.
 

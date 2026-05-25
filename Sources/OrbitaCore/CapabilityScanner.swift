@@ -699,9 +699,17 @@ public final class CapabilityScanner {
             metadata["configPath"] = configPath
             metadata["checkCommand"] = "codex plugin list --marketplace \(shellQuoted(manifest.marketplace))"
             metadata["updateCommand"] = "codex plugin marketplace upgrade \(shellQuoted(manifest.marketplace)) && codex plugin add \(shellQuoted(manifest.selector))"
-            metadata["enableCommand"] = "Set [plugins.\"\(manifest.selector)\"].enabled = true in \(configPath)"
+            if scope == .user {
+                metadata["enableMode"] = "plugin-add"
+                metadata["enableCommand"] = "codex plugin add \(shellQuoted(manifest.selector))"
+                metadata["lifecycleNote"] = "Codex Desktop requires codex plugin add to install the plugin cache and mark it enabled; disabling keeps the cache and writes enabled=false."
+            } else {
+                metadata["enableMode"] = "config"
+                metadata["enableCommand"] = "Set [plugins.\"\(manifest.selector)\"].enabled = true in \(configPath)"
+                metadata["lifecycleNote"] = "Project-local Codex plugin enablement is tracked in the project config.toml."
+            }
+            metadata["disableMode"] = "config"
             metadata["disableCommand"] = "Set [plugins.\"\(manifest.selector)\"].enabled = false in \(configPath)"
-            metadata["lifecycleNote"] = "Codex Desktop stores enablement in config.toml; marketplace upgrade refreshes update snapshots."
 
             capabilities.append(Capability(
                 id: "plugin:codex-cache:\(normalized(manifest.marketplace)):\(normalized(manifest.pluginName))",
