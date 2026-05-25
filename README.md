@@ -32,6 +32,8 @@ Orbita 把容易混在一起的三件事拆开处理：
 
 例如 Codex Plugin 的启用不能只写 `config.toml`。用户级 Codex Plugin 需要通过 `codex plugin add <plugin>@<marketplace>` 安装或刷新 Plugin cache，并记录启用状态；禁用在当前 Codex CLI 没有公开 disable 命令时才回退为写 `enabled = false`。
 
+Codex 项目维度要分开看：commands、hooks、plugin config 等 Codex 原生项目配置仍在 `<repo>/.codex`；基于 `SKILL.md` 的 repo skills 按 Codex 官方规则放在 `<repo>/.agents/skills`，Codex 会从当前工作目录向上扫描 `.agents/skills` 直到仓库根。Codex 还支持在 `~/.codex/config.toml` 里通过 `[[skills.config]]` 禁用单个 `SKILL.md` 路径，Orbita 会把这种状态识别为 Codex 专属可见性。
+
 ## 项目结构
 
 ```text
@@ -134,4 +136,3 @@ swift test
 - [docs/README.md](docs/README.md)：文档索引。
 - [docs/capability-lifecycle.md](docs/capability-lifecycle.md)：Agent 能力生命周期规范。
 - [docs/release.md](docs/release.md)：签名、notarization、DMG 和自动更新流程。
-

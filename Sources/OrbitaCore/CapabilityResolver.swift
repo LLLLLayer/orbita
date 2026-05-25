@@ -88,18 +88,121 @@ public final class CapabilityResolver {
         }
     }
 
+    private enum DuplicateRelationship: String {
+        case linkedMirror = "linked-mirror"
+        case copiedMirror = "copied-mirror"
+        case conflicting = "conflicting"
+    }
+
     private func markDuplicates(in capabilities: inout [Capability]) {
         let grouped = Dictionary(grouping: capabilities.indices) { index in
             "\(capabilities[index].type.rawValue):\(normalized(capabilities[index].name))"
         }
 
         for indices in grouped.values where indices.count > 1 {
+            let group = indices.map { capabilities[$0] }
+            let relationship = duplicateRelationship(for: group)
             for index in indices {
-                if !capabilities[index].statuses.contains(.duplicate) {
+                if relationship != .linkedMirror, !capabilities[index].statuses.contains(.duplicate) {
                     capabilities[index].statuses.append(.duplicate)
                 }
+                let duplicates = indices
+                    .filter { $0 != index }
+                    .map { capabilities[$0] }
+                capabilities[index].metadata["duplicateCount"] = String(indices.count)
+                capabilities[index].metadata["duplicateRelationship"] = relationship.rawValue
+                capabilities[index].metadata["duplicateSources"] = duplicates
+                    .map(duplicateSourceDescription)
+                    .joined(separator: "\n")
+                capabilities[index].metadata["duplicateDetail"] = duplicateDetail(
+                    for: capabilities[index],
+                    duplicates: duplicates,
+                    relationship: relationship
+                )
             }
         }
+    }
+
+    private func duplicateRelationship(for capabilities: [Capability]) -> DuplicateRelationship {
+        let resolvedPaths = Set(capabilities.map { resolvedSourcePath($0.source.path) })
+        if resolvedPaths.count == 1 {
+            return .linkedMirror
+        }
+
+        let knownHashes = capabilities.compactMap { $0.metadata["contentHash"] }.filter { !$0.isEmpty }
+        if knownHashes.count == capabilities.count, Set(knownHashes).count == 1 {
+            return .copiedMirror
+        }
+
+        return .conflicting
+    }
+
+    private func duplicateDetail(
+        for capability: Capability,
+        duplicates: [Capability],
+        relationship: DuplicateRelationship
+    ) -> String {
+        let sourceList = duplicates.map(duplicateSourceDescription)
+        switch relationship {
+        case .linkedMirror:
+            return "Linked mirror: \(sourceList.joined(separator: "; ")) resolves to the same source. This is expected for symlink-based installs."
+        case .copiedMirror:
+            if capability.source.kind == "claude-skill",
+               duplicates.contains(where: { $0.source.kind == "agents-skill" }) {
+                return "Copied mirror: Claude Code has a separate copy of the shared .agents skill at \(sourceList.joined(separator: "; ")). Updates can drift because these files are not linked."
+            }
+            if capability.source.kind == "agents-skill",
+               duplicates.contains(where: { $0.source.kind == "claude-skill" }) {
+                return "Copied mirror: this shared .agents skill was also copied into Claude Code at \(sourceList.joined(separator: "; ")). Prefer a symlink or a single source of truth to avoid drift."
+            }
+            return "Copied mirror: also found at \(sourceList.joined(separator: "; ")). Updates can drift because these files are separate copies."
+        case .conflicting:
+            break
+        }
+
+        if capability.source.kind == "claude-skill",
+           duplicates.contains(where: { $0.source.kind == "agents-skill" }) {
+            return "Conflicting duplicate: Claude Code also sees a .agents skill named the same at \(sourceList.joined(separator: "; ")), but the content differs."
+        }
+        if capability.source.kind == "agents-skill",
+           duplicates.contains(where: { $0.source.kind == "claude-skill" }) {
+            return "Conflicting duplicate: this .agents skill shares a name with a Claude Code skill at \(sourceList.joined(separator: "; ")), but the content differs."
+        }
+        return "Conflicting duplicate: also found at \(sourceList.joined(separator: "; "))."
+    }
+
+    private func duplicateSourceDescription(_ capability: Capability) -> String {
+        "\(duplicateSourceLabel(for: capability.source.kind)) \(displayPath(capability.source.path))"
+    }
+
+    private func duplicateSourceLabel(for sourceKind: String) -> String {
+        switch sourceKind {
+        case "agents-skill":
+            return ".agents skill"
+        case "claude-skill":
+            return "Claude Code skill"
+        case "codex-plugin":
+            return "Codex plugin"
+        case "claude-plugin":
+            return "Claude Code plugin"
+        default:
+            return sourceKind
+        }
+    }
+
+    private func displayPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path.hasPrefix(home + "/") {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
+
+    private func resolvedSourcePath(_ path: String) -> String {
+        URL(fileURLWithPath: path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
     }
 
     private func deduplicatedCapabilities(_ capabilities: [Capability]) -> [Capability] {
@@ -133,8 +236,11 @@ public final class CapabilityResolver {
             let winner = indices.min { lhs, rhs in
                 scopeRank(capabilities[lhs].scope) < scopeRank(capabilities[rhs].scope)
             }
+            let ranks = Set(indices.map { scopeRank(capabilities[$0].scope) })
+            let resolvedPaths = Set(indices.map { resolvedSourcePath(capabilities[$0].source.path) })
+            let shouldMarkShadowed = ranks.count > 1 && resolvedPaths.count > 1
 
-            for index in indices where index != winner {
+            for index in indices where index != winner && shouldMarkShadowed {
                 appendStatus(.shadowed, to: &capabilities[index])
             }
 

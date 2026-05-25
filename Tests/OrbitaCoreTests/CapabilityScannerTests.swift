@@ -539,6 +539,122 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(explanation.hiddenAgents.contains(.cursor))
     }
 
+    func testResolverExplainsGlobalAgentsAndClaudeSkillDuplicates() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let homeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaSkillDuplicates-\(UUID().uuidString)")
+        let agentsSkill = homeRoot.appendingPathComponent(".agents/skills/bytedcli/SKILL.md")
+        let claudeSkill = homeRoot.appendingPathComponent(".claude/skills/bytedcli/SKILL.md")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: homeRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: agentsSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: claudeSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "bytedcli", body: "Use bytedcli.")
+            .write(to: agentsSkill, atomically: true, encoding: .utf8)
+        try skillText(name: "bytedcli", body: "Use bytedcli.")
+            .write(to: claudeSkill, atomically: true, encoding: .utf8)
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(userSkillRoots: [
+                homeRoot.appendingPathComponent(".agents/skills"),
+                homeRoot.appendingPathComponent(".claude/skills")
+            ])
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let agents = try XCTUnwrap(graph.capabilities.first { $0.name == "bytedcli" && $0.source.kind == "agents-skill" })
+        let claude = try XCTUnwrap(graph.capabilities.first { $0.name == "bytedcli" && $0.source.kind == "claude-skill" })
+        XCTAssertTrue(agents.statuses.contains(.duplicate))
+        XCTAssertTrue(claude.statuses.contains(.duplicate))
+        XCTAssertEqual(agents.metadata["duplicateRelationship"], "copied-mirror")
+        XCTAssertEqual(claude.metadata["duplicateRelationship"], "copied-mirror")
+        XCTAssertTrue(agents.metadata["duplicateDetail"]?.contains("Claude Code") == true)
+        XCTAssertTrue(claude.metadata["duplicateDetail"]?.contains(".agents") == true)
+        XCTAssertTrue(claude.metadata["duplicateSources"]?.contains(".agents skill") == true)
+    }
+
+    func testResolverDoesNotWarnForSymlinkedSkillMirrors() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let homeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaSkillSymlinkMirrors-\(UUID().uuidString)")
+        let agentsSkillDir = homeRoot.appendingPathComponent(".agents/skills/bytedcli")
+        let agentsSkill = agentsSkillDir.appendingPathComponent("SKILL.md")
+        let claudeSkillsRoot = homeRoot.appendingPathComponent(".claude/skills")
+        let claudeSkillDir = claudeSkillsRoot.appendingPathComponent("bytedcli")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: homeRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: agentsSkillDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: claudeSkillsRoot, withIntermediateDirectories: true)
+        try skillText(name: "bytedcli", body: "Use bytedcli.")
+            .write(to: agentsSkill, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: claudeSkillDir, withDestinationURL: agentsSkillDir)
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(userSkillRoots: [
+                homeRoot.appendingPathComponent(".agents/skills"),
+                homeRoot.appendingPathComponent(".claude/skills")
+            ])
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let agents = try XCTUnwrap(graph.capabilities.first { $0.name == "bytedcli" && $0.source.kind == "agents-skill" })
+        let claude = try XCTUnwrap(graph.capabilities.first { $0.name == "bytedcli" && $0.source.kind == "claude-skill" })
+        XCTAssertFalse(agents.statuses.contains(.duplicate))
+        XCTAssertFalse(claude.statuses.contains(.duplicate))
+        XCTAssertFalse(claude.statuses.contains(.shadowed))
+        XCTAssertEqual(agents.metadata["duplicateRelationship"], "linked-mirror")
+        XCTAssertEqual(claude.metadata["duplicateRelationship"], "linked-mirror")
+        XCTAssertTrue(claude.metadata["duplicateDetail"]?.contains("Linked mirror") == true)
+    }
+
+    func testCodexSkillConfigDisablesSharedAgentsSkillOnlyForCodex() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let configRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCodexSkillConfig-\(UUID().uuidString)")
+        let skill = projectRoot.appendingPathComponent(".agents/skills/review-helper/SKILL.md")
+        let config = configRoot.appendingPathComponent("config.toml")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: configRoot)
+        }
+        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configRoot, withIntermediateDirectories: true)
+        try skillText(name: "review-helper", body: "Review this project.")
+            .write(to: skill, atomically: true, encoding: .utf8)
+        try """
+        [[skills.config]]
+        path = "\(skill.path)"
+        enabled = false
+        """.write(to: config, atomically: true, encoding: .utf8)
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: false,
+                userSkillRoots: [],
+                codexConfigURL: config
+            )
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+        let capability = try XCTUnwrap(graph.capabilities.first { $0.name == "review-helper" && $0.source.kind == "agents-skill" })
+
+        XCTAssertEqual(capability.metadata["codexSkillEnabled"], "false")
+        XCTAssertFalse(capability.statuses.contains(.disabled))
+        XCTAssertFalse(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.contains { $0.id == capability.id })
+        XCTAssertTrue(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.contains { $0.id == capability.id })
+    }
+
     func testAdapterPreviewExplainsCodexGeneratedFilesAndUnsupportedCapabilities() throws {
         let root = try fixtureURL("MixedProject")
         let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))

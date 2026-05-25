@@ -931,10 +931,19 @@ private struct StatusReasonSection: View {
             ))
         }
 
+        if capability.metadata["codexSkillEnabled"] == "false", !capability.statuses.contains(.disabled) {
+            items.append(StatusReason(
+                title: "Disabled for Codex",
+                detail: codexSkillDisabledDetail,
+                systemImage: "minus.circle",
+                color: .secondary
+            ))
+        }
+
         if capability.statuses.contains(.duplicate) {
             items.append(StatusReason(
                 title: "Duplicate name",
-                detail: "Orbita found more than one capability with this type and name.",
+                detail: duplicateDetail,
                 systemImage: "doc.on.doc",
                 color: .secondary
             ))
@@ -959,11 +968,26 @@ private struct StatusReasonSection: View {
         return "A capability with the same type and name exists in multiple places, and the content hash is different."
     }
 
+    private var duplicateDetail: String {
+        if let detail = capability.metadata["duplicateDetail"], !detail.isEmpty {
+            return detail
+        }
+        return "Orbita found more than one capability with this type and name."
+    }
+
     private var disabledDetail: String {
         if let manager = capability.metadata["manager"], !manager.isEmpty {
             return "\(manager) marks this plugin as disabled."
         }
+        if capability.metadata["codexSkillEnabled"] == "false" {
+            return codexSkillDisabledDetail
+        }
         return "The .agents manifest marks this capability as disabled."
+    }
+
+    private var codexSkillDisabledDetail: String {
+        let configPath = capability.metadata["codexConfigPath"] ?? "~/.codex/config.toml"
+        return "Codex config disables this SKILL.md path in \(configPath). Other agents may still load the same file."
     }
 }
 

@@ -23,6 +23,7 @@ public final class AgentViewResolver {
         guard !capability.statuses.contains(.disabled) else { return false }
         switch agent {
         case .codex:
+            guard capability.metadata["codexSkillEnabled"] != "false" else { return false }
             switch capability.type {
             case .plugin, .skill, .mcpServer, .instruction:
                 return true

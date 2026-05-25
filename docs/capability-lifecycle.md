@@ -65,13 +65,17 @@ Computer dimension:
 
 Project dimension:
 
-- Project-level Codex commands and hooks remain native files under `<repo>/.codex/commands` and `<repo>/.codex/hooks`.
+- Project-level Codex commands, hooks, plugin config, and other Codex-native project settings remain under `<repo>/.codex`.
+- Project-level Codex skills use `<repo>/.agents/skills`. Codex scans `.agents/skills` from the current working directory up to the repository root, so root-level `<repo>/.agents/skills` is visible to Codex sessions launched anywhere inside that repo.
+- Codex does not consume every file in `.agents`; Orbita's `<repo>/.agents/manifest.json`, `<repo>/.agents/lock.json`, adapters, and logs are Orbita management metadata.
+- Codex can disable any individual `SKILL.md` path with `[[skills.config]] path = ".../SKILL.md" enabled = false` in `~/.codex/config.toml`. This is Codex-specific visibility, not deletion and not necessarily a disable for Claude Code or other agents.
 - If a repository contains project plugin sources, Orbita treats them as project scope only when they are inside `<repo>/plugins/` and have a `.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest.
 - Project `.codex/config.toml`, when present, is the project-level native config Orbita can inspect for plugin enablement.
 
 Orbita implementation:
 
 - Scan Codex plugin cache manifests and map `config.toml` enablement into `enabled`/`disabled`.
+- Scan `[[skills.config]]` path entries in `~/.codex/config.toml` and hide matching skills only from Codex when `enabled = false`.
 - For user-scope Codex enable, run `codex plugin add <selector>` so Codex owns both installed-cache creation and enabled state.
 - For project-local Codex plugin enablement, update the relevant project `[plugins."<selector>"] enabled` key because there is no marketplace install command for raw project plugin sources.
 - For Codex disable, update the relevant `[plugins."<selector>"] enabled = false` key until the Codex CLI exposes a native disable command.
@@ -190,6 +194,7 @@ See `docs/release.md` for the complete release checklist.
 
 - Claude Code plugin reference: https://code.claude.com/docs/en/plugins-reference
 - Claude Code plugin discovery and management: https://code.claude.com/docs/zh-CN/discover-plugins
+- Codex skills reference: https://developers.openai.com/codex/skills
 - Skills CLI repository reference: https://github.com/vercel-labs/skills?lang=zh-CN&open_in_browser=true
 - Apple Developer ID: https://developer.apple.com/developer-id/
 - Apple notarization: https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution

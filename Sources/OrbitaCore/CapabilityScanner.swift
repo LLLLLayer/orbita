@@ -86,6 +86,7 @@ public final class CapabilityScanner {
 
         var capabilities: [Capability] = []
         var issues: [ScanIssue] = []
+        let codexSkillStates = codexSkillStates(at: options.codexConfigURL)
 
         emitProgress("scan.instructions.start", path: root.path, options: options)
         scanInstructionFiles(at: root, into: &capabilities)
@@ -108,11 +109,11 @@ public final class CapabilityScanner {
         emitProgress("scan.mcp.finish", path: root.appendingPathComponent(".mcp.json").path, count: capabilities.count, options: options)
 
         emitProgress("scan.agents.start", path: root.appendingPathComponent(".agents").path, options: options)
-        scanAgentsWorkspace(at: root, options: options, into: &capabilities, issues: &issues)
+        scanAgentsWorkspace(at: root, options: options, codexSkillStates: codexSkillStates, into: &capabilities, issues: &issues)
         emitProgress("scan.agents.finish", path: root.appendingPathComponent(".agents").path, count: capabilities.count, options: options)
 
-        scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues)
-        scanUserSkillRoots(projectRoot: root, options: options, into: &capabilities, issues: &issues)
+        scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues, codexConfigPath: options.codexConfigURL.path, codexSkillStates: codexSkillStates)
+        scanUserSkillRoots(projectRoot: root, options: options, codexSkillStates: codexSkillStates, into: &capabilities, issues: &issues)
         scanNativePluginRegistries(projectRoot: root, options: options, into: &capabilities, issues: &issues)
 
         emitProgress("scan.finish", path: root.path, count: capabilities.count, options: options)
@@ -384,7 +385,13 @@ public final class CapabilityScanner {
         return metadata
     }
 
-    private func scanAgentsWorkspace(at root: URL, options: ScanOptions, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
+    private func scanAgentsWorkspace(
+        at root: URL,
+        options: ScanOptions,
+        codexSkillStates: [String: Bool],
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
         let agentsRoot = root.appendingPathComponent(".agents")
         let manifest = agentsRoot.appendingPathComponent("manifest.json")
         if fileManager.fileExists(atPath: manifest.path) {
@@ -410,7 +417,9 @@ public final class CapabilityScanner {
             issues: &issues,
             scope: .project,
             sourceKind: "agents-skill",
-            projectRoot: root
+            projectRoot: root,
+            codexConfigPath: options.codexConfigURL.path,
+            codexSkillStates: codexSkillStates
         )
 
         var isDirectory: ObjCBool = false
@@ -506,7 +515,8 @@ public final class CapabilityScanner {
         sourceKind: String = "skill",
         projectRoot: URL? = nil,
         codexConfigPath: String? = nil,
-        codexPluginStates: [String: Bool] = [:]
+        codexPluginStates: [String: Bool] = [:],
+        codexSkillStates: [String: Bool] = [:]
     ) {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -517,7 +527,7 @@ public final class CapabilityScanner {
 
         guard let enumerator = fileManager.enumerator(
             at: root,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles]
         ) else {
             issues.append(ScanIssue(severity: .warning, path: root.path, message: "Unable to enumerate project files"))
@@ -528,8 +538,33 @@ public final class CapabilityScanner {
         var count = 0
         for case let url as URL in enumerator {
             let last = url.lastPathComponent
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            let isDirectory = values?.isDirectory ?? false
+            let isSymbolicLink = values?.isSymbolicLink ?? false
             if isDirectory && options.ignoredDirectoryNames.contains(last) {
+                enumerator.skipDescendants()
+                continue
+            }
+
+            if isSymbolicLink {
+                let skillFile = url.appendingPathComponent("SKILL.md")
+                var isSkillDirectory: ObjCBool = false
+                if fileManager.fileExists(atPath: skillFile.path, isDirectory: &isSkillDirectory), !isSkillDirectory.boolValue {
+                    count += 1
+                    if count > options.maxSkillFiles {
+                        issues.append(ScanIssue(severity: .warning, path: root.path, message: "Stopped after \(options.maxSkillFiles) skill files"))
+                        break
+                    }
+                    capabilities.append(scanSkill(
+                        at: skillFile,
+                        projectRoot: projectRoot ?? root,
+                        scope: scope,
+                        sourceKind: sourceKind,
+                        codexConfigPath: codexConfigPath,
+                        codexPluginStates: codexPluginStates,
+                        codexSkillStates: codexSkillStates
+                    ))
+                }
                 enumerator.skipDescendants()
                 continue
             }
@@ -547,14 +582,21 @@ public final class CapabilityScanner {
                 scope: scope,
                 sourceKind: sourceKind,
                 codexConfigPath: codexConfigPath,
-                codexPluginStates: codexPluginStates
+                codexPluginStates: codexPluginStates,
+                codexSkillStates: codexSkillStates
             ))
         }
 
         emitProgress("scan.skills.finish", path: root.path, count: count, options: options)
     }
 
-    private func scanUserSkillRoots(projectRoot: URL, options: ScanOptions, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
+    private func scanUserSkillRoots(
+        projectRoot: URL,
+        options: ScanOptions,
+        codexSkillStates: [String: Bool],
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
         guard options.includeUserScope else { return }
         let codexStates = codexPluginStates(at: options.codexConfigURL)
         for root in options.userSkillRoots {
@@ -568,7 +610,8 @@ public final class CapabilityScanner {
                 sourceKind: userSkillSourceKind(for: standardizedRoot),
                 projectRoot: projectRoot,
                 codexConfigPath: options.codexConfigURL.path,
-                codexPluginStates: codexStates
+                codexPluginStates: codexStates,
+                codexSkillStates: codexSkillStates
             )
         }
     }
@@ -590,7 +633,8 @@ public final class CapabilityScanner {
         scope: CapabilityScope,
         sourceKind: String,
         codexConfigPath: String?,
-        codexPluginStates: [String: Bool]
+        codexPluginStates: [String: Bool],
+        codexSkillStates: [String: Bool]
     ) -> Capability {
         let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
         let parentName = url.deletingLastPathComponent().lastPathComponent
@@ -627,6 +671,17 @@ public final class CapabilityScanner {
             statuses = [.discovered]
         }
 
+        if let codexSkillEnabled = codexSkillState(for: url, states: codexSkillStates) {
+            let configPath = codexConfigPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/config.toml").path
+            metadata["codexSkillEnabled"] = String(codexSkillEnabled)
+            metadata["codexConfigPath"] = configPath
+            metadata["codexDisableCommand"] = "Add [[skills.config]] path = \(shellQuoted(url.path)) enabled = false to \(configPath)"
+            metadata["codexEnableCommand"] = "Remove the matching [[skills.config]] entry or set enabled = true in \(configPath)"
+            if codexSkillEnabled == false, sourceKind == "user-skill" {
+                statuses = [.disabled]
+            }
+        }
+
         return Capability(
             id: stableID(type: .skill, path: url.path),
             name: name,
@@ -639,6 +694,20 @@ public final class CapabilityScanner {
             summary: frontmatter["description"],
             metadata: metadata
         )
+    }
+
+    private func codexSkillState(for url: URL, states: [String: Bool]) -> Bool? {
+        let candidates = [
+            url.path,
+            url.standardizedFileURL.path,
+            url.standardizedFileURL.resolvingSymlinksInPath().path
+        ]
+        for candidate in candidates {
+            if let state = states[candidate] {
+                return state
+            }
+        }
+        return nil
     }
 
     private func scanNativePluginRegistries(
@@ -847,6 +916,76 @@ public final class CapabilityScanner {
             }
         }
         return states
+    }
+
+    private func codexSkillStates(at url: URL) -> [String: Bool] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var states: [String: Bool] = [:]
+        var inSkillConfig = false
+        var currentPath: String?
+        var currentEnabled: Bool?
+
+        func flushCurrent() {
+            guard let currentPath, let currentEnabled else { return }
+            let standardized = URL(fileURLWithPath: currentPath)
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+                .path
+            states[currentPath] = currentEnabled
+            states[standardized] = currentEnabled
+        }
+
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line == "[[skills.config]]" {
+                flushCurrent()
+                inSkillConfig = true
+                currentPath = nil
+                currentEnabled = nil
+                continue
+            }
+            if line.hasPrefix("["), line != "[[skills.config]]" {
+                flushCurrent()
+                inSkillConfig = false
+                currentPath = nil
+                currentEnabled = nil
+                continue
+            }
+            guard inSkillConfig else { continue }
+
+            if line.hasPrefix("path") {
+                currentPath = tomlStringValue(from: line)
+            } else if line.hasPrefix("enabled") {
+                currentEnabled = tomlBoolValue(from: line)
+            }
+        }
+
+        flushCurrent()
+        return states
+    }
+
+    private func tomlStringValue(from line: String) -> String? {
+        guard let value = line.split(separator: "=", maxSplits: 1).dropFirst().first else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count >= 2,
+           let first = trimmed.first,
+           let last = trimmed.last,
+           (first == "\"" && last == "\"" || first == "'" && last == "'") {
+            return String(trimmed.dropFirst().dropLast())
+        }
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func tomlBoolValue(from line: String) -> Bool? {
+        guard let value = line.split(separator: "=", maxSplits: 1).dropFirst().first else { return nil }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true":
+            return true
+        case "false":
+            return false
+        default:
+            return nil
+        }
     }
 
     private func scanClaudeInstalledPlugins(
