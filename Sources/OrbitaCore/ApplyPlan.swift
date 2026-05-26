@@ -139,6 +139,35 @@ public final class ApplyPlanBuilder {
         return try planStatusChange(action: .enable, capabilities: capabilities, planCapabilityID: groupID, graph: graph)
     }
 
+    public func planSyncSkillInstallTarget(
+        capabilityID: String,
+        agentID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let capabilities = try capabilities(matching: [capabilityID], fallbackID: capabilityID, graph: graph)
+        return try planSyncSkillInstallTargets(
+            capabilities: capabilities,
+            planCapabilityID: capabilityID,
+            agentID: agentID,
+            graph: graph
+        )
+    }
+
+    public func planSyncSkillInstallTargets(
+        capabilityIDs: [String],
+        groupID: String,
+        agentID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let capabilities = try capabilities(matching: capabilityIDs, fallbackID: groupID, graph: graph)
+        return try planSyncSkillInstallTargets(
+            capabilities: capabilities,
+            planCapabilityID: groupID,
+            agentID: agentID,
+            graph: graph
+        )
+    }
+
     public func planDisable(capabilityID: String, graph: CapabilityGraph) throws -> ApplyPlan {
         guard let capability = graph.capabilities.first(where: { $0.id == capabilityID }) else {
             throw OrbitaError.capabilityNotFound(capabilityID)
@@ -228,6 +257,80 @@ public final class ApplyPlanBuilder {
             affectedCapabilityIDs: capabilities.count > 1 ? capabilities.map(\.id) : nil,
             appliesChanges: false,
             requiresConfirmation: requiresConfirmation(for: capabilities, operations: operations),
+            operations: operations
+        )
+    }
+
+    private func planSyncSkillInstallTargets(
+        capabilities: [Capability],
+        planCapabilityID: String,
+        agentID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        guard let agent = SkillsAgentCatalog.agents.first(where: { $0.id == agentID }) else {
+            throw OrbitaError.invalidApplyPlan("Unknown Skills CLI agent: \(agentID)")
+        }
+
+        let syncTargets = try capabilities.compactMap { capability -> (capability: Capability, root: URL, destination: URL, source: URL)? in
+            guard capability.type == .skill else {
+                return nil
+            }
+            let source = try skillSyncSourceDirectory(for: capability)
+            let root = skillSyncDestinationRoot(for: agent, capability: capability, source: source, graph: graph)
+            let destination = root.appendingPathComponent(skillSyncDirectoryName(for: capability, source: source))
+            guard !skillInstallTargetExists(destination: destination, source: source) else {
+                return nil
+            }
+            guard !fileManager.fileExists(atPath: destination.path),
+                  (try? fileManager.destinationOfSymbolicLink(atPath: destination.path)) == nil
+            else {
+                throw OrbitaError.invalidApplyPlan("Target already exists for \(agent.displayName): \(destination.path)")
+            }
+            return (capability, root, destination, source)
+        }
+
+        guard !syncTargets.isEmpty else {
+            throw OrbitaError.invalidApplyPlan("\(agent.displayName) already has this skill target")
+        }
+
+        var operations: [ApplyOperation] = []
+        let roots = uniquePreservingOrder(syncTargets.map { $0.root.path })
+        for root in roots {
+            operations.append(ApplyOperation(
+                kind: .createDirectory,
+                path: root,
+                risk: .write,
+                description: "Create \(agent.displayName) skill directory"
+            ))
+        }
+        operations.append(contentsOf: syncTargets
+            .sorted { $0.destination.path < $1.destination.path }
+            .map { target in
+                ApplyOperation(
+                    kind: .createSymlink,
+                    path: target.destination.path,
+                    target: target.source.path,
+                    risk: .write,
+                    description: "Link \(target.capability.name) into \(agent.displayName)"
+                )
+            })
+
+        let agentsRoot = URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".agents")
+        operations.append(ApplyOperation(
+            kind: .appendLog,
+            path: agentsRoot.appendingPathComponent("logs/apply.log").path,
+            content: "\(ISO8601DateFormatter().string(from: Date())) sync \(planCapabilityID) agent-target:\(agentID) affected:\(syncTargets.count)\n",
+            risk: .write,
+            description: "Append agent sync operation log"
+        ))
+
+        return ApplyPlan(
+            projectRoot: graph.projectRoot,
+            action: .enable,
+            capabilityID: planCapabilityID,
+            affectedCapabilityIDs: syncTargets.count > 1 ? syncTargets.map { $0.capability.id } : nil,
+            appliesChanges: false,
+            requiresConfirmation: false,
             operations: operations
         )
     }
@@ -970,6 +1073,95 @@ public final class ApplyPlanBuilder {
         return nil
     }
 
+    private func skillSyncSourceDirectory(for capability: Capability) throws -> URL {
+        let canonicalPath = capability.metadata["skillsCanonicalPath"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let source = URL(fileURLWithPath: canonicalPath ?? skillDirectoryPath(for: capability)).standardizedFileURL
+        guard fileManager.fileExists(atPath: source.path) ||
+            (try? fileManager.destinationOfSymbolicLink(atPath: source.path)) != nil
+        else {
+            throw OrbitaError.invalidApplyPlan("Skill source does not exist: \(source.path)")
+        }
+        return source
+    }
+
+    private func skillSyncDestinationRoot(
+        for agent: SkillsAgentDefinition,
+        capability: Capability,
+        source: URL,
+        graph: CapabilityGraph
+    ) -> URL {
+        if capability.scope == .user {
+            if agent.usesSharedProjectSkills {
+                if let canonicalPath = capability.metadata["skillsCanonicalPath"],
+                   !canonicalPath.isEmpty {
+                    return URL(fileURLWithPath: canonicalPath).deletingLastPathComponent().standardizedFileURL
+                }
+                if let agentsSkillsRoot = sharedAgentsSkillsRoot(containing: source) {
+                    return agentsSkillsRoot
+                }
+                return FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".agents/skills")
+                    .standardizedFileURL
+            }
+            if let globalSkillsDir = agent.globalSkillsDir {
+                return URL(fileURLWithPath: globalSkillsDir).standardizedFileURL
+            }
+        }
+        return URL(fileURLWithPath: graph.projectRoot)
+            .appendingPathComponent(agent.projectSkillsDir)
+            .standardizedFileURL
+    }
+
+    private func sharedAgentsSkillsRoot(containing source: URL) -> URL? {
+        let components = source.standardizedFileURL.pathComponents
+        guard let agentsIndex = components.lastIndex(of: ".agents"),
+              agentsIndex + 1 < components.count,
+              components[agentsIndex + 1] == "skills"
+        else {
+            return nil
+        }
+        return components.dropFirst().prefix(agentsIndex + 1).reduce(URL(fileURLWithPath: "/")) { url, component in
+            url.appendingPathComponent(component)
+        }
+        .standardizedFileURL
+    }
+
+    private func skillSyncDirectoryName(for capability: Capability, source: URL) -> String {
+        if let canonicalPath = capability.metadata["skillsCanonicalPath"],
+           !canonicalPath.isEmpty {
+            return URL(fileURLWithPath: canonicalPath).lastPathComponent
+        }
+        return source.lastPathComponent
+    }
+
+    private func skillInstallTargetExists(destination: URL, source: URL) -> Bool {
+        if let existingTarget = try? fileManager.destinationOfSymbolicLink(atPath: destination.path) {
+            let resolved = resolveSymlink(destination: existingTarget, from: destination.deletingLastPathComponent())
+            return resolved.standardizedFileURL.resolvingSymlinksInPath().path == source.standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        guard fileManager.fileExists(atPath: destination.path) else {
+            return false
+        }
+        return destination.standardizedFileURL.resolvingSymlinksInPath().path == source.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private func resolveSymlink(destination: String, from directory: URL) -> URL {
+        if destination.hasPrefix("/") {
+            return URL(fileURLWithPath: destination).standardizedFileURL
+        }
+        return directory.appendingPathComponent(destination).standardizedFileURL
+    }
+
+    private func uniquePreservingOrder(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values where seen.insert(value).inserted {
+            result.append(value)
+        }
+        return result
+    }
+
     private func disableSourceOperations(for capability: Capability, graph: CapabilityGraph, agentsRoot: URL) -> [ApplyOperation] {
         if let symlinkPath = symbolicDisablePath(for: capability, agentsRoot: agentsRoot) {
             return [
@@ -1347,6 +1539,25 @@ public final class ApplyPlanExecutor {
             guard isAgentStoragePath(targetPath) else {
                 throw OrbitaError.invalidApplyPlan("Restore target is outside known agent storage: \(target)")
             }
+        case .createDirectory, .createSymlink:
+            let isProjectPath = operationPath == agentsRootPath
+                || operationPath.hasPrefix(agentsRootPath + "/")
+                || operationPath == orbitaRootPath
+                || operationPath.hasPrefix(orbitaRootPath + "/")
+            guard isProjectPath || isAgentStoragePath(operationPath) else {
+                throw OrbitaError.invalidApplyPlan("Operation is outside known agent storage: \(operation.path)")
+            }
+            if operation.kind == .createSymlink,
+               let target = operation.target {
+                let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
+                let targetIsProjectPath = targetPath == agentsRootPath
+                    || targetPath.hasPrefix(agentsRootPath + "/")
+                    || targetPath == orbitaRootPath
+                    || targetPath.hasPrefix(orbitaRootPath + "/")
+                guard isProjectPath || targetIsProjectPath || isAgentStoragePath(targetPath) else {
+                    throw OrbitaError.invalidApplyPlan("Symlink target is outside known agent storage: \(target)")
+                }
+            }
         default:
             guard operationPath == agentsRootPath
                 || operationPath.hasPrefix(agentsRootPath + "/")
@@ -1360,10 +1571,21 @@ public final class ApplyPlanExecutor {
 
     private func isAgentStoragePath(_ path: String) -> Bool {
         let components = Set(URL(fileURLWithPath: path).standardizedFileURL.pathComponents)
-        return components.contains(".agents")
+        if components.contains(".agents")
             || components.contains(".codex")
             || components.contains(".claude")
             || components.contains(".cursor")
+            || components.contains(".trae")
+            || components.contains(".trae-cn") {
+            return true
+        }
+        return SkillsAgentCatalog.agents.contains { agent in
+            guard let globalSkillsDir = agent.globalSkillsDir else {
+                return false
+            }
+            let root = normalizedContainmentPath(URL(fileURLWithPath: globalSkillsDir).standardizedFileURL.path)
+            return path == root || path.hasPrefix(root + "/")
+        }
     }
 
     private func normalizedContainmentPath(_ path: String) -> String {

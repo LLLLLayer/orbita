@@ -28,7 +28,7 @@ struct AgentBrandIcon: View {
 @MainActor
 private enum AgentBrandIconStore {
     private static var cache: [String: NSImage] = [:]
-    private static let templateAssets: Set<String> = ["claude", "cursor"]
+    private static let templateAssets: Set<String> = ["cursor"]
 
     static func image(for agent: AgentSelection) -> NSImage? {
         guard let assetName = agent.brandIconAssetName else {

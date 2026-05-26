@@ -157,9 +157,8 @@ struct CapabilityCollectionView: View {
 
     private func visibleAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
         guard let graph else { return [] }
-        let capabilityIDs = Set(item.capabilities.map(\.id))
         return agentOptions.filter { agent in
-            agent.visibleCapabilities(in: graph).contains { capabilityIDs.contains($0.id) }
+            item.capabilities.contains { agent.includesCapability($0, in: graph) }
         }
     }
 
@@ -301,7 +300,7 @@ private struct ExpandedCapabilityGroupShelf: View {
     private func visibleAgents(for capability: Capability) -> [AgentSelection] {
         guard let graph else { return [] }
         return agentOptions.filter { agent in
-            agent.visibleCapabilities(in: graph).contains { $0.id == capability.id }
+            agent.includesCapability(capability, in: graph)
         }
     }
 

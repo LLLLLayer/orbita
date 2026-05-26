@@ -351,6 +351,48 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
+    func planSync(_ capability: Capability, to agent: AgentSelection) -> ApplyPlan? {
+        guard let graph else { return nil }
+        guard !agent.includesCapability(capability, in: graph) else {
+            return nil
+        }
+        let capabilityIDs = groupedCapabilityIDs(for: capability)
+        let syncableCapabilities = graph.capabilities.filter { candidate in
+            (capabilityIDs.isEmpty ? [capability.id] : capabilityIDs).contains(candidate.id)
+                && candidate.type == .skill
+        }
+        guard !syncableCapabilities.isEmpty else {
+            return planEnable(capability)
+        }
+        guard let agentID = agent.skillsInstallAgentID else {
+            return planEnable(capability)
+        }
+
+        do {
+            let plan: ApplyPlan
+            if capabilityIDs.isEmpty {
+                plan = try ApplyPlanBuilder().planSyncSkillInstallTarget(
+                    capabilityID: capability.id,
+                    agentID: agentID,
+                    graph: graph
+                )
+            } else {
+                plan = try ApplyPlanBuilder().planSyncSkillInstallTargets(
+                    capabilityIDs: capabilityIDs,
+                    groupID: capability.id,
+                    agentID: agentID,
+                    graph: graph
+                )
+            }
+            OrbitaTelemetry.apply.notice("plan.sync capability=\(capability.name, privacy: .public) agent=\(agentID, privacy: .public) operations=\(plan.operations.count, privacy: .public)")
+            return plan
+        } catch {
+            errorMessage = error.localizedDescription
+            OrbitaTelemetry.apply.error("plan.sync.failed capability=\(capability.name, privacy: .public) agent=\(agentID, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     func planDisable(_ capability: Capability, visibleTo agent: AgentSelection? = nil) -> ApplyPlan? {
         guard let graph else { return nil }
         do {

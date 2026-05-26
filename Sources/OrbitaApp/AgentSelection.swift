@@ -83,6 +83,14 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         }
     }
 
+    func includesCapability(_ capability: Capability, in graph: CapabilityGraph) -> Bool {
+        if let agentID = skillsInstallAgentID,
+           capability.installedThroughSkillsCLI(for: agentID) {
+            return true
+        }
+        return visibleCapabilities(in: graph).contains { $0.id == capability.id }
+    }
+
     private func sourceCapabilities(_ sourceKind: CapabilitySourceClassifier.SourceKind, in graph: CapabilityGraph) -> [Capability] {
         graph.capabilities
             .filter { CapabilitySourceClassifier.sourceKind(for: $0) == sourceKind }

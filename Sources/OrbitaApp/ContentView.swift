@@ -84,12 +84,16 @@ struct ContentView: View {
                 capability: capability,
                 agents: agentOptions,
                 visibleAgentIDs: visibleAgentIDs(for: capability),
-                onSelect: { _ in
-                    let plan = store.planEnable(capability)
+                onSelect: { agent in
+                    let plan = store.planSync(capability, to: agent)
                     pendingSyncCapability = nil
                     if let plan {
                         DispatchQueue.main.async {
-                            pendingPlan = plan
+                            if plan.requiresConfirmation {
+                                pendingPlan = plan
+                            } else {
+                                apply(plan)
+                            }
                         }
                     }
                 },
@@ -620,9 +624,10 @@ struct ContentView: View {
             return []
         }
         let targetIDs = capabilityTargetIDs(for: capability)
+        let targetCapabilities = graph.capabilities.filter { targetIDs.contains($0.id) }
         return Set(agentOptions.compactMap { agent in
-            let visibleIDs = Set(agent.visibleCapabilities(in: graph).map(\.id))
-            return targetIDs.isSubset(of: visibleIDs) ? agent.id : nil
+            let isVisible = targetCapabilities.allSatisfy { agent.includesCapability($0, in: graph) }
+            return isVisible ? agent.id : nil
         })
     }
 

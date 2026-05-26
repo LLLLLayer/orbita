@@ -1207,6 +1207,56 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(plan.operations.contains { $0.path == canonical.path })
     }
 
+    func testSyncSkillInstallTargetCreatesLightweightAgentSymlinkOnly() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let skillName = "orbita-sync-\(UUID().uuidString)"
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaude-\(UUID().uuidString)")
+            .appendingPathComponent(".claude/skills/\(skillName)")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: source.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+        }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        name: \(skillName)
+        description: Test skill
+        ---
+
+        Body
+        """.write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skill = Capability(
+            id: "skill:\(source.appendingPathComponent("SKILL.md").path)",
+            name: skillName,
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "claude-skill", path: source.appendingPathComponent("SKILL.md").path),
+            metadata: [:]
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let plan = try ApplyPlanBuilder().planSyncSkillInstallTarget(
+            capabilityID: skill.id,
+            agentID: "codex",
+            graph: graph
+        )
+
+        let expectedTarget = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".agents/skills/\(skillName)")
+            .path
+        XCTAssertEqual(plan.action, .enable)
+        XCTAssertFalse(plan.requiresConfirmation)
+        XCTAssertFalse(plan.operations.contains { $0.kind == .writeFile })
+        XCTAssertTrue(plan.operations.contains {
+            $0.kind == .createSymlink
+                && $0.path == expectedTarget
+                && $0.target == source.path
+        })
+    }
+
     func testMergePlanIndexesDiscoveredProjectCapabilitiesWithoutDeletingSources() throws {
         let root = try fixtureURL("MixedProject")
         let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
