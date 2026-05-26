@@ -9,6 +9,7 @@ struct CapabilityInspectorView: View {
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
     let onDelete: (Capability) -> Void
+    let onOpenMarkdownPreview: (MarkdownPreviewDocument) -> Void
     let onNativePluginChanged: () -> Void
 
     @State private var runningNativeActionID: String?
@@ -120,7 +121,7 @@ struct CapabilityInspectorView: View {
                     }
 
                     if let markdownPath = markdownPreviewPath(for: capability) {
-                        MarkdownPreviewCard(sourcePath: markdownPath)
+                        MarkdownPreviewCard(sourcePath: markdownPath, onOpenPreview: onOpenMarkdownPreview)
                     }
                 }
                 .padding(.top, 24)
@@ -1415,6 +1416,7 @@ private struct SourceFolderButton: View {
 
 private struct MarkdownPreviewCard: View {
     let sourcePath: String
+    let onOpenPreview: (MarkdownPreviewDocument) -> Void
 
     @State private var previewState: MarkdownPreviewState = .loading
 
@@ -1426,6 +1428,20 @@ private struct MarkdownPreviewCard: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
+
+                    if let document = previewState.document {
+                        Button {
+                            onOpenPreview(document)
+                        } label: {
+                            Label("Preview", systemImage: "arrow.up.forward.square")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .frame(height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .orbitaControlSurface(cornerRadius: 10)
+                        .help("Open full Markdown preview")
+                    }
                 }
 
                 switch previewState {
@@ -1441,14 +1457,14 @@ private struct MarkdownPreviewCard: View {
                     Text("No markdown preview available.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                case let .rendered(markdown):
+                case let .rendered(_, markdown):
                     Text(markdown)
                         .font(.callout)
                         .lineSpacing(3)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                case let .raw(text):
-                    Text(text)
+                case let .raw(document):
+                    Text(document.markdown)
                         .font(.callout.monospaced())
                         .lineSpacing(3)
                         .textSelection(.enabled)
@@ -1470,9 +1486,18 @@ private struct MarkdownPreviewCard: View {
 private enum MarkdownPreviewState {
     case loading
     case unavailable
-    case rendered(AttributedString)
-    case raw(String)
+    case rendered(MarkdownPreviewDocument, AttributedString)
+    case raw(MarkdownPreviewDocument)
     case failed(String)
+
+    var document: MarkdownPreviewDocument? {
+        switch self {
+        case let .rendered(document, _), let .raw(document):
+            return document
+        default:
+            return nil
+        }
+    }
 
     static func load(path: String) -> MarkdownPreviewState {
         var isDirectory = ObjCBool(false)
@@ -1487,6 +1512,11 @@ private enum MarkdownPreviewState {
             guard !markdown.isEmpty else {
                 return .unavailable
             }
+            let document = MarkdownPreviewDocument(
+                sourcePath: path,
+                title: URL(fileURLWithPath: path).lastPathComponent,
+                markdown: markdown
+            )
 
             do {
                 let rendered = try AttributedString(
@@ -1496,9 +1526,9 @@ private enum MarkdownPreviewState {
                         failurePolicy: .returnPartiallyParsedIfPossible
                     )
                 )
-                return .rendered(rendered)
+                return .rendered(document, rendered)
             } catch {
-                return .raw(markdown)
+                return .raw(document)
             }
         } catch {
             return .failed("Unable to read markdown: \(error.localizedDescription)")

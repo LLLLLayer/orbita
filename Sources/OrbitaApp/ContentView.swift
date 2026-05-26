@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var addingAgentPresented = false
     @State private var hidingCategoriesPresented = false
     @State private var settingsPresented = false
+    @State private var markdownPreviewDocument: MarkdownPreviewDocument?
     @State private var pendingPlan: ApplyPlan?
     @State private var pendingDeletePlan: PendingDeletePlan?
     @State private var importerPresented = false
@@ -65,6 +66,7 @@ struct ContentView: View {
                 store.openProject(url)
                 selectedProject = url.standardizedFileURL.resolvingSymlinksInPath().path
                 selectedCapability = nil
+                markdownPreviewDocument = nil
                 expandedGroupIDs.removeAll()
             }
         }
@@ -164,7 +166,15 @@ struct ContentView: View {
 
     private var mainAppLayout: some View {
         Group {
-            if settingsPresented {
+            if let markdownPreviewDocument {
+                MarkdownPreviewPage(document: markdownPreviewDocument) {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        self.markdownPreviewDocument = nil
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+            } else if settingsPresented {
                 settingsView
             } else {
                 HStack(spacing: 0) {
@@ -244,6 +254,11 @@ struct ContentView: View {
                                     pendingDeletePlan = PendingDeletePlan(plan: plan, name: capability.name)
                                 }
                             },
+                            onOpenMarkdownPreview: { document in
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    markdownPreviewDocument = document
+                                }
+                            },
                             onNativePluginChanged: {
                                 store.reload(force: true)
                             }
@@ -314,6 +329,7 @@ struct ContentView: View {
                 onSelectProject: { project in
                     selectedProject = project.path
                     selectedCapability = nil
+                    markdownPreviewDocument = nil
                     expandedGroupIDs.removeAll()
                     store.openProject(URL(fileURLWithPath: project.path))
                 },
@@ -339,6 +355,7 @@ struct ContentView: View {
     private func selectEnvironment() {
         selectedProject = ProjectCapabilityStore.environmentSelectionID
         selectedCapability = nil
+        markdownPreviewDocument = nil
         expandedGroupIDs.removeAll()
         store.openEnvironment()
     }

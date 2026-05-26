@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "Orbita",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     products: [
         .library(name: "OrbitaCore", targets: ["OrbitaCore"]),
@@ -13,7 +13,8 @@ let package = Package(
         .executable(name: "OrbitaApp", targets: ["OrbitaApp"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2"),
+        .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1")
     ],
     targets: [
         .target(name: "OrbitaCore"),
@@ -25,7 +26,8 @@ let package = Package(
             name: "OrbitaApp",
             dependencies: [
                 "OrbitaCore",
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "Textual", package: "textual")
             ]
         ),
         .testTarget(

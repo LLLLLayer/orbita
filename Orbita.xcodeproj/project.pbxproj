@@ -38,8 +38,10 @@
 		200000000000000000001015 /* ProjectCapabilityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000015 /* ProjectCapabilityStore.swift */; };
 		200000000000000000001016 /* OrbitaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000016 /* OrbitaTheme.swift */; };
 		200000000000000000001017 /* UserDirectoryAccessPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000017 /* UserDirectoryAccessPreflight.swift */; };
+		200000000000000000001018 /* MarkdownPreviewPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000018 /* MarkdownPreviewPage.swift */; };
 		300000000000000000001001 /* libOrbitaCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 300000000000000000000002 /* libOrbitaCore.a */; };
 		500000000000000000001001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002002 /* Sparkle */; };
+		500000000000000000001002 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002004 /* Textual */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,6 +86,7 @@
 		200000000000000000000015 /* ProjectCapabilityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectCapabilityStore.swift; sourceTree = "<group>"; };
 		200000000000000000000016 /* OrbitaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitaTheme.swift; sourceTree = "<group>"; };
 		200000000000000000000017 /* UserDirectoryAccessPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDirectoryAccessPreflight.swift; sourceTree = "<group>"; };
+		200000000000000000000018 /* MarkdownPreviewPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewPage.swift; sourceTree = "<group>"; };
 		300000000000000000000001 /* Orbita.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Orbita.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000002 /* libOrbitaCore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libOrbitaCore.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -97,6 +100,7 @@
 			files = (
 				300000000000000000001001 /* libOrbitaCore.a in Frameworks */,
 				500000000000000000001001 /* Sparkle in Frameworks */,
+				500000000000000000001002 /* Textual in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -142,6 +146,7 @@
 				200000000000000000000007 /* CapabilitySourceClassifier.swift */,
 				200000000000000000000008 /* ContentView.swift */,
 				200000000000000000000009 /* FullDiskAccessGate.swift */,
+				200000000000000000000018 /* MarkdownPreviewPage.swift */,
 				200000000000000000000010 /* OrbitaApp.swift */,
 				200000000000000000000011 /* OrbitaSettingsView.swift */,
 				200000000000000000000012 /* OrbitaSheets.swift */,
@@ -225,6 +230,7 @@
 			name = Orbita;
 			packageProductDependencies = (
 				500000000000000000002002 /* Sparkle */,
+				500000000000000000002004 /* Textual */,
 			);
 			productName = Orbita;
 			productReference = 300000000000000000000001 /* Orbita.app */;
@@ -259,6 +265,7 @@
 			mainGroup = 000000000000000000000002;
 			packageReferences = (
 				500000000000000000002001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				500000000000000000002003 /* XCRemoteSwiftPackageReference "textual" */,
 			);
 			productRefGroup = 300000000000000000000005 /* Products */;
 			projectDirPath = "";
@@ -284,6 +291,7 @@
 				200000000000000000001007 /* CapabilitySourceClassifier.swift in Sources */,
 				200000000000000000001008 /* ContentView.swift in Sources */,
 				200000000000000000001009 /* FullDiskAccessGate.swift in Sources */,
+				200000000000000000001018 /* MarkdownPreviewPage.swift in Sources */,
 				200000000000000000001010 /* OrbitaApp.swift in Sources */,
 				200000000000000000001011 /* OrbitaSettingsView.swift in Sources */,
 				200000000000000000001012 /* OrbitaSheets.swift in Sources */,
@@ -335,6 +343,14 @@
 				minimumVersion = 2.9.2;
 			};
 		};
+		500000000000000000002003 /* XCRemoteSwiftPackageReference "textual" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/textual";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.3.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -342,6 +358,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 500000000000000000002001 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		500000000000000000002004 /* Textual */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 500000000000000000002003 /* XCRemoteSwiftPackageReference "textual" */;
+			productName = Textual;
 		};
 /* End XCSwiftPackageProductDependency section */
 
@@ -397,7 +418,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -453,7 +474,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
