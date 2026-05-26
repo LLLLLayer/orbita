@@ -5,6 +5,8 @@ struct AddAgentSheet: View {
     @State private var name = ""
     @State private var behavior = AgentBehavior.generic
     @State private var selectedPresetID = ""
+    @FocusState private var nameFieldFocused: Bool
+
     let onAdd: (AgentSelection) -> Void
     let onCancel: () -> Void
 
@@ -13,61 +15,359 @@ struct AddAgentSheet: View {
         return SkillsAgentCatalog.addableAgents.filter { !builtInIDs.contains($0.id) }
     }
 
+    private var selectedPreset: SkillsAgentDefinition? {
+        presets.first { $0.id == selectedPresetID }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Add Coding Agent")
-                .font(.title2.weight(.semibold))
+        VStack(alignment: .leading, spacing: 18) {
+            AddAgentHeader()
 
-            Picker("Skills CLI preset", selection: $selectedPresetID) {
-                Text("Custom").tag("")
-                ForEach(presets) { preset in
-                    Text(preset.displayName).tag(preset.id)
-                }
+            VStack(alignment: .leading, spacing: 14) {
+                AddAgentFieldLabel(title: "Agent source", systemImage: "wand.and.stars")
+                presetMenu
+
+                AddAgentFieldLabel(title: "Display name", systemImage: "textformat")
+                    .padding(.top, 2)
+                nameField
             }
-            .onChange(of: selectedPresetID) { _, value in
-                guard let preset = presets.first(where: { $0.id == value }) else {
-                    behavior = .generic
-                    return
-                }
-                name = preset.displayName
-                behavior = .skillsAgent
-            }
+            .padding(16)
+            .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
 
-            TextField("Agent name", text: $name)
-                .textFieldStyle(.roundedBorder)
+            capabilityModelSection
 
-            if selectedPresetID.isEmpty {
-                Picker("Capability model", selection: $behavior) {
-                    Text("Generic").tag(AgentBehavior.generic)
-                    Text("Codex-like").tag(AgentBehavior.codexLike)
-                    Text("Claude-like").tag(AgentBehavior.claudeLike)
-                }
-                .pickerStyle(.radioGroup)
-            } else {
-                LabeledContent("Capability model", value: "Skills CLI install paths")
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel", action: onCancel)
-                Button("Add") {
-                    onAdd(AgentSelection(
-                        id: selectedPresetID.isEmpty ? "custom:\(UUID().uuidString)" : "skills-agent:\(selectedPresetID)",
-                        displayName: trimmedName,
-                        behavior: behavior,
-                        skillsAgentID: selectedPresetID.isEmpty ? nil : selectedPresetID
-                    ))
-                }
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(
+                    title: "Add",
+                    systemImage: "plus",
+                    prominent: true,
+                    isDisabled: trimmedName.isEmpty,
+                    action: addAgent
+                )
                 .keyboardShortcut(.defaultAction)
-                .disabled(trimmedName.isEmpty)
             }
         }
-        .padding()
-        .frame(width: 420)
+        .padding(22)
+        .frame(width: 560)
+        .background(OrbitaTheme.canvas)
+        .presentationBackground(OrbitaTheme.canvas)
+        .onAppear {
+            nameFieldFocused = true
+        }
+    }
+
+    private var presetMenu: some View {
+        Menu {
+            Button {
+                selectCustomPreset()
+            } label: {
+                Label("Custom", systemImage: "person.crop.circle")
+            }
+
+            Divider()
+
+            ForEach(presets) { preset in
+                Button {
+                    select(preset)
+                } label: {
+                    Label(preset.displayName, systemImage: "wand.and.stars")
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: selectedPreset == nil ? "person.crop.circle" : "wand.and.stars")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(selectedPreset?.displayName ?? "Custom")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(presetDetail)
+                        .font(.caption)
+                        .foregroundStyle(selectedPreset == nil ? .secondary : OrbitaTheme.prominentControlForeground.opacity(0.72))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(selectedPreset == nil ? .secondary : OrbitaTheme.prominentControlForeground.opacity(0.78))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .foregroundStyle(selectedPreset == nil ? Color.primary : OrbitaTheme.prominentControlForeground)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .orbitaControlSurface(selected: selectedPreset != nil, cornerRadius: 14)
+    }
+
+    private var nameField: some View {
+        TextField("Agent name", text: $name)
+            .textFieldStyle(.plain)
+            .font(.body.weight(.medium))
+            .padding(.horizontal, 12)
+            .frame(height: 40)
+            .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(nameFieldFocused ? OrbitaTheme.strongBorder : OrbitaTheme.border, lineWidth: nameFieldFocused ? 1.5 : 1)
+            }
+            .focused($nameFieldFocused)
+            .onSubmit(addAgent)
+    }
+
+    @ViewBuilder
+    private var capabilityModelSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AddAgentFieldLabel(title: "Capability model", systemImage: "slider.horizontal.3")
+
+            if selectedPreset == nil {
+                HStack(spacing: 10) {
+                    ForEach(AddAgentBehaviorOption.customOptions) { option in
+                        AddAgentBehaviorButton(
+                            option: option,
+                            isSelected: behavior == option.behavior
+                        ) {
+                            behavior = option.behavior
+                        }
+                    }
+                }
+            } else if let selectedPreset {
+                SkillsPresetSummary(preset: selectedPreset)
+            }
+        }
+    }
+
+    private var presetDetail: String {
+        guard let selectedPreset else {
+            return "Manual capability view"
+        }
+        return "\(selectedPreset.projectSkillsDir) / \(displayPath(selectedPreset.globalSkillsDir))"
+    }
+
+    private func select(_ preset: SkillsAgentDefinition) {
+        selectedPresetID = preset.id
+        name = preset.displayName
+        behavior = .skillsAgent
+    }
+
+    private func selectCustomPreset() {
+        selectedPresetID = ""
+        behavior = .generic
+    }
+
+    private func addAgent() {
+        guard !trimmedName.isEmpty else {
+            return
+        }
+        onAdd(AgentSelection(
+            id: selectedPresetID.isEmpty ? "custom:\(UUID().uuidString)" : "skills-agent:\(selectedPresetID)",
+            displayName: trimmedName,
+            behavior: behavior,
+            skillsAgentID: selectedPresetID.isEmpty ? nil : selectedPresetID
+        ))
+    }
+
+    private func displayPath(_ path: String?) -> String {
+        guard let path, !path.isEmpty else {
+            return "No global path"
+        }
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == homePath {
+            return "~"
+        }
+        if path.hasPrefix(homePath + "/") {
+            return "~" + path.dropFirst(homePath.count)
+        }
+        return path
     }
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct AddAgentHeader: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(OrbitaTheme.controlFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(OrbitaTheme.border)
+                    }
+
+                Image(systemName: "plus.square.dashed")
+                    .font(.system(size: 20, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Add Coding Agent")
+                    .font(.title2.weight(.semibold))
+                Text("Preset or custom capability view")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct AddAgentFieldLabel: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .labelStyle(.titleAndIcon)
+    }
+}
+
+private struct AddAgentBehaviorOption: Identifiable {
+    let behavior: AgentBehavior
+    let title: String
+    let subtitle: String
+    let systemImage: String
+
+    var id: AgentBehavior { behavior }
+
+    static let customOptions: [AddAgentBehaviorOption] = [
+        .init(
+            behavior: .generic,
+            title: "Generic",
+            subtitle: "All enabled capabilities",
+            systemImage: "square.grid.2x2"
+        ),
+        .init(
+            behavior: .codexLike,
+            title: "Codex-style",
+            subtitle: "Codex visibility rules",
+            systemImage: "command"
+        ),
+        .init(
+            behavior: .claudeLike,
+            title: "Claude-style",
+            subtitle: "Claude visibility rules",
+            systemImage: "text.bubble"
+        )
+    ]
+}
+
+private struct AddAgentBehaviorButton: View {
+    let option: AddAgentBehaviorOption
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: option.systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 22, height: 20, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(option.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground.opacity(0.72) : .secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : Color.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .orbitaControlSurface(selected: isSelected, cornerRadius: 14)
+    }
+}
+
+private struct SkillsPresetSummary: View {
+    let preset: SkillsAgentDefinition
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "folder.badge.gearshape")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 24)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("Skills CLI install paths")
+                        .font(.subheadline.weight(.semibold))
+                    Text(preset.usesSharedProjectSkills ? "Shared" : "Dedicated")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(OrbitaTheme.controlFill, in: Capsule())
+                }
+
+                Text("\(preset.projectSkillsDir) / \(displayPath(preset.globalSkillsDir))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .orbitaCard(cornerRadius: 16, shadowRadius: 6, shadowY: 3)
+    }
+
+    private func displayPath(_ path: String?) -> String {
+        guard let path, !path.isEmpty else {
+            return "No global path"
+        }
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == homePath {
+            return "~"
+        }
+        if path.hasPrefix(homePath + "/") {
+            return "~" + path.dropFirst(homePath.count)
+        }
+        return path
+    }
+}
+
+private struct AddAgentActionButton: View {
+    let title: String
+    let systemImage: String
+    var prominent = false
+    var isDisabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .foregroundStyle(prominent ? OrbitaTheme.prominentControlForeground : Color.primary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .orbitaControlSurface(selected: prominent, cornerRadius: 11)
+        .opacity(isDisabled ? 0.42 : 1)
+        .disabled(isDisabled)
     }
 }
 
