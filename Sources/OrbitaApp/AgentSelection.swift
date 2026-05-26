@@ -5,8 +5,10 @@ enum AgentBehavior: String, Codable, CaseIterable, Sendable {
     case agentsSource
     case codexSource
     case claudeSource
+    case cursorSource
     case codexLike
     case claudeLike
+    case skillsAgent
     case generic
 }
 
@@ -14,11 +16,13 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
     var id: String
     var displayName: String
     var behavior: AgentBehavior
+    var skillsAgentID: String? = nil
 
     static let agents = AgentSelection(id: "built-in:agents", displayName: "Agents", behavior: .agentsSource)
     static let codex = AgentSelection(id: "built-in:codex", displayName: "Codex", behavior: .codexSource)
     static let claudeCode = AgentSelection(id: "built-in:claude-code", displayName: "Claude Code", behavior: .claudeSource)
-    static let defaultAgents = [agents, codex, claudeCode]
+    static let cursor = AgentSelection(id: "built-in:cursor", displayName: "Cursor", behavior: .cursorSource)
+    static let defaultAgents = [agents, codex, claudeCode, cursor]
 
     func visibleCapabilities(in graph: CapabilityGraph) -> [Capability] {
         switch behavior {
@@ -28,10 +32,23 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return sourceCapabilities(.codex, in: graph)
         case .claudeSource:
             return sourceCapabilities(.claude, in: graph)
+        case .cursorSource:
+            return sourceCapabilities(.cursor, in: graph)
         case .codexLike:
             return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeLike:
             return AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
+        case .skillsAgent:
+            guard let skillsAgentID else {
+                return []
+            }
+            return graph.capabilities
+                .filter { capability in
+                    !capability.statuses.contains(.broken)
+                        && !capability.statuses.contains(.disabled)
+                        && capability.installedThroughSkillsCLI(for: skillsAgentID)
+                }
+                .sorted { $0.id < $1.id }
         case .generic:
             return graph.capabilities
                 .filter { capability in
@@ -58,6 +75,9 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.claudeCode.id {
             return "text.bubble"
         }
+        if id == Self.cursor.id {
+            return "cursorarrow.rays"
+        }
         switch behavior {
         case .agentsSource:
             return "point.3.connected.trianglepath.dotted"
@@ -65,13 +85,26 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return "command"
         case .claudeSource:
             return "text.bubble"
+        case .cursorSource:
+            return "cursorarrow.rays"
         case .codexLike:
             return "command"
         case .claudeLike:
             return "text.bubble"
+        case .skillsAgent:
+            return "wand.and.stars"
         case .generic:
             return "person.crop.circle"
         }
+    }
+}
+
+private extension Capability {
+    func installedThroughSkillsCLI(for agentID: String) -> Bool {
+        metadata["skillsInstalledAgentIDs"]?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains(agentID) == true
     }
 }
 

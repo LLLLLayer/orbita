@@ -4,32 +4,58 @@ import OrbitaCore
 struct AddAgentSheet: View {
     @State private var name = ""
     @State private var behavior = AgentBehavior.generic
+    @State private var selectedPresetID = ""
     let onAdd: (AgentSelection) -> Void
     let onCancel: () -> Void
+
+    private var presets: [SkillsAgentDefinition] {
+        let builtInIDs: Set<String> = ["codex", "claude-code", "cursor"]
+        return SkillsAgentCatalog.addableAgents.filter { !builtInIDs.contains($0.id) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Coding Agent")
                 .font(.title2.weight(.semibold))
 
+            Picker("Skills CLI preset", selection: $selectedPresetID) {
+                Text("Custom").tag("")
+                ForEach(presets) { preset in
+                    Text(preset.displayName).tag(preset.id)
+                }
+            }
+            .onChange(of: selectedPresetID) { _, value in
+                guard let preset = presets.first(where: { $0.id == value }) else {
+                    behavior = .generic
+                    return
+                }
+                name = preset.displayName
+                behavior = .skillsAgent
+            }
+
             TextField("Agent name", text: $name)
                 .textFieldStyle(.roundedBorder)
 
-            Picker("Capability model", selection: $behavior) {
-                Text("Generic").tag(AgentBehavior.generic)
-                Text("Codex-like").tag(AgentBehavior.codexLike)
-                Text("Claude-like").tag(AgentBehavior.claudeLike)
+            if selectedPresetID.isEmpty {
+                Picker("Capability model", selection: $behavior) {
+                    Text("Generic").tag(AgentBehavior.generic)
+                    Text("Codex-like").tag(AgentBehavior.codexLike)
+                    Text("Claude-like").tag(AgentBehavior.claudeLike)
+                }
+                .pickerStyle(.radioGroup)
+            } else {
+                LabeledContent("Capability model", value: "Skills CLI install paths")
             }
-            .pickerStyle(.radioGroup)
 
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
                 Button("Add") {
                     onAdd(AgentSelection(
-                        id: "custom:\(UUID().uuidString)",
+                        id: selectedPresetID.isEmpty ? "custom:\(UUID().uuidString)" : "skills-agent:\(selectedPresetID)",
                         displayName: trimmedName,
-                        behavior: behavior
+                        behavior: behavior,
+                        skillsAgentID: selectedPresetID.isEmpty ? nil : selectedPresetID
                     ))
                 }
                 .keyboardShortcut(.defaultAction)
@@ -37,7 +63,7 @@ struct AddAgentSheet: View {
             }
         }
         .padding()
-        .frame(width: 360)
+        .frame(width: 420)
     }
 
     private var trimmedName: String {

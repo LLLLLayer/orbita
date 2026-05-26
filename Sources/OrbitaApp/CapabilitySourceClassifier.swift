@@ -10,6 +10,8 @@ enum CapabilitySourceClassifier {
             return "Codex"
         case .claude:
             return "Claude"
+        case .cursor:
+            return "Cursor"
         case .packages:
             return "package"
         case .project:
@@ -30,6 +32,9 @@ enum CapabilitySourceClassifier {
         if path.contains("/.claude/") {
             return .claude
         }
+        if path.contains("/.cursor/") || capability.source.kind == "legacy-cursor-rule" || capability.source.kind == "cursor-rule" {
+            return .cursor
+        }
         if path.contains("/node_modules/") {
             return .packages
         }
@@ -43,11 +48,12 @@ enum CapabilitySourceClassifier {
         case agents
         case codex
         case claude
+        case cursor
         case packages
         case project
         case other
 
-        static let headerKinds: [SourceKind] = [.agents, .codex, .claude]
+        static let headerKinds: [SourceKind] = [.agents, .codex, .claude, .cursor]
 
         var title: String {
             switch self {
@@ -57,6 +63,8 @@ enum CapabilitySourceClassifier {
                 return "Codex"
             case .claude:
                 return "Claude"
+            case .cursor:
+                return "Cursor"
             case .packages:
                 return "Packages"
             case .project:
@@ -74,6 +82,8 @@ enum CapabilitySourceClassifier {
                 return "command"
             case .claude:
                 return "text.bubble"
+            case .cursor:
+                return "cursorarrow.rays"
             case .packages:
                 return "shippingbox"
             case .project:
@@ -91,6 +101,8 @@ enum CapabilitySourceClassifier {
                 return ".codex"
             case .claude:
                 return ".claude"
+            case .cursor:
+                return ".cursor"
             case .packages:
                 return "node_modules"
             case .project:

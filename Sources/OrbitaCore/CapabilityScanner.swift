@@ -9,6 +9,7 @@ public struct ScanOptions: Sendable {
     public var codexPluginCacheRoot: URL
     public var claudeInstalledPluginsURL: URL
     public var claudeSettingsURLs: [URL]
+    public var skillsGlobalLockURL: URL
     public var ignoredDirectoryNames: Set<String>
     public var progressHandler: (@Sendable (ScanProgressEvent) -> Void)?
 
@@ -20,6 +21,7 @@ public struct ScanOptions: Sendable {
         codexPluginCacheRoot: URL? = nil,
         claudeInstalledPluginsURL: URL? = nil,
         claudeSettingsURLs: [URL]? = nil,
+        skillsGlobalLockURL: URL? = nil,
         ignoredDirectoryNames: Set<String> = Self.defaultIgnoredDirectoryNames,
         progressHandler: (@Sendable (ScanProgressEvent) -> Void)? = nil
     ) {
@@ -31,6 +33,7 @@ public struct ScanOptions: Sendable {
         self.codexPluginCacheRoot = codexPluginCacheRoot ?? home.appendingPathComponent(".codex/plugins/cache")
         self.claudeInstalledPluginsURL = claudeInstalledPluginsURL ?? home.appendingPathComponent(".claude/plugins/installed_plugins.json")
         self.claudeSettingsURLs = claudeSettingsURLs ?? [home.appendingPathComponent(".claude/settings.json")]
+        self.skillsGlobalLockURL = skillsGlobalLockURL ?? SkillsAgentCatalog.defaultGlobalLockURL()
         self.ignoredDirectoryNames = ignoredDirectoryNames
         self.progressHandler = progressHandler
     }
@@ -51,6 +54,8 @@ public struct ScanOptions: Sendable {
         ".swiftpm",
         ".xcodeproj",
         ".xcworkspace",
+        "__pycache__",
+        "__pypackages__",
         "DerivedData",
         "build",
         "coverage",
@@ -87,6 +92,8 @@ public final class CapabilityScanner {
         var capabilities: [Capability] = []
         var issues: [ScanIssue] = []
         let codexSkillStates = codexSkillStates(at: options.codexConfigURL)
+        let projectSkillsLock = SkillsLockReader.read(at: root.appendingPathComponent("skills-lock.json"))
+        let globalSkillsLock = SkillsLockReader.read(at: options.skillsGlobalLockURL)
 
         emitProgress("scan.instructions.start", path: root.path, options: options)
         scanInstructionFiles(at: root, into: &capabilities)
@@ -109,11 +116,25 @@ public final class CapabilityScanner {
         emitProgress("scan.mcp.finish", path: root.appendingPathComponent(".mcp.json").path, count: capabilities.count, options: options)
 
         emitProgress("scan.agents.start", path: root.appendingPathComponent(".agents").path, options: options)
-        scanAgentsWorkspace(at: root, options: options, codexSkillStates: codexSkillStates, into: &capabilities, issues: &issues)
+        scanAgentsWorkspace(
+            at: root,
+            options: options,
+            skillsLock: projectSkillsLock,
+            codexSkillStates: codexSkillStates,
+            into: &capabilities,
+            issues: &issues
+        )
         emitProgress("scan.agents.finish", path: root.appendingPathComponent(".agents").path, count: capabilities.count, options: options)
 
         scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues, codexConfigPath: options.codexConfigURL.path, codexSkillStates: codexSkillStates)
-        scanUserSkillRoots(projectRoot: root, options: options, codexSkillStates: codexSkillStates, into: &capabilities, issues: &issues)
+        scanUserSkillRoots(
+            projectRoot: root,
+            options: options,
+            globalSkillsLock: globalSkillsLock,
+            codexSkillStates: codexSkillStates,
+            into: &capabilities,
+            issues: &issues
+        )
         scanNativePluginRegistries(projectRoot: root, options: options, into: &capabilities, issues: &issues)
 
         emitProgress("scan.finish", path: root.path, count: capabilities.count, options: options)
@@ -388,6 +409,7 @@ public final class CapabilityScanner {
     private func scanAgentsWorkspace(
         at root: URL,
         options: ScanOptions,
+        skillsLock: SkillsLockFile?,
         codexSkillStates: [String: Bool],
         into capabilities: inout [Capability],
         issues: inout [ScanIssue]
@@ -418,6 +440,8 @@ public final class CapabilityScanner {
             scope: .project,
             sourceKind: "agents-skill",
             projectRoot: root,
+            skillsLock: skillsLock,
+            skillsCanonicalRoot: skillsRoot,
             codexConfigPath: options.codexConfigURL.path,
             codexSkillStates: codexSkillStates
         )
@@ -514,6 +538,8 @@ public final class CapabilityScanner {
         scope: CapabilityScope = .project,
         sourceKind: String = "skill",
         projectRoot: URL? = nil,
+        skillsLock: SkillsLockFile? = nil,
+        skillsCanonicalRoot: URL? = nil,
         codexConfigPath: String? = nil,
         codexPluginStates: [String: Bool] = [:],
         codexSkillStates: [String: Bool] = [:]
@@ -541,7 +567,7 @@ public final class CapabilityScanner {
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             let isDirectory = values?.isDirectory ?? false
             let isSymbolicLink = values?.isSymbolicLink ?? false
-            if isDirectory && options.ignoredDirectoryNames.contains(last) {
+            if isDirectory && shouldSkipSkillDirectory(url, scanRoot: root, options: options) {
                 enumerator.skipDescendants()
                 continue
             }
@@ -560,6 +586,8 @@ public final class CapabilityScanner {
                         projectRoot: projectRoot ?? root,
                         scope: scope,
                         sourceKind: sourceKind,
+                        skillsLock: skillsLock,
+                        skillsCanonicalRoot: skillsCanonicalRoot,
                         codexConfigPath: codexConfigPath,
                         codexPluginStates: codexPluginStates,
                         codexSkillStates: codexSkillStates
@@ -581,6 +609,8 @@ public final class CapabilityScanner {
                 projectRoot: projectRoot ?? root,
                 scope: scope,
                 sourceKind: sourceKind,
+                skillsLock: skillsLock,
+                skillsCanonicalRoot: skillsCanonicalRoot,
                 codexConfigPath: codexConfigPath,
                 codexPluginStates: codexPluginStates,
                 codexSkillStates: codexSkillStates
@@ -590,9 +620,29 @@ public final class CapabilityScanner {
         emitProgress("scan.skills.finish", path: root.path, count: count, options: options)
     }
 
+    private func shouldSkipSkillDirectory(_ url: URL, scanRoot: URL, options: ScanOptions) -> Bool {
+        if options.ignoredDirectoryNames.contains(url.lastPathComponent) {
+            return true
+        }
+
+        let rootPath = scanRoot.standardizedFileURL.path
+        let urlPath = url.standardizedFileURL.path
+        guard urlPath.hasPrefix(rootPath + "/") else {
+            return false
+        }
+        let relative = String(urlPath.dropFirst(rootPath.count + 1))
+        let components = relative.split(separator: "/").map(String.init)
+        guard let testsIndex = components.firstIndex(of: "Tests"),
+              testsIndex < components.count - 1 else {
+            return false
+        }
+        return components[(testsIndex + 1)...].contains("Fixtures")
+    }
+
     private func scanUserSkillRoots(
         projectRoot: URL,
         options: ScanOptions,
+        globalSkillsLock: SkillsLockFile?,
         codexSkillStates: [String: Bool],
         into capabilities: inout [Capability],
         issues: inout [ScanIssue]
@@ -601,19 +651,30 @@ public final class CapabilityScanner {
         let codexStates = codexPluginStates(at: options.codexConfigURL)
         for root in options.userSkillRoots {
             let standardizedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+            let sourceKind = userSkillSourceKind(for: standardizedRoot)
+            let lock = sourceKind == "agents-skill"
+                ? skillsLockForUserAgentsRoot(standardizedRoot, fallback: globalSkillsLock)
+                : nil
             scanSkillFiles(
                 at: standardizedRoot,
                 options: options,
                 into: &capabilities,
                 issues: &issues,
                 scope: .user,
-                sourceKind: userSkillSourceKind(for: standardizedRoot),
+                sourceKind: sourceKind,
                 projectRoot: projectRoot,
+                skillsLock: lock,
+                skillsCanonicalRoot: sourceKind == "agents-skill" ? standardizedRoot : nil,
                 codexConfigPath: options.codexConfigURL.path,
                 codexPluginStates: codexStates,
                 codexSkillStates: codexSkillStates
             )
         }
+    }
+
+    private func skillsLockForUserAgentsRoot(_ root: URL, fallback: SkillsLockFile?) -> SkillsLockFile? {
+        let sibling = root.deletingLastPathComponent().appendingPathComponent(".skill-lock.json")
+        return SkillsLockReader.read(at: sibling) ?? fallback
     }
 
     private func userSkillSourceKind(for root: URL) -> String {
@@ -632,6 +693,8 @@ public final class CapabilityScanner {
         projectRoot: URL,
         scope: CapabilityScope,
         sourceKind: String,
+        skillsLock: SkillsLockFile?,
+        skillsCanonicalRoot: URL?,
         codexConfigPath: String?,
         codexPluginStates: [String: Bool],
         codexSkillStates: [String: Bool]
@@ -648,7 +711,17 @@ public final class CapabilityScanner {
             metadata["pluginSelector"] = name
             metadata["checkCommand"] = scope == .user ? "npx skills list -g" : "npx skills list"
             metadata["updateCommand"] = "npx skills update \(shellQuoted(name)) \(scope == .user ? "-g" : "-p") -y"
+            metadata["deleteCommand"] = "npx skills remove \(shellQuoted(name)) \(scope == .user ? "-g" : "-p") -y"
             metadata["lifecycleNote"] = "Skills CLI updates installed .agents skills by name; disabling is modeled as removal or .agents manifest intent."
+            enrichSkillsCLIMetadata(
+                &metadata,
+                capabilityName: name,
+                skillDirectory: url.deletingLastPathComponent(),
+                scope: scope,
+                projectRoot: projectRoot,
+                lock: skillsLock,
+                canonicalRoot: skillsCanonicalRoot
+            )
             statuses = [.enabled]
         } else if let codexCacheInfo, scope == .user {
             let selector = "\(codexCacheInfo.pluginName)@\(codexCacheInfo.marketplace)"
@@ -694,6 +767,231 @@ public final class CapabilityScanner {
             summary: frontmatter["description"],
             metadata: metadata
         )
+    }
+
+    private struct SkillsAgentInstall {
+        var id: String
+        var displayName: String
+        var relationship: String
+        var path: String
+    }
+
+    private func enrichSkillsCLIMetadata(
+        _ metadata: inout [String: String],
+        capabilityName: String,
+        skillDirectory: URL,
+        scope: CapabilityScope,
+        projectRoot: URL,
+        lock: SkillsLockFile?,
+        canonicalRoot: URL?
+    ) {
+        let canonicalDirectory = skillsCanonicalDirectory(
+            capabilityName: capabilityName,
+            skillDirectory: skillDirectory,
+            canonicalRoot: canonicalRoot
+        )
+
+        if let canonicalDirectory {
+            metadata["skillsCanonicalPath"] = canonicalDirectory.path
+            metadata["skillsCanonicalStatus"] = directoryExists(canonicalDirectory) ? "present" : "missing"
+        }
+
+        if let lock {
+            metadata["skillsLockPath"] = lock.path
+            if let entry = skillsLockEntry(in: lock, capabilityName: capabilityName, skillDirectory: skillDirectory) {
+                metadata["skillsLockStatus"] = "locked"
+                metadata["skillsLockSource"] = entry.source
+                metadata["skillsLockSourceType"] = entry.sourceType
+                let installCommand = skillsInstallCommand(
+                    source: entry.sourceUrl ?? entry.source,
+                    capabilityName: capabilityName,
+                    scope: scope
+                )
+                metadata["skillsInstallCommand"] = installCommand
+                metadata["installCommand"] = installCommand
+                if let ref = entry.ref, !ref.isEmpty {
+                    metadata["skillsLockRef"] = ref
+                }
+                if let sourceUrl = entry.sourceUrl, !sourceUrl.isEmpty {
+                    metadata["skillsLockSourceURL"] = sourceUrl
+                }
+                if let skillPath = entry.skillPath, !skillPath.isEmpty {
+                    metadata["skillsLockSkillPath"] = skillPath
+                }
+                if let hash = entry.updateHash {
+                    metadata["skillsLockHash"] = hash
+                }
+                if let installedAt = entry.installedAt, !installedAt.isEmpty {
+                    metadata["skillsLockInstalledAt"] = installedAt
+                }
+                if let updatedAt = entry.updatedAt, !updatedAt.isEmpty {
+                    metadata["skillsLockUpdatedAt"] = updatedAt
+                }
+                if let pluginName = entry.pluginName, !pluginName.isEmpty {
+                    metadata["skillsLockPluginName"] = pluginName
+                }
+            } else {
+                metadata["skillsLockStatus"] = "missing-entry"
+            }
+        } else {
+            metadata["skillsLockStatus"] = "missing-lock"
+        }
+
+        let installs = skillsAgentInstallations(
+            capabilityName: capabilityName,
+            skillDirectory: skillDirectory,
+            scope: scope,
+            projectRoot: projectRoot,
+            canonicalDirectory: canonicalDirectory,
+            canonicalRoot: canonicalDirectory?.deletingLastPathComponent()
+        )
+        guard !installs.isEmpty else { return }
+        metadata["skillsInstalledAgentIDs"] = installs.map(\.id).joined(separator: ",")
+        metadata["skillsInstalledAgents"] = installs.map(\.displayName).joined(separator: ", ")
+        metadata["skillsInstallTargets"] = installs
+            .map { "\($0.id)=\($0.relationship):\($0.path)" }
+            .joined(separator: "\n")
+    }
+
+    private func skillsLockEntry(
+        in lock: SkillsLockFile,
+        capabilityName: String,
+        skillDirectory: URL
+    ) -> SkillsLockEntry? {
+        if let entry = lock.entries[capabilityName] {
+            return entry
+        }
+        if let entry = lock.entries[skillDirectory.lastPathComponent] {
+            return entry
+        }
+
+        let normalizedName = skillsSanitizedName(capabilityName)
+        return lock.entries.first { key, _ in
+            skillsSanitizedName(key) == normalizedName
+        }?.value
+    }
+
+    private func skillsInstallCommand(source: String, capabilityName: String, scope: CapabilityScope) -> String {
+        let scopeFlag = scope == .user ? " -g" : ""
+        return "npx skills add \(shellQuoted(source)) --skill \(shellQuoted(capabilityName))\(scopeFlag) -y"
+    }
+
+    private func skillsCanonicalDirectory(
+        capabilityName: String,
+        skillDirectory: URL,
+        canonicalRoot: URL?
+    ) -> URL? {
+        guard let canonicalRoot else { return nil }
+        let root = canonicalRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let parent = skillDirectory.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
+        if parent.path == root.path {
+            return skillDirectory
+        }
+
+        let sanitized = root.appendingPathComponent(skillsSanitizedName(capabilityName))
+        if directoryExists(sanitized) {
+            return sanitized
+        }
+        return root.appendingPathComponent(skillDirectory.lastPathComponent)
+    }
+
+    private func skillsAgentInstallations(
+        capabilityName: String,
+        skillDirectory: URL,
+        scope: CapabilityScope,
+        projectRoot: URL,
+        canonicalDirectory: URL?,
+        canonicalRoot: URL?
+    ) -> [SkillsAgentInstall] {
+        let candidateNames = uniquePreservingOrder([
+            skillDirectory.lastPathComponent,
+            skillsSanitizedName(capabilityName)
+        ])
+        let canonicalPath = canonicalDirectory?.standardizedFileURL.resolvingSymlinksInPath().path
+        var installs: [SkillsAgentInstall] = []
+
+        for agent in SkillsAgentCatalog.agents {
+            guard let base = skillsAgentBaseURL(agent: agent, scope: scope, projectRoot: projectRoot) else {
+                continue
+            }
+            let effectiveBase = scope == .user && agent.usesSharedProjectSkills
+                ? (canonicalRoot ?? base)
+                : base
+            for name in candidateNames {
+                let candidate = effectiveBase.appendingPathComponent(name)
+                guard let relationship = skillsInstallRelationship(
+                    candidate: candidate,
+                    canonicalPath: canonicalPath,
+                    canonicalDirectory: canonicalDirectory
+                ) else {
+                    continue
+                }
+                installs.append(SkillsAgentInstall(
+                    id: agent.id,
+                    displayName: agent.displayName,
+                    relationship: relationship,
+                    path: candidate.path
+                ))
+                break
+            }
+        }
+
+        return installs.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+    }
+
+    private func skillsAgentBaseURL(
+        agent: SkillsAgentDefinition,
+        scope: CapabilityScope,
+        projectRoot: URL
+    ) -> URL? {
+        if scope == .user {
+            guard let globalSkillsDir = agent.globalSkillsDir else { return nil }
+            return URL(fileURLWithPath: globalSkillsDir)
+        }
+        return projectRoot.appendingPathComponent(agent.projectSkillsDir)
+    }
+
+    private func skillsInstallRelationship(
+        candidate: URL,
+        canonicalPath: String?,
+        canonicalDirectory: URL?
+    ) -> String? {
+        if let destination = try? fileManager.destinationOfSymbolicLink(atPath: candidate.path) {
+            let resolved = resolveSymlink(destination: destination, from: candidate.deletingLastPathComponent())
+            guard fileManager.fileExists(atPath: resolved.path) else {
+                return "broken-symlink"
+            }
+            if let canonicalPath,
+               resolved.standardizedFileURL.resolvingSymlinksInPath().path == canonicalPath {
+                return "symlink"
+            }
+            return "symlink-other"
+        }
+
+        guard directoryExists(candidate) else { return nil }
+        if let canonicalDirectory,
+           candidate.standardizedFileURL.resolvingSymlinksInPath().path == canonicalDirectory.standardizedFileURL.resolvingSymlinksInPath().path {
+            return "canonical"
+        }
+        return "copy"
+    }
+
+    private func directoryExists(_ url: URL) -> Bool {
+        var isDirectory = ObjCBool(false)
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func uniquePreservingOrder(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values where !value.isEmpty {
+            if seen.insert(value).inserted {
+                result.append(value)
+            }
+        }
+        return result
     }
 
     private func codexSkillState(for url: URL, states: [String: Bool]) -> Bool? {

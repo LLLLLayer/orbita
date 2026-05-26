@@ -18,6 +18,7 @@ Orbita 的目标不是再做一个插件商店，而是提供一个本地事实�
 - **能力图谱**：统一扫描用户级、项目级、原生 Agent 配置、Plugin cache 和 `.agents` intent。
 - **Agent 视角**：展示 Overview、Agents、Codex、Claude Code 分别能看到什么能力。
 - **生命周期管理**：支持 merge、enable、disable、delete、clean、rollback、更新检查和原生 Plugin 更新触发。
+- **Skills CLI 兼容**：读取 `skills-lock.json` / `.skill-lock.json`，展示 source/ref/hash/skillPath、canonical 路径和基于 `skills` agent 路径表推断的安装目标。
 - **漂移诊断**：解释 broken path、duplicate、shadowed、disabled 但仍被发现、以及 review flag。
 - **风险可见性**：标记读文件、写文件、执行命令、网络访问、secrets 和全局作用域等风险。
 - **发版自动化**：内置 GitHub Release 工作流，支持签名、notarized DMG 和 Sparkle appcast。

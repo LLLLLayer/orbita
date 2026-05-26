@@ -208,6 +208,26 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(result.capabilities.contains { $0.name == "generated-skill" })
     }
 
+    func testDefaultProjectSkillScanSkipsNestedTestFixtures() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let fixtureSkill = temporaryRoot.appendingPathComponent("Tests/OrbitaCoreTests/Fixtures/MixedProject/node_modules/example/skills/fixture-skill")
+        let projectSkill = temporaryRoot.appendingPathComponent("skills/project-skill")
+        try FileManager.default.createDirectory(at: fixtureSkill, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectSkill, withIntermediateDirectories: true)
+        try skillText(name: "fixture-skill", body: "Fixture skill")
+            .write(to: fixtureSkill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try skillText(name: "project-skill", body: "Project skill")
+            .write(to: projectSkill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(projectRoot: temporaryRoot, options: ScanOptions(includeUserScope: false))
+
+        XCTAssertTrue(result.capabilities.contains { $0.name == "project-skill" })
+        XCTAssertFalse(result.capabilities.contains { $0.name == "fixture-skill" })
+    }
+
     func testScansCodexProjectCommands() throws {
         let root = try fixtureURL("MixedProject")
 
@@ -1483,10 +1503,28 @@ final class CapabilityScannerTests: XCTestCase {
             .appendingPathComponent("OrbitaAgentsSkills-\(UUID().uuidString)")
         let skillsRoot = userRoot.appendingPathComponent(".agents/skills")
         let skill = skillsRoot.appendingPathComponent("example-skill/SKILL.md")
+        let lock = userRoot.appendingPathComponent(".agents/.skill-lock.json")
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
         try skillText(name: "example-skill", body: "Body")
             .write(to: skill, atomically: true, encoding: .utf8)
+        try """
+        {
+          "version": 3,
+          "skills": {
+            "example-skill": {
+              "source": "vercel-labs/agent-skills",
+              "sourceType": "github",
+              "sourceUrl": "https://github.com/vercel-labs/agent-skills.git",
+              "ref": "main",
+              "skillPath": "skills/example-skill/SKILL.md",
+              "skillFolderHash": "abc123",
+              "installedAt": "2026-01-01T00:00:00Z",
+              "updatedAt": "2026-01-02T00:00:00Z"
+            }
+          }
+        }
+        """.write(to: lock, atomically: true, encoding: .utf8)
         defer {
             try? FileManager.default.removeItem(at: projectRoot)
             try? FileManager.default.removeItem(at: userRoot)
@@ -1509,6 +1547,57 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(scannedSkill.statuses, [.enabled])
         XCTAssertEqual(scannedSkill.metadata["checkCommand"], "npx skills list -g")
         XCTAssertTrue(scannedSkill.metadata["updateCommand"]?.contains("npx skills update 'example-skill' -g -y") == true)
+        XCTAssertEqual(scannedSkill.metadata["skillsLockSource"], "vercel-labs/agent-skills")
+        XCTAssertEqual(scannedSkill.metadata["skillsLockRef"], "main")
+        XCTAssertEqual(scannedSkill.metadata["skillsLockSkillPath"], "skills/example-skill/SKILL.md")
+        XCTAssertEqual(scannedSkill.metadata["skillsLockHash"], "abc123")
+        XCTAssertTrue(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("codex") == true)
+        XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex=canonical") == true)
+        XCTAssertTrue(scannedSkill.metadata["installCommand"]?.contains("npx skills add 'https://github.com/vercel-labs/agent-skills.git' --skill 'example-skill' -g -y") == true)
+    }
+
+    func testProjectAgentsSkillReadsSkillsLockAndInstallTargets() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let skillDirectory = projectRoot.appendingPathComponent(".agents/skills/review-helper")
+        let claudeDirectory = projectRoot.appendingPathComponent(".claude/skills/review-helper")
+        let lock = projectRoot.appendingPathComponent("skills-lock.json")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: claudeDirectory.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "review-helper", body: "Review helper")
+            .write(to: skillDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: claudeDirectory, withDestinationURL: skillDirectory)
+        try """
+        {
+          "version": 1,
+          "skills": {
+            "review-helper": {
+              "source": "vercel-labs/agent-skills",
+              "ref": "main",
+              "sourceType": "github",
+              "skillPath": "skills/review-helper/SKILL.md",
+              "computedHash": "def456"
+            }
+          }
+        }
+        """.write(to: lock, atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(projectRoot: projectRoot, options: ScanOptions(includeUserScope: false))
+        let scannedSkill = try XCTUnwrap(result.capabilities.first { $0.name == "review-helper" && $0.source.kind == "agents-skill" })
+
+        XCTAssertEqual(scannedSkill.metadata["skillsLockStatus"], "locked")
+        XCTAssertEqual(scannedSkill.metadata["skillsLockSource"], "vercel-labs/agent-skills")
+        XCTAssertEqual(scannedSkill.metadata["skillsLockHash"], "def456")
+        let canonicalPath = try XCTUnwrap(scannedSkill.metadata["skillsCanonicalPath"])
+        XCTAssertEqual(
+            URL(fileURLWithPath: canonicalPath).standardizedFileURL.resolvingSymlinksInPath().path,
+            skillDirectory.standardizedFileURL.resolvingSymlinksInPath().path
+        )
+        XCTAssertTrue(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("claude-code") == true)
+        XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("claude-code=symlink") == true)
+        XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex=canonical") == true)
     }
 
     private func fixtureURL(_ name: String) throws -> URL {

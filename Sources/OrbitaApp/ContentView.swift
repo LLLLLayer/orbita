@@ -205,7 +205,7 @@ struct ContentView: View {
                             },
                             onDelete: { capability in
                                 if let command = capability.metadata["deleteCommand"],
-                                   capability.metadata["manager"] == "codex" {
+                                   ["codex", "agents-skills"].contains(capability.metadata["manager"] ?? "") {
                                     pendingDeletePlan = PendingDeletePlan(
                                         name: capability.name,
                                         nativeCommand: command,
@@ -405,7 +405,7 @@ struct ContentView: View {
             return "This will permanently delete the selected capability source."
         }
         if pendingDeletePlan.nativeCommand != nil {
-            return "This will remove the installed Codex plugin cache and local config entry."
+            return "This will run the native manager remove command for this capability."
         }
         let affectedCount = pendingDeletePlan.plan?.affectedCapabilityIDs?.count ?? 1
         if affectedCount > 1 {

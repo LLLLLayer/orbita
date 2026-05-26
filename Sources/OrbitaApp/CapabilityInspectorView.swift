@@ -77,6 +77,26 @@ struct CapabilityInspectorView: View {
                             InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
                             InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
                             InspectorPathField("Source", path: sourcePath(for: capability))
+                            if let canonicalPath = capability.metadata["skillsCanonicalPath"] {
+                                InspectorPathField("Canon", path: canonicalPath)
+                            }
+                            if let installedAgents = capability.metadata["skillsInstalledAgents"], !installedAgents.isEmpty {
+                                InspectorField("Agents", value: installedAgents)
+                            }
+                            if let lockSource = capability.metadata["skillsLockSource"], !lockSource.isEmpty {
+                                InspectorField("Lock", value: lockSource)
+                            } else if let lockStatus = capability.metadata["skillsLockStatus"], !lockStatus.isEmpty {
+                                InspectorField("Lock", value: lockStatus)
+                            }
+                            if let lockRef = capability.metadata["skillsLockRef"], !lockRef.isEmpty {
+                                InspectorField("Ref", value: lockRef)
+                            }
+                            if let skillPath = capability.metadata["skillsLockSkillPath"], !skillPath.isEmpty {
+                                InspectorField("Skill", value: skillPath)
+                            }
+                            if let hash = capability.metadata["skillsLockHash"], !hash.isEmpty {
+                                InspectorField("Hash", value: shortHash(hash))
+                            }
                             if let childCount = capability.metadata["childCount"] {
                                 InspectorField("Children", value: childCount)
                             }
@@ -144,6 +164,10 @@ struct CapabilityInspectorView: View {
 
     private func nativePluginActions(for capability: Capability) -> [NativePluginAction] {
         NativePluginAction.actions(for: capability)
+    }
+
+    private func shortHash(_ value: String) -> String {
+        value.count > 16 ? String(value.prefix(16)) : value
     }
 
     private func runNativePluginAction(_ action: NativePluginAction, capability: Capability) {
@@ -363,7 +387,7 @@ private struct NativePluginActionSection: View {
         InspectorSection {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Label("Native Plugin", systemImage: "shippingbox")
+                    Label(sectionTitle, systemImage: sectionIcon)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
@@ -397,6 +421,14 @@ private struct NativePluginActionSection: View {
                 }
             }
         }
+    }
+
+    private var sectionTitle: String {
+        capability.metadata["manager"] == "agents-skills" ? "Skills CLI" : "Native Plugin"
+    }
+
+    private var sectionIcon: String {
+        capability.metadata["manager"] == "agents-skills" ? "wand.and.stars" : "shippingbox"
     }
 }
 
@@ -495,6 +527,11 @@ private struct NativePluginResultSummary {
         }
 
         switch action.kind {
+        case .install:
+            self.title = "Installed"
+            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) was installed from its Skills CLI lock source.")
+            self.systemImage = "checkmark.circle"
+            self.tone = .success
         case .check:
             self = Self.checkSummary(capability: capability, output: result.output)
         case .update:
@@ -730,6 +767,7 @@ private struct NativePluginResultSummary {
 
 private struct NativePluginAction: Identifiable {
     enum Kind: Equatable {
+        case install
         case enable
         case disable
         case check
@@ -752,6 +790,9 @@ private struct NativePluginAction: Identifiable {
         var actions: [NativePluginAction] = []
         if let command = capability.metadata["checkCommand"] {
             actions.append(NativePluginAction(id: "check", title: "Check", systemImage: "magnifyingglass", command: command, manager: manager, kind: .check))
+        }
+        if let command = capability.metadata["installCommand"] {
+            actions.append(NativePluginAction(id: "install", title: "Reinstall", systemImage: "arrow.down.doc", command: command, manager: manager, kind: .install))
         }
         if capability.statuses.contains(.disabled), let command = capability.metadata["enableCommand"] {
             actions.append(NativePluginAction(id: "enable", title: "Enable", systemImage: "checkmark.circle", command: command, manager: manager, kind: .enable))
