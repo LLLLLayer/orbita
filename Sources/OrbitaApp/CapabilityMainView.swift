@@ -391,8 +391,8 @@ struct CapabilityFilterBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                FilterIconButton(systemImage: "plus", help: "Add coding agent", action: onAddAgent)
                 FilterIconButton(systemImage: "arrow.up.arrow.down", help: "Manage agent order", action: onManageAgents)
+                FilterIconButton(systemImage: "plus", help: "Add coding agent", action: onAddAgent)
 
                 FilterChip(title: "Overview", systemImage: "square.grid.2x2", isSelected: selectedAgent == nil) {
                     withAnimation(.snappy(duration: 0.18)) {
