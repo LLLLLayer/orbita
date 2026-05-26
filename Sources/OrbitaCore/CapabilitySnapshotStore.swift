@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 public struct CapabilitySnapshot: Codable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     public var capturedAt: String

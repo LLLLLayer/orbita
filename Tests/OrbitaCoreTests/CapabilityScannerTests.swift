@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import OrbitaCore
 
@@ -34,6 +35,40 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(loaded?.graph.projectRoot, graph.projectRoot)
         XCTAssertEqual(loaded?.graph.capabilities.first?.name, "lark-doc")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cacheRoot.appendingPathComponent("snapshots").path).count, 1)
+    }
+
+    func testSnapshotStoreRejectsOldSchemaSnapshots() throws {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaSnapshotSchemaTests-\(UUID().uuidString)")
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: cacheRoot)
+            try? FileManager.default.removeItem(at: projectRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let graph = CapabilityGraph(
+            projectRoot: projectRoot.path,
+            generatedAt: "2026-05-23T00:00:00Z",
+            capabilities: [],
+            issues: []
+        )
+        let staleSnapshot = CapabilitySnapshot(
+            schemaVersion: CapabilitySnapshot.currentSchemaVersion - 1,
+            projectRoot: projectRoot.path,
+            graph: graph
+        )
+        let snapshots = cacheRoot.appendingPathComponent("snapshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: snapshots, withIntermediateDirectories: true)
+        let digest = SHA256.hash(data: Data(projectRoot.standardizedFileURL.resolvingSymlinksInPath().path.utf8))
+        let key = digest.map { String(format: "%02x", $0) }.joined()
+        let url = snapshots.appendingPathComponent("\(key).json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(staleSnapshot).write(to: url, options: .atomic)
+
+        let store = CapabilitySnapshotStore(root: cacheRoot)
+        XCTAssertNil(try store.load(projectRoot: projectRoot))
     }
 
     func testProjectLibraryPersistsLastProjectAndSupportsRemoval() throws {
