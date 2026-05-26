@@ -53,11 +53,11 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         case .agentsSource:
             return sourceCapabilities(.agents, in: graph)
         case .codexSource:
-            return sourceCapabilities(.codex, in: graph, plusSkillsAgentID: "codex")
+            return sourceCapabilities(.codex, in: graph)
         case .claudeSource:
-            return sourceCapabilities(.claude, in: graph, plusSkillsAgentID: "claude-code")
+            return sourceCapabilities(.claude, in: graph)
         case .cursorSource:
-            return sourceCapabilities(.cursor, in: graph, plusSkillsAgentID: "cursor")
+            return sourceCapabilities(.cursor, in: graph)
         case .codexLike:
             return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeLike:

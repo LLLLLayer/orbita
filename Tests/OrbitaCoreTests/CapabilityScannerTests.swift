@@ -675,7 +675,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(claudeHook?.risks.contains(.exec) == true)
     }
 
-    func testClaudeCodeSeesNativeAndSharedAgentsSkills() throws {
+    func testAgentViewsDoNotTreatAgentsSkillsAsNativeAgentSkills() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
         let nativeClaudeSkill = temporaryRoot.appendingPathComponent(".claude/skills/review-helper/SKILL.md")
@@ -692,8 +692,8 @@ final class CapabilityScannerTests: XCTestCase {
         let codex = AgentViewResolver().view(for: .codex, graph: graph)
 
         XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "review-helper" && $0.source.kind == "claude-skill" })
-        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
-        XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
+        XCTAssertFalse(claude.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
+        XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
     }
 
     func testFileCapabilitiesIncludeStableContentHash() throws {
@@ -1091,7 +1091,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(capability.metadata["codexSkillEnabled"], "false")
         XCTAssertFalse(capability.statuses.contains(.disabled))
         XCTAssertFalse(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.contains { $0.id == capability.id })
-        XCTAssertTrue(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.contains { $0.id == capability.id })
+        XCTAssertFalse(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.contains { $0.id == capability.id })
     }
 
     func testAdapterPreviewExplainsCodexGeneratedFilesAndUnsupportedCapabilities() throws {
@@ -1117,7 +1117,7 @@ final class CapabilityScannerTests: XCTestCase {
 
         let codexMapping = try XCTUnwrap(codexPreview.capabilityMappings.first { $0.capabilityID == skill.id })
         XCTAssertTrue(codexMapping.supported)
-        XCTAssertEqual(codexMapping.targetPath?.hasSuffix("/.agents/skills/lark-doc"), true)
+        XCTAssertEqual(codexMapping.targetPath, skill.source.path)
         XCTAssertTrue(codexMapping.reason.contains("Codex loads skills"))
 
         let cursorMapping = try XCTUnwrap(cursorPreview.capabilityMappings.first { $0.capabilityID == skill.id })

@@ -116,11 +116,19 @@ public final class AdapterPreviewBuilder {
                 reason: "Codex can see plugin-provided capabilities through the generated adapter index."
             )
         case .skill:
+            guard !isSharedAgentsCapability(capability) else {
+                return AdapterCapabilityMapping(
+                    capabilityID: capability.id,
+                    supported: false,
+                    targetPath: nil,
+                    reason: "Codex does not load skills directly from .agents; sync the skill into Codex's own skills directory first."
+                )
+            }
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: true,
-                targetPath: URL(fileURLWithPath: projectRoot).appendingPathComponent(".agents/skills").appendingPathComponent(capability.name).path,
-                reason: "Codex loads skills from project skill links and plugin/user skill roots."
+                targetPath: capability.source.path,
+                reason: "Codex loads skills from Codex-owned skill roots and plugin/user skill roots."
             )
         case .mcpServer:
             return AdapterCapabilityMapping(
@@ -178,19 +186,12 @@ public final class AdapterPreviewBuilder {
 
     private func claudeCodeMapping(for capability: Capability, projectRoot: String) -> AdapterCapabilityMapping {
         switch capability.type {
-        case .plugin where isSharedAgentsCapability(capability) || isClaudeNativeCapability(capability):
+        case .plugin where isClaudeNativeCapability(capability):
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: true,
                 targetPath: adapterFilePath(for: .claudeCode, projectRoot: projectRoot),
-                reason: "Claude Code can see shared .agents and native .claude plugin groups through the generated adapter index."
-            )
-        case .skill where isSharedAgentsCapability(capability):
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Claude Code can use shared .agents skills managed by Orbita."
+                reason: "Claude Code can see native .claude plugin groups through the generated adapter index."
             )
         case .skill where isClaudeNativeCapability(capability):
             return AdapterCapabilityMapping(

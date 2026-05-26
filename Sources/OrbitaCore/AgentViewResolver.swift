@@ -25,7 +25,9 @@ public final class AgentViewResolver {
         case .codex:
             guard capability.metadata["codexSkillEnabled"] != "false" else { return false }
             switch capability.type {
-            case .plugin, .skill, .mcpServer, .instruction:
+            case .skill:
+                return !isSharedAgentsCapability(capability)
+            case .plugin, .mcpServer, .instruction:
                 return true
             case .hook:
                 return capability.source.kind == "codex-hook"
@@ -38,7 +40,7 @@ public final class AgentViewResolver {
         case .claudeCode:
             switch capability.type {
             case .plugin, .skill:
-                return isClaudeNativeCapability(capability) || isSharedAgentsCapability(capability)
+                return isClaudeNativeCapability(capability)
             case .mcpServer, .instruction:
                 return true
             case .command:
