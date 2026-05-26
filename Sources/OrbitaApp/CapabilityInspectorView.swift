@@ -77,7 +77,7 @@ struct CapabilityInspectorView: View {
                             InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
                             InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
                             InspectorPathField("Source", path: sourcePath(for: capability))
-                            if let canonicalPath = capability.metadata["skillsCanonicalPath"] {
+                            if let canonicalPath = canonicalPathToDisplay(for: capability) {
                                 InspectorPathField("Canon", path: canonicalPath)
                             }
                             if let installedAgents = capability.metadata["skillsInstalledAgents"], !installedAgents.isEmpty {
@@ -147,6 +147,46 @@ struct CapabilityInspectorView: View {
 
     private func isInternalOrbitaIndexPath(_ path: String) -> Bool {
         path.contains("/.orbita/this-mac/")
+    }
+
+    private func canonicalPathToDisplay(for capability: Capability) -> String? {
+        guard let canonicalPath = capability.metadata["skillsCanonicalPath"],
+              !canonicalPath.isEmpty else {
+            return nil
+        }
+        let sourcePath = sourcePath(for: capability)
+        guard !sourcePathRepresentsCanonicalSkill(sourcePath, canonicalPath: canonicalPath) else {
+            return nil
+        }
+        return canonicalPath
+    }
+
+    private func sourcePathRepresentsCanonicalSkill(_ sourcePath: String, canonicalPath: String) -> Bool {
+        guard sourcePath != "-", !sourcePath.isEmpty else {
+            return false
+        }
+
+        let canonicalCandidates = normalizedPathCandidates(for: canonicalPath)
+        let sourceURL = URL(fileURLWithPath: sourcePath).standardizedFileURL
+        let sourceCandidates = normalizedPathCandidates(for: sourcePath)
+
+        if !canonicalCandidates.isDisjoint(with: sourceCandidates) {
+            return true
+        }
+
+        guard sourceURL.lastPathComponent.caseInsensitiveCompare("SKILL.md") == .orderedSame else {
+            return false
+        }
+        let sourceDirectoryCandidates = normalizedPathCandidates(for: sourceURL.deletingLastPathComponent().path)
+        return !canonicalCandidates.isDisjoint(with: sourceDirectoryCandidates)
+    }
+
+    private func normalizedPathCandidates(for path: String) -> Set<String> {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        return [
+            url.path,
+            url.resolvingSymlinksInPath().path
+        ]
     }
 
     private func markdownPreviewPath(for capability: Capability) -> String? {
