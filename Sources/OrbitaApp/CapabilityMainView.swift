@@ -94,7 +94,7 @@ struct CapabilityMainView: View {
                             }
                         }
                         .frame(width: contentWidth, alignment: .topLeading)
-                        .padding(.top, 28)
+                        .padding(.top, 20)
                         .padding(.horizontal, contentPadding)
                         .padding(.bottom, 28)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -111,7 +111,7 @@ struct CapabilityMainView: View {
                     errorMessage: errorMessage,
                     onRefresh: onRefresh
                 )
-                .padding(.top, 28)
+                .padding(.top, 20)
                 .padding(.horizontal, 28)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .transition(.opacity)
@@ -124,7 +124,7 @@ struct CapabilityMainView: View {
                     )
                     .frame(maxWidth: .infinity, minHeight: 500)
                 }
-                .padding(.top, 28)
+                .padding(.top, 20)
                 .padding(.horizontal, 28)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -132,7 +132,7 @@ struct CapabilityMainView: View {
                     EmptyProjectView(onOpenProject: onOpenProject)
                         .frame(maxWidth: .infinity, minHeight: 560)
                 }
-                .padding(.top, 28)
+                .padding(.top, 20)
                 .padding(.horizontal, 28)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

@@ -71,7 +71,6 @@ struct CapabilityInspectorView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .padding(.top, 16)
 
                     VStack(alignment: .leading, spacing: 16) {
                         InspectorSection {
@@ -124,7 +123,7 @@ struct CapabilityInspectorView: View {
                         MarkdownPreviewCard(sourcePath: markdownPath, onOpenPreview: onOpenMarkdownPreview)
                     }
                 }
-                .padding(.top, 24)
+                .padding(.top, 20)
                 .padding(.leading, 24)
                 .padding(.trailing, 22)
                 .padding(.bottom, 18)

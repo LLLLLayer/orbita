@@ -26,8 +26,11 @@ struct OrbitaSidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Spacer()
+            HStack(spacing: 0) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(WindowDragGesture())
+                    .allowsWindowActivationEvents(true)
                 Button(action: onCollapse) {
                     Image(systemName: "sidebar.left")
                         .font(.system(size: 15, weight: .medium))
