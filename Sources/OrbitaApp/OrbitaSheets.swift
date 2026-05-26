@@ -469,6 +469,138 @@ private struct SyncAgentRow: View {
     }
 }
 
+struct ScopedCapabilityActionSheet: View {
+    let title: String
+    let message: String
+    let currentButtonTitle: String
+    let allButtonTitle: String
+    let currentUnavailableReason: String?
+    let isDestructive: Bool
+    let onCurrent: () -> Void
+    let onAll: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            CategorySheetHeader(
+                title: title,
+                subtitle: isDestructive ? "Review delete scope" : "Review capability scope",
+                systemImage: isDestructive ? "trash" : "minus.circle"
+            )
+
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isDestructive ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isDestructive ? Color.red : .secondary)
+                    .frame(width: 24, height: 24)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .orbitaCard(cornerRadius: 16, shadowRadius: 6, shadowY: 3)
+
+            HStack(spacing: 10) {
+                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 6) {
+                    ScopedActionButton(
+                        title: currentButtonTitle,
+                        systemImage: "person.crop.circle",
+                        isDisabled: currentUnavailableReason != nil,
+                        action: onCurrent
+                    )
+
+                    if let currentUnavailableReason {
+                        HelpBadge(help: currentUnavailableReason)
+                    }
+                }
+
+                ScopedActionButton(
+                    title: allButtonTitle,
+                    systemImage: isDestructive ? "trash" : "rectangle.stack.badge.minus",
+                    isDestructive: isDestructive,
+                    action: onAll
+                )
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 560)
+        .background(OrbitaTheme.canvas)
+        .presentationBackground(OrbitaTheme.canvas)
+    }
+}
+
+private struct ScopedActionButton: View {
+    let title: String
+    let systemImage: String
+    var isDestructive = false
+    var isDisabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .foregroundStyle(foregroundColor)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(backgroundColor, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(borderColor)
+        }
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.46 : 1)
+    }
+
+    private var foregroundColor: Color {
+        if isDisabled {
+            return .secondary
+        }
+        return isDestructive ? .red : .primary
+    }
+
+    private var backgroundColor: Color {
+        isDestructive ? Color.red.opacity(0.11) : OrbitaTheme.controlFill
+    }
+
+    private var borderColor: Color {
+        isDestructive ? Color.red.opacity(0.24) : OrbitaTheme.border
+    }
+}
+
+private struct HelpBadge: View {
+    let help: String
+
+    var body: some View {
+        Image(systemName: "questionmark.circle")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+            .background(OrbitaTheme.controlFill, in: Circle())
+            .overlay {
+                Circle().strokeBorder(OrbitaTheme.border)
+            }
+            .help(help)
+            .accessibilityLabel(help)
+    }
+}
+
 struct HideCategoriesSheet: View {
     let categories: [CapabilityCategory]
     let onSave: (Set<String>) -> Void

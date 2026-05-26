@@ -98,35 +98,27 @@ struct ContentView: View {
                 }
             )
         }
-        .confirmationDialog(
-            pendingScopedAction?.title ?? "Apply capability action?",
-            isPresented: Binding(
-                get: { pendingScopedAction != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        pendingScopedAction = nil
-                    }
-                }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let currentPlan = pendingScopedAction?.currentPlan {
-                Button(pendingScopedAction?.currentButtonTitle ?? "Current Agent", role: pendingScopedAction?.role) {
+        .sheet(item: $pendingScopedAction) { action in
+            ScopedCapabilityActionSheet(
+                title: action.title,
+                message: action.message,
+                currentButtonTitle: action.currentButtonTitle,
+                allButtonTitle: action.allButtonTitle,
+                currentUnavailableReason: action.currentUnavailableReason,
+                isDestructive: action.kind == .delete,
+                onCurrent: {
+                    guard let currentPlan = action.currentPlan else { return }
+                    pendingScopedAction = nil
                     apply(currentPlan)
+                },
+                onAll: {
+                    pendingScopedAction = nil
+                    apply(action.allPlan)
+                },
+                onCancel: {
                     pendingScopedAction = nil
                 }
-            }
-            if let allPlan = pendingScopedAction?.allPlan {
-                Button(pendingScopedAction?.allButtonTitle ?? "All Copies", role: pendingScopedAction?.role) {
-                    apply(allPlan)
-                    pendingScopedAction = nil
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingScopedAction = nil
-            }
-        } message: {
-            Text(pendingScopedAction?.message ?? "")
+            )
         }
         .sheet(isPresented: $addingAgentPresented) {
             AddAgentSheet { agent in
@@ -875,6 +867,19 @@ private struct PendingScopedCapabilityAction: Identifiable {
             return .destructive
         case .disable:
             return nil
+        }
+    }
+
+    var currentUnavailableReason: String? {
+        guard currentPlan == nil else {
+            return nil
+        }
+        let agentName = currentAgentName ?? "an individual Agent"
+        switch kind {
+        case .delete:
+            return "This capability is already the root copy for \(agentName), or no single Agent scope is selected. Use all copies to remove the canonical source."
+        case .disable:
+            return "This capability is already the root copy for \(agentName), or no single Agent scope is selected. Use all copies to disable the canonical source."
         }
     }
 
