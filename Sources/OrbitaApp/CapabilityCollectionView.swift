@@ -456,17 +456,17 @@ private struct CapabilityGroupTile: View {
     }
 
     private var groupSubtitle: String {
-        if group.kind == .mirror {
+        switch group.kind {
+        case .mirror:
             if let subtitle = group.hookTimingSummary {
-                return subtitle
+                return hookTimingDescription(for: subtitle)
             }
             return group.mirrorRelationshipLabel
+        case .plugin:
+            return CapabilityType.plugin.protocolDescription
+        case .prefix:
+            return "前缀为 \(group.name)-* 聚合的内容"
         }
-        if group.kind == .plugin {
-            return "\(group.capabilities.count) capabilities"
-        }
-        let typeNames = Set(group.capabilities.map { $0.type.displayName }).sorted()
-        return typeNames.prefix(2).joined(separator: ", ")
     }
 
     private var groupTopBadgeText: String {
@@ -624,9 +624,9 @@ private struct CapabilityTile: View {
 }
 
 private enum CapabilityTileMetrics {
-    static let height: CGFloat = 164
+    static let height: CGFloat = 152
     static let headerHeight: CGFloat = 30
-    static let textHeight: CGFloat = 58
+    static let textHeight: CGFloat = 52
 }
 
 private struct CapabilityTileTextBlock: View {
@@ -666,12 +666,12 @@ private extension Capability {
 
     var tileSubtitle: String {
         if type == .hook {
-            return hookTimingLabel
+            return hookTimingDescription(for: hookTimingLabel)
         }
         if let summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return summary
         }
-        return scopeLabel
+        return type.protocolDescription
     }
 
     var hookHostTitle: String {
@@ -704,25 +704,41 @@ private extension Capability {
         return String(name[separator.upperBound...])
     }
 
-    private var scopeLabel: String {
-        switch scope {
-        case .project:
-            return "Project scope"
-        case .user:
-            return "User scope"
-        case .installed:
-            return "Installed"
-        case .environment:
-            return "Environment"
-        }
-    }
-
     private func normalizedHookHostTitle(_ value: String) -> String {
         if value == "AB Agent Collect Event" {
             return "AB Agent Collect"
         }
         return value
     }
+}
+
+private extension CapabilityType {
+    var protocolDescription: String {
+        switch self {
+        case .skill:
+            return "Skill capability"
+        case .plugin:
+            return "Plugin package"
+        case .mcpServer:
+            return "MCP server"
+        case .hook:
+            return "Hook timing"
+        case .command:
+            return "Command"
+        case .instruction, .rule:
+            return "Instruction"
+        case .unknown:
+            return "Capability"
+        }
+    }
+}
+
+private func hookTimingDescription(for timing: String) -> String {
+    let trimmed = timing.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed != "Hook timing" else {
+        return "Hook timing"
+    }
+    return "Hook \(trimmed) 时机"
 }
 
 private func uniquePreservingOrder(_ values: [String]) -> [String] {
