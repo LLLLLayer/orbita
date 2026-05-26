@@ -406,27 +406,26 @@ private struct CapabilityGroupTile: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 8) {
-                CapabilityKindPill(
-                    title: group.kindLabel,
-                    systemImage: group.systemImage,
-                    isSelected: isSelected
-                )
-                Spacer(minLength: 6)
-                GroupTopBadge(text: groupTopBadgeText, isExpanded: isExpanded)
-            }
-            .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
+        ZStack(alignment: .bottomTrailing) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 8) {
+                    CapabilityKindPill(
+                        title: group.kindLabel,
+                        systemImage: group.systemImage,
+                        isSelected: isSelected
+                    )
+                    Spacer(minLength: 6)
+                    GroupTopBadge(text: groupTopBadgeText, isExpanded: isExpanded)
+                }
+                .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
-            CapabilityTileTextBlock(title: group.name, subtitle: groupSubtitle)
+                CapabilityTileTextBlock(title: group.name, subtitle: groupSubtitle)
 
-            Spacer(minLength: 0)
-
-            HStack {
                 Spacer(minLength: 0)
-                AgentSyncStack(agents: visibleAgents, onSync: onSync)
             }
-            .frame(height: CapabilityTileMetrics.footerHeight, alignment: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            AgentSyncStack(agents: visibleAgents, onSync: onSync)
         }
         .padding(12)
         .frame(
@@ -528,26 +527,25 @@ private struct CapabilityTile: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 8) {
-                CapabilityKindPill(
-                    title: capability.type.displayName,
-                    systemImage: CapabilityVisuals.iconName(for: capability.type),
-                    isSelected: isSelected
-                )
-                Spacer(minLength: 6)
-            }
-            .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
+        ZStack(alignment: .bottomTrailing) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 8) {
+                    CapabilityKindPill(
+                        title: capability.type.displayName,
+                        systemImage: CapabilityVisuals.iconName(for: capability.type),
+                        isSelected: isSelected
+                    )
+                    Spacer(minLength: 6)
+                }
+                .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
-            CapabilityTileTextBlock(title: capability.name, subtitle: sourceLabel)
+                CapabilityTileTextBlock(title: capability.name, subtitle: sourceLabel)
 
-            Spacer(minLength: 0)
-
-            HStack {
                 Spacer(minLength: 0)
-                AgentSyncStack(agents: visibleAgents, onSync: onSync)
             }
-            .frame(height: CapabilityTileMetrics.footerHeight, alignment: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            AgentSyncStack(agents: visibleAgents, onSync: onSync)
         }
         .padding(12)
         .frame(
@@ -591,7 +589,6 @@ private enum CapabilityTileMetrics {
     static let height: CGFloat = 164
     static let headerHeight: CGFloat = 30
     static let textHeight: CGFloat = 58
-    static let footerHeight: CGFloat = 30
 }
 
 private struct CapabilityTileTextBlock: View {
