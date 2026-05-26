@@ -1092,6 +1092,9 @@ public final class ApplyPlanBuilder {
         graph: CapabilityGraph
     ) -> URL {
         if capability.scope == .user {
+            if let globalSkillsDir = agent.globalSkillsDir {
+                return URL(fileURLWithPath: globalSkillsDir).standardizedFileURL
+            }
             if agent.usesSharedProjectSkills {
                 if let canonicalPath = capability.metadata["skillsCanonicalPath"],
                    !canonicalPath.isEmpty {
@@ -1103,9 +1106,6 @@ public final class ApplyPlanBuilder {
                 return FileManager.default.homeDirectoryForCurrentUser
                     .appendingPathComponent(".agents/skills")
                     .standardizedFileURL
-            }
-            if let globalSkillsDir = agent.globalSkillsDir {
-                return URL(fileURLWithPath: globalSkillsDir).standardizedFileURL
             }
         }
         return URL(fileURLWithPath: graph.projectRoot)

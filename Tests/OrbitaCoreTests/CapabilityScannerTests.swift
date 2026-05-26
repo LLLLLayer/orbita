@@ -1353,7 +1353,7 @@ final class CapabilityScannerTests: XCTestCase {
         )
 
         let expectedTarget = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".agents/skills/\(skillName)")
+            .appendingPathComponent(".codex/skills/\(skillName)")
             .path
         XCTAssertEqual(plan.action, .enable)
         XCTAssertFalse(plan.requiresConfirmation)
@@ -1361,6 +1361,58 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(plan.operations.contains {
             $0.kind == .createSymlink
                 && $0.path == expectedTarget
+                && $0.target == source.path
+        })
+    }
+
+    func testSyncAgentsSkillToCodexUsesCodexGlobalSkillsRoot() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let skillName = "orbita-bytedcli-\(UUID().uuidString)"
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaAgents-\(UUID().uuidString)")
+            .appendingPathComponent(".agents/skills/\(skillName)")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: source.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+        }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try skillText(name: skillName, body: "Use bytedcli.")
+            .write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skill = Capability(
+            id: "skill:\(source.appendingPathComponent("SKILL.md").path)",
+            name: skillName,
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "agents-skill", path: source.appendingPathComponent("SKILL.md").path),
+            metadata: [
+                "skillsCanonicalPath": source.path
+            ]
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let plan = try ApplyPlanBuilder().planSyncSkillInstallTarget(
+            capabilityID: skill.id,
+            agentID: "codex",
+            graph: graph
+        )
+
+        let expectedRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/skills")
+            .path
+        let expectedTarget = URL(fileURLWithPath: expectedRoot)
+            .appendingPathComponent(skillName)
+            .path
+        XCTAssertTrue(plan.operations.contains { $0.kind == .createDirectory && $0.path == expectedRoot })
+        XCTAssertTrue(plan.operations.contains {
+            $0.kind == .createSymlink
+                && $0.path == expectedTarget
+                && $0.target == source.path
+        })
+        XCTAssertFalse(plan.operations.contains {
+            $0.kind == .createSymlink
+                && $0.path == source.path
                 && $0.target == source.path
         })
     }
