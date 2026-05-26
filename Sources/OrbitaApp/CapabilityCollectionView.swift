@@ -432,10 +432,9 @@ private struct CapabilityGroupTile: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 6) {
+            HStack {
                 Spacer(minLength: 0)
-                AgentVisibilityStack(agents: visibleAgents)
-                AgentSyncButton(action: onSync)
+                AgentSyncStack(agents: visibleAgents, onSync: onSync)
             }
         }
         .padding(12)
@@ -564,10 +563,9 @@ private struct CapabilityTile: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 6) {
+            HStack {
                 Spacer(minLength: 0)
-                AgentVisibilityStack(agents: visibleAgents)
-                AgentSyncButton(action: onSync)
+                AgentSyncStack(agents: visibleAgents, onSync: onSync)
             }
         }
         .padding(12)
@@ -665,20 +663,81 @@ private struct GroupTopBadge: View {
     }
 }
 
+private enum AgentAvatarMetrics {
+    static let size: CGFloat = 30
+    static let overlapStep: CGFloat = 21
+}
+
+private struct AgentSyncStack: View {
+    let agents: [AgentSelection]
+    let onSync: () -> Void
+
+    private var visibleAgents: [AgentSelection] {
+        Array(agents.prefix(4))
+    }
+
+    private var badgeCount: Int {
+        visibleAgents.count + overflowBadgeCount + 1
+    }
+
+    private var overflowBadgeCount: Int {
+        agents.count > visibleAgents.count ? 1 : 0
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            ForEach(Array(visibleAgents.enumerated()), id: \.element.id) { index, agent in
+                AgentVisibilityBadge(agent: agent)
+                    .offset(x: CGFloat(index) * AgentAvatarMetrics.overlapStep)
+                    .zIndex(Double(index))
+            }
+
+            if agents.count > visibleAgents.count {
+                AgentOverflowBadge(count: agents.count - visibleAgents.count)
+                    .offset(x: CGFloat(visibleAgents.count) * AgentAvatarMetrics.overlapStep)
+                    .zIndex(Double(visibleAgents.count))
+            }
+
+            AgentSyncButton(action: onSync)
+                .offset(x: syncButtonOffset)
+                .zIndex(Double(badgeCount))
+        }
+        .frame(width: stackWidth, height: AgentAvatarMetrics.size, alignment: .leading)
+        .help(helpText)
+    }
+
+    private var syncButtonOffset: CGFloat {
+        CGFloat(visibleAgents.count + overflowBadgeCount) * AgentAvatarMetrics.overlapStep
+    }
+
+    private var stackWidth: CGFloat {
+        guard badgeCount > 0 else { return AgentAvatarMetrics.size }
+        return CGFloat(max(0, badgeCount - 1)) * AgentAvatarMetrics.overlapStep + AgentAvatarMetrics.size
+    }
+
+    private var helpText: String {
+        guard !agents.isEmpty else {
+            return "Sync to another agent"
+        }
+        return "\(agents.map(\.displayName).joined(separator: ", ")). Add another agent"
+    }
+}
+
 private struct AgentSyncButton: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: "plus")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.primary)
-                .frame(width: 28, height: 28)
+                .frame(width: AgentAvatarMetrics.size, height: AgentAvatarMetrics.size)
                 .background(OrbitaTheme.elevatedSurface, in: Circle())
                 .overlay {
+                    Circle().strokeBorder(Color.white.opacity(0.92), lineWidth: 2)
                     Circle().strokeBorder(OrbitaTheme.border)
                 }
-                .shadow(color: OrbitaTheme.cardShadow, radius: 3, x: 0, y: 1)
+                .shadow(color: OrbitaTheme.cardShadow, radius: 4, x: 0, y: 2)
         }
         .buttonStyle(.plain)
         .help("Sync to another agent")
@@ -686,58 +745,34 @@ private struct AgentSyncButton: View {
     }
 }
 
-private struct AgentVisibilityStack: View {
-    let agents: [AgentSelection]
-
-    private var visibleAgents: [AgentSelection] {
-        Array(agents.prefix(4))
-    }
+private struct AgentOverflowBadge: View {
+    let count: Int
 
     var body: some View {
-        if agents.isEmpty {
-            EmptyView()
-        } else {
-            ZStack(alignment: .leading) {
-                ForEach(Array(visibleAgents.enumerated()), id: \.element.id) { index, agent in
-                    AgentVisibilityBadge(agent: agent)
-                        .offset(x: CGFloat(index) * 18)
-                        .zIndex(Double(index))
-                }
-
-                if agents.count > visibleAgents.count {
-                    Text("+\(agents.count - visibleAgents.count)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(OrbitaTheme.elevatedSurface, in: Circle())
-                        .overlay {
-                            Circle().strokeBorder(OrbitaTheme.border)
-                        }
-                        .offset(x: CGFloat(visibleAgents.count) * 18)
-                        .zIndex(Double(visibleAgents.count))
-                }
+        Text("+\(count)")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.secondary)
+            .frame(width: AgentAvatarMetrics.size, height: AgentAvatarMetrics.size)
+            .background(OrbitaTheme.elevatedSurface, in: Circle())
+            .overlay {
+                Circle().strokeBorder(Color.white.opacity(0.92), lineWidth: 2)
+                Circle().strokeBorder(OrbitaTheme.border)
             }
-            .frame(width: stackWidth, height: 30, alignment: .leading)
-            .help(agents.map(\.displayName).joined(separator: ", "))
+            .shadow(color: OrbitaTheme.cardShadow, radius: 4, x: 0, y: 2)
         }
     }
-
-    private var stackWidth: CGFloat {
-        let count = min(agents.count, 5)
-        return CGFloat(max(1, count - 1)) * 18 + 28
-    }
-}
 
 private struct AgentVisibilityBadge: View {
     let agent: AgentSelection
 
     var body: some View {
         AgentBrandIcon(agent: agent, size: 14)
-            .frame(width: 28, height: 28)
+            .frame(width: AgentAvatarMetrics.size, height: AgentAvatarMetrics.size)
             .background(OrbitaTheme.elevatedSurface, in: Circle())
             .overlay {
+                Circle().strokeBorder(Color.white.opacity(0.92), lineWidth: 2)
                 Circle().strokeBorder(OrbitaTheme.border)
             }
-            .shadow(color: OrbitaTheme.cardShadow, radius: 3, x: 0, y: 1)
+            .shadow(color: OrbitaTheme.cardShadow, radius: 4, x: 0, y: 2)
     }
 }
