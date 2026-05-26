@@ -371,6 +371,104 @@ private struct AddAgentActionButton: View {
     }
 }
 
+struct SyncCapabilitySheet: View {
+    let capability: Capability
+    let agents: [AgentSelection]
+    let visibleAgentIDs: Set<String>
+    let onSelect: (AgentSelection) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            CategorySheetHeader(
+                title: "Sync to Agent",
+                subtitle: capability.name,
+                systemImage: "arrow.triangle.branch"
+            )
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(agents) { agent in
+                        SyncAgentRow(
+                            agent: agent,
+                            isAlreadyVisible: visibleAgentIDs.contains(agent.id)
+                        ) {
+                            onSelect(agent)
+                        }
+                    }
+                }
+                .padding(14)
+            }
+            .frame(height: min(340, CGFloat(max(agents.count, 1)) * 62 + 28))
+            .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+
+            HStack(spacing: 10) {
+                Text("Targets match the current Agent row order.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+            }
+        }
+        .padding(22)
+        .frame(width: 500)
+        .background(OrbitaTheme.canvas)
+        .presentationBackground(OrbitaTheme.canvas)
+    }
+}
+
+private struct SyncAgentRow: View {
+    let agent: AgentSelection
+    let isAlreadyVisible: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                AgentBrandIcon(agent: agent, size: 18)
+                    .frame(width: 34, height: 34)
+                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(OrbitaTheme.border)
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(agent.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(isAlreadyVisible ? "Already synced" : "Sync capability here")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: isAlreadyVisible ? "checkmark.circle.fill" : "arrow.right.circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isAlreadyVisible ? Color.green : Color.primary)
+                    .frame(width: 24, height: 24)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+        .disabled(isAlreadyVisible)
+        .opacity(isAlreadyVisible ? 0.56 : 1)
+    }
+}
+
 struct HideCategoriesSheet: View {
     let categories: [CapabilityCategory]
     let onSave: (Set<String>) -> Void

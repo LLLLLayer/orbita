@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var settingsPresented = false
     @State private var markdownPreviewDocument: MarkdownPreviewDocument?
     @State private var pendingPlan: ApplyPlan?
+    @State private var pendingSyncCapability: Capability?
     @State private var pendingScopedAction: PendingScopedCapabilityAction?
     @State private var importerPresented = false
     @State private var didPrepareStore = false
@@ -77,6 +78,25 @@ struct ContentView: View {
                 apply(plan)
                 pendingPlan = nil
             }
+        }
+        .sheet(item: $pendingSyncCapability) { capability in
+            SyncCapabilitySheet(
+                capability: capability,
+                agents: agentOptions,
+                visibleAgentIDs: visibleAgentIDs(for: capability),
+                onSelect: { _ in
+                    let plan = store.planEnable(capability)
+                    pendingSyncCapability = nil
+                    if let plan {
+                        DispatchQueue.main.async {
+                            pendingPlan = plan
+                        }
+                    }
+                },
+                onCancel: {
+                    pendingSyncCapability = nil
+                }
+            )
         }
         .confirmationDialog(
             pendingScopedAction?.title ?? "Apply capability action?",
@@ -228,7 +248,7 @@ struct ContentView: View {
                             pendingPlan = store.planClean()
                         },
                         onSyncCapability: { capability in
-                            pendingPlan = store.planEnable(capability)
+                            pendingSyncCapability = capability
                         }
                     )
                     .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
@@ -601,6 +621,25 @@ struct ContentView: View {
             : updatedTargetIndex
         orderedAgents.insert(agent, at: insertionIndex)
         saveAgentOrder(orderedAgents)
+    }
+
+    private func visibleAgentIDs(for capability: Capability) -> Set<String> {
+        guard let graph = store.graph else {
+            return []
+        }
+        let targetIDs = capabilityTargetIDs(for: capability)
+        return Set(agentOptions.compactMap { agent in
+            let visibleIDs = Set(agent.visibleCapabilities(in: graph).map(\.id))
+            return targetIDs.isSubset(of: visibleIDs) ? agent.id : nil
+        })
+    }
+
+    private func capabilityTargetIDs(for capability: Capability) -> Set<String> {
+        let childIDs = capability.metadata["childIDs"]?
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.isEmpty } ?? []
+        return Set(childIDs.isEmpty ? [capability.id] : childIDs)
     }
 
     private var categoryOptions: [CapabilityCategory] {
