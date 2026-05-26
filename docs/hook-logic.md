@@ -28,6 +28,8 @@ Claude hook sources include user settings `~/.claude/settings.json`, project `.c
 
 Vibe Notch is a good concrete reference implementation. It resolves the Claude config directory from `CLAUDE_CONFIG_DIR`, `~/.config/claude`, or legacy `~/.claude`; copies `claude-island-state.py` into the hooks directory; then writes command handlers into `settings.json`. The hook script reads Claude's JSON event payload from stdin and sends state to the app over `/tmp/claude-island.sock`; for `PermissionRequest`, it can return allow or deny JSON.
 
+Vibe Island registers through normal Claude settings as shell command handlers, commonly via `/bin/sh -c` and `$HOME/.vibe-island/bin/vibe-island-bridge --source claude`. These handlers are still concrete Claude hooks, so Orbita flattens each event and matcher entry into its own capability, such as `Vibe Island - SessionStart` or `Vibe Island - PermissionRequest (*)`.
+
 ## Codex
 
 Codex uses a Claude-style hook shape loaded from `hooks.json` files and config layers. In the current Codex source, the `hooks` feature is stable and enabled by default. Codex's typed event set includes:
@@ -75,9 +77,9 @@ For every concrete handler, Orbita records:
 
 Host extraction is intentionally heuristic:
 
-- Known signatures win first. `claude-island-state.py` maps to `Vibe Notch`.
+- Known signatures win first. `vibe-island-bridge` maps to `Vibe Island`, and `claude-island-state.py` maps to `Vibe Notch`.
 - Plugin hooks use the plugin name as the host.
-- Runner commands use the script/package name when present, for example `python3 ~/.claude/hooks/foo.py` becomes `Foo`.
+- Runner commands use the script/package name when present, for example `python3 ~/.claude/hooks/foo.py` becomes `Foo`. `npx` flags such as `-y` are skipped before extracting the package name.
 - Plain commands fall back to the executable name.
 
 The UI should display the host in the row title, for example `Vibe Notch - PermissionRequest (*)`, while the detail pane can show event, matcher, source path, command, runner, script, and state key.

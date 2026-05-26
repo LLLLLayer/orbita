@@ -5,6 +5,7 @@ enum OrbitaTheme {
     static let cardRadius: CGFloat = 20
     static let compactCardRadius: CGFloat = 14
     static let controlRadius: CGFloat = 12
+    static let iconControlSize: CGFloat = 40
 
     static let canvas = gray(light: 0.91, dark: 0.075)
     static let sidebarBackground = gray(light: 0.93, dark: 0.095)
@@ -67,6 +68,13 @@ extension View {
     ) -> some View {
         modifier(OrbitaControlSurfaceModifier(selected: selected, cornerRadius: cornerRadius))
     }
+
+    func orbitaIconControlSurface(
+        selected: Bool = false,
+        destructive: Bool = false
+    ) -> some View {
+        modifier(OrbitaIconControlSurfaceModifier(selected: selected, destructive: destructive))
+    }
 }
 
 private struct OrbitaCardModifier: ViewModifier {
@@ -99,5 +107,35 @@ private struct OrbitaControlSurfaceModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(selected ? Color.clear : OrbitaTheme.border)
             }
+    }
+}
+
+private struct OrbitaIconControlSurfaceModifier: ViewModifier {
+    let selected: Bool
+    let destructive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .frame(width: OrbitaTheme.iconControlSize, height: OrbitaTheme.iconControlSize)
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous)
+                    .strokeBorder(borderColor)
+            }
+            .shadow(color: selected ? OrbitaTheme.selectedShadow : Color.clear, radius: 7, x: 0, y: 3)
+    }
+
+    private var backgroundColor: Color {
+        if destructive {
+            return Color.red.opacity(0.11)
+        }
+        if selected {
+            return OrbitaTheme.elevatedSurface
+        }
+        return OrbitaTheme.controlFill
+    }
+
+    private var borderColor: Color {
+        destructive ? Color.red.opacity(0.24) : OrbitaTheme.border
     }
 }

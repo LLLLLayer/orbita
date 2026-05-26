@@ -135,6 +135,8 @@ struct FullDiskAccessOnboardingView: View {
                 }
 
                 HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+
                     Button(action: onOpenSettings) {
                         Label("Open System Settings", systemImage: "gear")
                     }

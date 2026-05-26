@@ -391,16 +391,16 @@ private struct InspectorToolbarButton: View {
                 }
             }
                 .foregroundStyle(isDisabled ? .secondary : tint)
-                .frame(width: title == nil ? 44 : 118, height: 34)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: title == nil ? OrbitaTheme.iconControlSize : 118, height: OrbitaTheme.iconControlSize)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous)
                         .strokeBorder(borderColor)
                 }
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous))
         .help(help)
         .accessibilityLabel(help)
     }
@@ -480,8 +480,8 @@ private struct NativePluginActionSection: View {
     var body: some View {
         InspectorSection {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .bottom, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
                         HStack(spacing: 8) {
                             Label(sectionTitle, systemImage: sectionIcon)
                                 .font(.caption.weight(.semibold))
@@ -490,17 +490,8 @@ private struct NativePluginActionSection: View {
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                        if let note = capability.metadata["lifecycleNote"] {
-                            Text(note)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .trailing, spacing: 6) {
                         if let versionCheck, versionCheck.hasUpdate {
                             Text("New version available \(versionCheck.compactChangeText)")
                                 .font(.caption2.weight(.semibold))
@@ -508,21 +499,29 @@ private struct NativePluginActionSection: View {
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.75)
                         }
-
-                        HStack(spacing: 8) {
-                            ForEach(actions) { action in
-                                NativePluginInlineButton(
-                                    title: runningActionID == action.id ? "Running" : action.title,
-                                    systemImage: runningActionID == action.id ? "hourglass" : action.systemImage,
-                                    isDisabled: runningActionID != nil
-                                ) {
-                                    onRun(action)
-                                }
-                                .help(action.command)
-                            }
-                        }
                     }
-                    .frame(alignment: .trailing)
+
+                    if let note = capability.metadata["lifecycleNote"] {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    ForEach(actions) { action in
+                        NativePluginInlineButton(
+                            title: runningActionID == action.id ? "Running" : action.title,
+                            systemImage: runningActionID == action.id ? "hourglass" : action.systemImage,
+                            isDisabled: runningActionID != nil
+                        ) {
+                            onRun(action)
+                        }
+                        .help(action.command)
+                    }
                 }
 
                 if let result {

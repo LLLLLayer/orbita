@@ -509,7 +509,7 @@ public final class CapabilityScanner {
         } else if executableName.lowercased() == "swift" {
             script = nil
         } else if executableName.lowercased() == "npx" {
-            script = words.dropFirst().first
+            script = scriptToken(in: words.dropFirst())
         } else {
             script = scriptToken(in: words.dropFirst())
         }
@@ -558,10 +558,29 @@ public final class CapabilityScanner {
 
     private func hookHostName(command: String, pluginName: String?, script: String?, executable: String) -> String {
         let lowercasedCommand = command.lowercased()
+        if lowercasedCommand.contains("vibe-island-bridge")
+            || lowercasedCommand.contains(".vibe-island/bin")
+            || lowercasedCommand.contains("vibe island") {
+            return "Vibe Island"
+        }
         if lowercasedCommand.contains("claude-island-state.py")
             || lowercasedCommand.contains("claude island")
             || lowercasedCommand.contains("vibe-notch") {
             return "Vibe Notch"
+        }
+        if lowercasedCommand.contains("notchikko-hook.sh")
+            || lowercasedCommand.contains(".notchikko/hooks") {
+            return "Notchikko"
+        }
+        if lowercasedCommand.contains("clawd-hook.js") {
+            return "Clawd On Desk"
+        }
+        if lowercasedCommand.contains("@dp/ab-agent-collect-event") {
+            return "AB Agent Collect Event"
+        }
+        if lowercasedCommand.contains("@dp/ai-code-report")
+            || lowercasedCommand.contains("ai-report-hook-run") {
+            return "AI Code Report"
         }
         if let pluginName, !pluginName.isEmpty {
             return humanizedHookHost(pluginName)

@@ -168,7 +168,9 @@ public final class CapabilityDisplayGrouper {
         let groupedChildIDs = Set(pluginGroupIDs.flatMap { pluginChildren[$0]?.map(\.id) ?? [] })
 
         let prefixCandidates = sorted.filter { capability in
-            capability.type != .plugin && !groupedChildIDs.contains(capability.id)
+            capability.type != .plugin
+                && capability.type != .hook
+                && !groupedChildIDs.contains(capability.id)
         }
         let grouped = Dictionary(grouping: prefixCandidates, by: groupKey(for:))
         let prefixGroupKeys = Set(grouped.compactMap { key, values in
@@ -219,6 +221,11 @@ public final class CapabilityDisplayGrouper {
             }
 
             if capability.type == .plugin {
+                items.append(.capability(capability))
+                continue
+            }
+
+            if capability.type == .hook {
                 items.append(.capability(capability))
                 continue
             }

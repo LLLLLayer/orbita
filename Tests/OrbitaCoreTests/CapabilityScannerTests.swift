@@ -98,6 +98,24 @@ final class CapabilityScannerTests: XCTestCase {
         })
     }
 
+    func testCapabilityDisplayGrouperDoesNotPrefixGroupHooks() {
+        let capabilities = [
+            displayCapability(name: "Vibe Island - PermissionRequest (*)", type: .hook),
+            displayCapability(name: "Vibe Island - SessionStart", type: .hook),
+            displayCapability(name: "Vibe Island - Stop (*)", type: .hook)
+        ]
+
+        let items = CapabilityDisplayGrouper().items(for: capabilities, minimumGroupSize: 3)
+
+        XCTAssertEqual(items.count, 3)
+        XCTAssertTrue(items.allSatisfy { item in
+            if case .capability = item {
+                return true
+            }
+            return false
+        })
+    }
+
     func testCapabilityDisplayGrouperAggregatesPluginChildrenUnderPluginCell() {
         let plugin = Capability(
             id: "plugin:codex-cache:openai-curated:superpowers",
@@ -264,7 +282,7 @@ final class CapabilityScannerTests: XCTestCase {
                 "hooks": [
                   {
                     "type": "command",
-                    "command": "npx hook-runner",
+                    "command": "npx -y hook-runner",
                     "timeout": 30
                   }
                 ]
@@ -294,7 +312,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(hook.scope, .user)
         XCTAssertEqual(hook.statuses.first, .enabled)
         XCTAssertEqual(hook.metadata["event"], "PostToolUse")
-        XCTAssertEqual(hook.metadata["command"], "npx hook-runner")
+        XCTAssertEqual(hook.metadata["command"], "npx -y hook-runner")
         XCTAssertEqual(hook.metadata["handlerKind"], "command")
         XCTAssertEqual(hook.metadata["handlerHost"], "Hook Runner")
         XCTAssertEqual(hook.metadata["handlerRunner"], "npx")
@@ -351,6 +369,75 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(hook.metadata["handlerRunner"], "python3")
         XCTAssertEqual(hook.metadata["handlerScript"], "\(claudeRoot.path)/hooks/claude-island-state.py")
         XCTAssertEqual(hook.metadata["timeout"], "86400")
+    }
+
+    func testScansClaudeSettingsVibeIslandHooksAsConcreteHandlers() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let claudeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudeVibeIsland-\(UUID().uuidString)")
+        let settings = claudeRoot.appendingPathComponent("settings.json")
+        let command = #"/bin/sh -c '[ -x "$HOME/.vibe-island/bin/vibe-island-bridge" ] && "$HOME/.vibe-island/bin/vibe-island-bridge" --source claude; exit 0'"#
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: claudeRoot, withIntermediateDirectories: true)
+        let settingsObject: [String: Any] = [
+            "hooks": [
+                "PermissionRequest": [
+                    [
+                        "matcher": "*",
+                        "hooks": [
+                            ["type": "command", "command": command, "timeout": 5]
+                        ]
+                    ]
+                ],
+                "SessionStart": [
+                    [
+                        "hooks": [
+                            ["type": "command", "command": command]
+                        ]
+                    ]
+                ],
+                "Stop": [
+                    [
+                        "matcher": "*",
+                        "hooks": [
+                            ["type": "command", "command": command]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: settingsObject, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: settings)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: claudeRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                codexConfigURL: claudeRoot.appendingPathComponent("missing-config.toml"),
+                codexPluginCacheRoot: claudeRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: claudeRoot.appendingPathComponent("missing-plugins.json"),
+                claudeSettingsURLs: [settings]
+            )
+        )
+
+        let hooks = result.capabilities
+            .filter { $0.source.kind == "claude-settings-hook" }
+            .sorted { $0.name < $1.name }
+        XCTAssertEqual(hooks.map(\.name), [
+            "Vibe Island - PermissionRequest (*)",
+            "Vibe Island - SessionStart",
+            "Vibe Island - Stop (*)"
+        ])
+        XCTAssertTrue(hooks.allSatisfy { $0.scope == .user })
+        XCTAssertTrue(hooks.allSatisfy { $0.metadata["handlerHost"] == "Vibe Island" })
+        XCTAssertTrue(hooks.allSatisfy { $0.metadata["handlerRunner"] == "sh" })
+        XCTAssertTrue(hooks.allSatisfy { $0.metadata["command"] == command })
     }
 
     func testScansCursorLegacyRulesAndClaudeWorkspaceFiles() throws {
@@ -1740,11 +1827,16 @@ final class CapabilityScannerTests: XCTestCase {
     }
 }
 
-private func displayCapability(name: String, pluginID: String? = nil, packageName: String? = nil) -> Capability {
+private func displayCapability(
+    name: String,
+    type: CapabilityType = .skill,
+    pluginID: String? = nil,
+    packageName: String? = nil
+) -> Capability {
     Capability(
         id: "skill:\(name)",
         name: name,
-        type: .skill,
+        type: type,
         scope: .project,
         source: CapabilitySource(kind: "skill", path: "/tmp/\(name)/SKILL.md", packageName: packageName),
         pluginID: pluginID

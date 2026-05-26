@@ -31,10 +31,10 @@ struct OrbitaSidebarView: View {
                 Button(action: onCollapse) {
                     Image(systemName: "sidebar.left")
                         .font(.system(size: 15, weight: .medium))
-                        .frame(width: 34, height: 30)
+                        .foregroundStyle(.secondary)
+                        .orbitaIconControlSurface()
                 }
                 .buttonStyle(.plain)
-                .orbitaControlSurface(cornerRadius: 12)
                 .help("Collapse sidebar")
             }
             .frame(height: 54)
@@ -137,11 +137,10 @@ struct OrbitaSidebarView: View {
 
             Spacer(minLength: 16)
 
-            SidebarNavigationRow(
+            SidebarSettingsRow(
                 title: "Settings",
                 subtitle: "Preferences",
                 systemImage: "gearshape",
-                isSelected: false,
                 action: onOpenSettings
             )
             .padding(.bottom, 16)
@@ -322,6 +321,40 @@ private struct SidebarNavigationRow: View {
     }
 }
 
+private struct SidebarSettingsRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .orbitaIconControlSurface()
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 14)
+        .padding(.trailing, 12)
+    }
+}
+
 private struct RailButton: View {
     let systemImage: String
     let isSelected: Bool
@@ -332,18 +365,9 @@ private struct RailButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(isSelected ? .primary : .secondary)
-                .frame(width: 40, height: 40)
-                .background {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isSelected ? OrbitaTheme.elevatedSurface : Color.clear)
-                        .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 7, x: 0, y: 3)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(isSelected ? OrbitaTheme.border : Color.clear)
-                }
+                .orbitaIconControlSurface(selected: isSelected)
         }
         .buttonStyle(.plain)
-        .frame(width: 44, height: 44)
+        .frame(width: OrbitaLayoutMetrics.sidebarRailWidth, height: 44)
     }
 }
