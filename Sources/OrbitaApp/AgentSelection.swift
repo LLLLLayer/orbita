@@ -53,11 +53,11 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         case .agentsSource:
             return sourceCapabilities(.agents, in: graph)
         case .codexSource:
-            return sourceCapabilities(.codex, in: graph)
+            return sourceCapabilities(.codex, in: graph, plusSkillsAgentID: "codex")
         case .claudeSource:
-            return sourceCapabilities(.claude, in: graph)
+            return sourceCapabilities(.claude, in: graph, plusSkillsAgentID: "claude-code")
         case .cursorSource:
-            return sourceCapabilities(.cursor, in: graph)
+            return sourceCapabilities(.cursor, in: graph, plusSkillsAgentID: "cursor")
         case .codexLike:
             return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeLike:
@@ -91,9 +91,16 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         return visibleCapabilities(in: graph).contains { $0.id == capability.id }
     }
 
-    private func sourceCapabilities(_ sourceKind: CapabilitySourceClassifier.SourceKind, in graph: CapabilityGraph) -> [Capability] {
+    private func sourceCapabilities(
+        _ sourceKind: CapabilitySourceClassifier.SourceKind,
+        in graph: CapabilityGraph,
+        plusSkillsAgentID skillsAgentID: String? = nil
+    ) -> [Capability] {
         graph.capabilities
-            .filter { CapabilitySourceClassifier.sourceKind(for: $0) == sourceKind }
+            .filter { capability in
+                CapabilitySourceClassifier.sourceKind(for: capability) == sourceKind
+                    || skillsAgentID.map { capability.installedThroughSkillsCLI(for: $0) } == true
+            }
             .sorted { $0.id < $1.id }
     }
 

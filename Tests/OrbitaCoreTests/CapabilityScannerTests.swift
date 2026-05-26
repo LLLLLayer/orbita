@@ -2067,8 +2067,8 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(scannedSkill.metadata["skillsLockRef"], "main")
         XCTAssertEqual(scannedSkill.metadata["skillsLockSkillPath"], "skills/example-skill/SKILL.md")
         XCTAssertEqual(scannedSkill.metadata["skillsLockHash"], "abc123")
-        XCTAssertTrue(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("codex") == true)
-        XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex=canonical") == true)
+        XCTAssertNotEqual(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("codex"), true)
+        XCTAssertNotEqual(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex=canonical"), true)
         XCTAssertTrue(scannedSkill.metadata["installCommand"]?.contains("npx skills add 'https://github.com/vercel-labs/agent-skills.git' --skill 'example-skill' -g -y") == true)
     }
 

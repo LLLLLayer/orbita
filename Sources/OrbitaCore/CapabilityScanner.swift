@@ -1416,11 +1416,8 @@ public final class CapabilityScanner {
             guard let base = skillsAgentBaseURL(agent: agent, scope: scope, projectRoot: projectRoot) else {
                 continue
             }
-            let effectiveBase = scope == .user && agent.usesSharedProjectSkills
-                ? (canonicalRoot ?? base)
-                : base
             for name in candidateNames {
-                let candidate = effectiveBase.appendingPathComponent(name)
+                let candidate = base.appendingPathComponent(name)
                 guard let relationship = skillsInstallRelationship(
                     candidate: candidate,
                     canonicalPath: canonicalPath,
