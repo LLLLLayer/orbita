@@ -182,6 +182,56 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(group.capabilities.map(\.name), ["brainstorming", "writing-plans"])
     }
 
+    func testCapabilityDisplayGrouperKeepsMirroredPluginHooksUnderPluginCell() {
+        let plugin = Capability(
+            id: "plugin:claude:workflow@unicorn-marketplace:user:global",
+            name: "Workflow",
+            type: .plugin,
+            scope: .user,
+            source: CapabilitySource(
+                kind: "claude-plugin",
+                path: "/tmp/.claude/plugins/cache/unicorn-marketplace/workflow/1.4.5",
+                packageName: "workflow"
+            )
+        )
+        let sessionStart = Capability(
+            id: "hook:workflow-session-start",
+            name: "Workflow - SessionStart",
+            type: .hook,
+            scope: .user,
+            source: CapabilitySource(
+                kind: "claude-plugin-hook",
+                path: "/tmp/.claude/plugins/cache/unicorn-marketplace/workflow/1.4.5/hooks/hooks.json",
+                packageName: "workflow"
+            ),
+            pluginID: plugin.id,
+            metadata: ["handlerHost": "Workflow", "event": "SessionStart"]
+        )
+        let stop = Capability(
+            id: "hook:workflow-stop",
+            name: "Workflow - Stop (*)",
+            type: .hook,
+            scope: .user,
+            source: CapabilitySource(
+                kind: "claude-plugin-hook",
+                path: "/tmp/.claude/plugins/cache/unicorn-marketplace/workflow/1.4.5/hooks/hooks.json",
+                packageName: "workflow"
+            ),
+            pluginID: plugin.id,
+            metadata: ["handlerHost": "Workflow", "event": "Stop", "matcher": "*"]
+        )
+
+        let items = CapabilityDisplayGrouper().items(for: [sessionStart, plugin, stop], preservesInputOrder: true)
+
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected mirrored plugin hooks to stay under the plugin")
+        }
+        XCTAssertEqual(group.kind, .plugin)
+        XCTAssertEqual(group.representative?.id, plugin.id)
+        XCTAssertEqual(group.capabilities.map(\.id), ["hook:workflow-session-start", "hook:workflow-stop"])
+    }
+
     func testCapabilityDisplayGrouperMergesSameHashMirrors() {
         let codex = Capability(
             id: "skill:/tmp/.codex/skills/browser/SKILL.md",

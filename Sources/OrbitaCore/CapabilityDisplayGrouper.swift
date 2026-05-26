@@ -200,7 +200,7 @@ public final class CapabilityDisplayGrouper {
             capability.type == .plugin ? (capability.id, capability) : nil
         }) : [:]
         let pluginChildren = groupsPluginChildren ? Dictionary(grouping: sorted.filter { capability in
-            capability.type != .plugin && capability.pluginID != nil && !mirroredCapabilityIDs.contains(capability.id)
+            capability.type != .plugin && capability.pluginID != nil
         }, by: { $0.pluginID ?? "" }) : [:]
 
         let pluginGroupIDs = Set(pluginChildren.compactMap { pluginID, children in
@@ -222,7 +222,8 @@ public final class CapabilityDisplayGrouper {
         var items: [CapabilityDisplayItem] = []
         for capability in sorted {
             if capability.type != .plugin,
-               capability.type != .hook {
+               capability.type != .hook,
+               !groupedChildIDs.contains(capability.id) {
                 let key = groupKey(for: capability)
                 if prefixGroupKeys.contains(key) {
                     let groupID = "group:\(key)"
@@ -238,19 +239,6 @@ public final class CapabilityDisplayGrouper {
                     )))
                     continue
                 }
-            }
-
-            if let mirrorGroup = mirrorGroups[capability.id] {
-                guard !emittedGroups.contains(mirrorGroup.id) else {
-                    continue
-                }
-                emittedGroups.insert(mirrorGroup.id)
-                items.append(.group(mirrorGroup))
-                continue
-            }
-
-            if mirroredCapabilityIDs.contains(capability.id) {
-                continue
             }
 
             if capability.type == .plugin,
@@ -290,6 +278,19 @@ public final class CapabilityDisplayGrouper {
             }
 
             if groupedChildIDs.contains(capability.id) {
+                continue
+            }
+
+            if let mirrorGroup = mirrorGroups[capability.id] {
+                guard !emittedGroups.contains(mirrorGroup.id) else {
+                    continue
+                }
+                emittedGroups.insert(mirrorGroup.id)
+                items.append(.group(mirrorGroup))
+                continue
+            }
+
+            if mirroredCapabilityIDs.contains(capability.id) {
                 continue
             }
 
