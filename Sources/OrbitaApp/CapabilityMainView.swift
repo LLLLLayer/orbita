@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import OrbitaCore
 
 struct CapabilityMainView: View {
@@ -18,8 +19,8 @@ struct CapabilityMainView: View {
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let onAddAgent: () -> Void
-    let onManageAgents: () -> Void
-    let onManageCategories: () -> Void
+    let onMoveAgent: (_ sourceID: String, _ targetID: String) -> Void
+    let onMoveCategory: (_ sourceID: String, _ targetID: String) -> Void
     let onHideCategories: () -> Void
     let onOpenProject: () -> Void
     let onRefresh: () -> Void
@@ -54,8 +55,8 @@ struct CapabilityMainView: View {
                                 selectedAgent: $selectedAgent,
                                 selectedGroup: $selectedGroup,
                                 onAddAgent: onAddAgent,
-                                onManageAgents: onManageAgents,
-                                onManageCategories: onManageCategories,
+                                onMoveAgent: onMoveAgent,
+                                onMoveCategory: onMoveCategory,
                                 onHideCategories: onHideCategories
                             )
 
@@ -384,14 +385,17 @@ struct CapabilityFilterBar: View {
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     let onAddAgent: () -> Void
-    let onManageAgents: () -> Void
-    let onManageCategories: () -> Void
+    let onMoveAgent: (_ sourceID: String, _ targetID: String) -> Void
+    let onMoveCategory: (_ sourceID: String, _ targetID: String) -> Void
     let onHideCategories: () -> Void
+    @State private var draggedAgentID: String?
+    @State private var draggedCategoryID: String?
+    @State private var agentDropTargetID: String?
+    @State private var categoryDropTargetID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                FilterIconButton(systemImage: "arrow.up.arrow.down", help: "Manage agent order", action: onManageAgents)
                 FilterIconButton(systemImage: "plus", help: "Add coding agent", action: onAddAgent)
 
                 FilterChip(title: "Overview", systemImage: "square.grid.2x2", isSelected: selectedAgent == nil) {
@@ -400,7 +404,15 @@ struct CapabilityFilterBar: View {
                     }
                 }
                 ForEach(agentOptions) { agent in
-                    FilterChip(title: agent.displayName, systemImage: agent.systemImage, isSelected: selectedAgent == agent) {
+                    ReorderableFilterChip(
+                        id: agent.id,
+                        title: agent.displayName,
+                        systemImage: agent.systemImage,
+                        isSelected: selectedAgent == agent,
+                        draggedID: $draggedAgentID,
+                        activeDropTargetID: $agentDropTargetID,
+                        onMove: onMoveAgent
+                    ) {
                         withAnimation(.snappy(duration: 0.18)) {
                             selectedAgent = agent
                         }
@@ -410,11 +422,17 @@ struct CapabilityFilterBar: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
-                    FilterIconButton(systemImage: "arrow.up.arrow.down", help: "Manage category order", action: onManageCategories)
                     FilterIconButton(systemImage: "eye.slash", help: "Hide categories", action: onHideCategories)
 
                     ForEach(categoryOptions) { category in
-                        FilterChip(title: category.title, isSelected: selectedGroup == category) {
+                        ReorderableFilterChip(
+                            id: category.rawValue,
+                            title: category.title,
+                            isSelected: selectedGroup == category,
+                            draggedID: $draggedCategoryID,
+                            activeDropTargetID: $categoryDropTargetID,
+                            onMove: onMoveCategory
+                        ) {
                             withAnimation(.snappy(duration: 0.18)) {
                                 selectedGroup = category
                             }
@@ -423,6 +441,71 @@ struct CapabilityFilterBar: View {
                 }
             }
         }
+    }
+}
+
+private struct ReorderableFilterChip: View {
+    let id: String
+    let title: String
+    var systemImage: String?
+    let isSelected: Bool
+    @Binding var draggedID: String?
+    @Binding var activeDropTargetID: String?
+    let onMove: (_ sourceID: String, _ targetID: String) -> Void
+    let action: () -> Void
+
+    var body: some View {
+        FilterChip(title: title, systemImage: systemImage, isSelected: isSelected, action: action)
+            .onDrag {
+                draggedID = id
+                activeDropTargetID = nil
+                return NSItemProvider(object: id as NSString)
+            }
+            .onDrop(
+                of: [UTType.text],
+                delegate: FilterChipDropDelegate(
+                    targetID: id,
+                    draggedID: $draggedID,
+                    activeDropTargetID: $activeDropTargetID,
+                    onMove: onMove
+                )
+            )
+            .help("Drag to reorder")
+    }
+}
+
+private struct FilterChipDropDelegate: DropDelegate {
+    let targetID: String
+    @Binding var draggedID: String?
+    @Binding var activeDropTargetID: String?
+    let onMove: (_ sourceID: String, _ targetID: String) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let sourceID = draggedID,
+              sourceID != targetID,
+              activeDropTargetID != targetID else {
+            return
+        }
+        activeDropTargetID = targetID
+        withAnimation(.snappy(duration: 0.18)) {
+            onMove(sourceID, targetID)
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        if activeDropTargetID == targetID {
+            activeDropTargetID = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedID = nil
+        activeDropTargetID = nil
+        return true
     }
 }
 

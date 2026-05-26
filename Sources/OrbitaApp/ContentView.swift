@@ -21,8 +21,6 @@ struct ContentView: View {
     @State private var sidebarCollapsed = false
     @State private var inspectorVisible = true
     @State private var addingAgentPresented = false
-    @State private var managingAgentsPresented = false
-    @State private var managingCategoriesPresented = false
     @State private var hidingCategoriesPresented = false
     @State private var settingsPresented = false
     @State private var pendingPlan: ApplyPlan?
@@ -114,32 +112,6 @@ struct ContentView: View {
                 addingAgentPresented = false
             }
         }
-        .sheet(isPresented: $managingAgentsPresented) {
-            ManageAgentsSheet(
-                agentOptions: agentOptions,
-                defaultOrder: defaultAgentOptions,
-                onSave: { orderedAgents in
-                    saveAgentOrder(orderedAgents)
-                    managingAgentsPresented = false
-                },
-                onCancel: {
-                    managingAgentsPresented = false
-                }
-            )
-        }
-        .sheet(isPresented: $managingCategoriesPresented) {
-            ManageCategoriesSheet(
-                categories: orderedCategoryOptions,
-                defaultOrder: defaultCategoryOptions,
-                onSave: { orderedCategories in
-                    saveCategoryOrder(orderedCategories)
-                    managingCategoriesPresented = false
-                },
-                onCancel: {
-                    managingCategoriesPresented = false
-                }
-            )
-        }
         .sheet(isPresented: $hidingCategoriesPresented) {
             HideCategoriesSheet(
                 categories: orderedCategoryOptions,
@@ -217,12 +189,8 @@ struct ContentView: View {
                         onAddAgent: {
                             addingAgentPresented = true
                         },
-                        onManageAgents: {
-                            managingAgentsPresented = true
-                        },
-                        onManageCategories: {
-                            managingCategoriesPresented = true
-                        },
+                        onMoveAgent: moveAgent,
+                        onMoveCategory: moveCategory,
                         onHideCategories: {
                             hidingCategoriesPresented = true
                         },
@@ -461,6 +429,25 @@ struct ContentView: View {
         }
     }
 
+    private func moveAgent(id sourceID: String, to targetID: String) {
+        guard sourceID != targetID else {
+            return
+        }
+        var orderedAgents = agentOptions
+        guard let sourceIndex = orderedAgents.firstIndex(where: { $0.id == sourceID }),
+              let targetIndex = orderedAgents.firstIndex(where: { $0.id == targetID }) else {
+            return
+        }
+
+        let agent = orderedAgents.remove(at: sourceIndex)
+        let updatedTargetIndex = orderedAgents.firstIndex { $0.id == targetID } ?? orderedAgents.endIndex
+        let insertionIndex = sourceIndex < targetIndex
+            ? min(updatedTargetIndex + 1, orderedAgents.endIndex)
+            : updatedTargetIndex
+        orderedAgents.insert(agent, at: insertionIndex)
+        saveAgentOrder(orderedAgents)
+    }
+
     private var categoryOptions: [CapabilityCategory] {
         let hiddenIDs = hiddenCategoryIDs
         return orderedCategoryOptions.filter { category in
@@ -515,6 +502,25 @@ struct ContentView: View {
            let json = String(data: data, encoding: .utf8) {
             categoryOrderJSON = json
         }
+    }
+
+    private func moveCategory(id sourceID: String, to targetID: String) {
+        guard sourceID != targetID else {
+            return
+        }
+        var orderedCategories = orderedCategoryOptions
+        guard let sourceIndex = orderedCategories.firstIndex(where: { $0.rawValue == sourceID }),
+              let targetIndex = orderedCategories.firstIndex(where: { $0.rawValue == targetID }) else {
+            return
+        }
+
+        let category = orderedCategories.remove(at: sourceIndex)
+        let updatedTargetIndex = orderedCategories.firstIndex { $0.rawValue == targetID } ?? orderedCategories.endIndex
+        let insertionIndex = sourceIndex < targetIndex
+            ? min(updatedTargetIndex + 1, orderedCategories.endIndex)
+            : updatedTargetIndex
+        orderedCategories.insert(category, at: insertionIndex)
+        saveCategoryOrder(orderedCategories)
     }
 
     private func saveHiddenCategories(_ hiddenIDs: Set<String>) {
