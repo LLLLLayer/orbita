@@ -5,6 +5,7 @@ import OrbitaCore
 
 struct CapabilityInspectorView: View {
     let capability: Capability?
+    let selectedAgent: AgentSelection?
     let onClose: () -> Void
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
@@ -133,6 +134,9 @@ struct CapabilityInspectorView: View {
     }
 
     private func sourcePath(for capability: Capability) -> String {
+        if let selectedAgentPath = selectedAgentSourcePath(for: capability) {
+            return selectedAgentPath
+        }
         if let path = capability.metadata["sourcePath"],
            !path.isEmpty,
            !isInternalOrbitaIndexPath(path) {
@@ -145,6 +149,46 @@ struct CapabilityInspectorView: View {
             return capability.source.path
         }
         return "-"
+    }
+
+    private func selectedAgentSourcePath(for capability: Capability) -> String? {
+        guard let agentID = selectedAgent?.skillsInstallAgentID,
+              let targetPath = skillsInstallTargetPath(for: agentID, capability: capability) else {
+            return nil
+        }
+        return displayableSkillPath(targetPath)
+    }
+
+    private func skillsInstallTargetPath(for agentID: String, capability: Capability) -> String? {
+        guard let value = capability.metadata["skillsInstallTargets"] else {
+            return nil
+        }
+        let prefix = "\(agentID)="
+        return value
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { line -> String? in
+                guard line.hasPrefix(prefix),
+                      let separator = line.firstIndex(of: ":") else {
+                    return nil
+                }
+                let pathStart = line.index(after: separator)
+                let path = String(line[pathStart...])
+                return path.isEmpty ? nil : path
+            }
+            .first
+    }
+
+    private func displayableSkillPath(_ path: String) -> String {
+        let url = URL(fileURLWithPath: path)
+        var isDirectory = ObjCBool(false)
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            let skillFile = url.appendingPathComponent("SKILL.md")
+            if FileManager.default.fileExists(atPath: skillFile.path) {
+                return skillFile.path
+            }
+        }
+        return path
     }
 
     private func isInternalOrbitaIndexPath(_ path: String) -> Bool {

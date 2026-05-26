@@ -254,6 +254,7 @@ struct ContentView: View {
                             .transition(.opacity)
                         CapabilityInspectorView(
                             capability: selectedCapability,
+                            selectedAgent: selectedAgent,
                             onClose: {
                                 withAnimation(.snappy(duration: 0.22)) {
                                     inspectorVisible = false
