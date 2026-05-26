@@ -21,10 +21,14 @@ enum UserDirectoryAccessPreflight {
         var denied: [URL] = []
 
         for url in candidates {
-            guard fileManager.fileExists(atPath: url.path) else { continue }
-            checked.append(url)
-            if !touch(url, fileManager: fileManager) {
+            switch probe(url, fileManager: fileManager) {
+            case .allowed:
+                checked.append(url)
+            case .denied:
+                checked.append(url)
                 denied.append(url)
+            case .missing:
+                continue
             }
         }
 
@@ -73,36 +77,52 @@ enum UserDirectoryAccessPreflight {
             }
         }
 
-        return deduplicated(urls, fileManager: fileManager)
+        return deduplicatedPreflightURLs(urls, fileManager: fileManager)
     }
 
     private static func append(_ url: URL, to urls: inout [URL]) {
         urls.append(url.standardizedFileURL)
     }
 
-    private static func deduplicated(_ urls: [URL], fileManager: FileManager) -> [URL] {
+    private static func deduplicatedPreflightURLs(_ urls: [URL], fileManager: FileManager) -> [URL] {
         var seen = Set<String>()
         var result: [URL] = []
         for url in urls {
-            let path = canonicalPath(for: url, fileManager: fileManager)
+            let preflightURL = privacyPromptRoot(for: url, fileManager: fileManager) ?? url.standardizedFileURL
+            let path = preflightURL.standardizedFileURL.path
             guard seen.insert(path).inserted else { continue }
             result.append(URL(fileURLWithPath: path))
         }
         return result
     }
 
-    private static func canonicalPath(for url: URL, fileManager: FileManager) -> String {
-        let path = url.path
-        if fileManager.fileExists(atPath: path) {
-            return url.resolvingSymlinksInPath().path
+    private static func privacyPromptRoot(for url: URL, fileManager: FileManager) -> URL? {
+        let path = url.standardizedFileURL.path
+        return protectedPromptRoots(fileManager: fileManager).first { root in
+            let rootPath = root.standardizedFileURL.path
+            return path == rootPath || path.hasPrefix(rootPath + "/")
         }
-        return path
     }
 
-    private static func touch(_ url: URL, fileManager: FileManager) -> Bool {
+    private static func protectedPromptRoots(fileManager: FileManager) -> [URL] {
+        [
+            fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .documentDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first
+        ]
+        .compactMap { $0?.standardizedFileURL }
+    }
+
+    private enum ProbeResult {
+        case allowed
+        case denied
+        case missing
+    }
+
+    private static func probe(_ url: URL, fileManager: FileManager) -> ProbeResult {
         var isDirectory = ObjCBool(false)
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            return true
+            return .missing
         }
 
         if isDirectory.boolValue {
@@ -112,18 +132,18 @@ enum UserDirectoryAccessPreflight {
                     includingPropertiesForKeys: [.isDirectoryKey],
                     options: [.skipsPackageDescendants]
                 )
-                return true
+                return .allowed
             } catch {
-                return fileManager.isReadableFile(atPath: url.path)
+                return fileManager.isReadableFile(atPath: url.path) ? .allowed : .denied
             }
         }
 
         do {
             let handle = try FileHandle(forReadingFrom: url)
             try handle.close()
-            return true
+            return .allowed
         } catch {
-            return false
+            return .denied
         }
     }
 }
