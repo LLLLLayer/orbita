@@ -147,6 +147,74 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(group.capabilities.map(\.name), ["brainstorming", "writing-plans"])
     }
 
+    func testCapabilityDisplayGrouperMergesSameHashMirrors() {
+        let codex = Capability(
+            id: "skill:/tmp/.codex/skills/browser/SKILL.md",
+            name: "browser",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "codex-skill", path: "/tmp/.codex/skills/browser/SKILL.md"),
+            metadata: ["contentHash": "same-hash"]
+        )
+        let agents = Capability(
+            id: "skill:/tmp/.agents/skills/browser/SKILL.md",
+            name: "browser",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "agents-skill", path: "/tmp/.agents/skills/browser/SKILL.md"),
+            metadata: ["contentHash": "same-hash"]
+        )
+
+        let items = CapabilityDisplayGrouper().items(for: [codex, agents])
+
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected mirrored group")
+        }
+        XCTAssertEqual(group.kind, .mirror)
+        XCTAssertEqual(group.name, "browser")
+        XCTAssertEqual(group.inspectionCapability.type, .skill)
+        XCTAssertEqual(group.inspectionCapability.source.kind, "virtual-mirror")
+        XCTAssertEqual(group.inspectionCapability.metadata["childCount"], "2")
+    }
+
+    func testCapabilityDisplayGrouperMergesSymlinkMirrors() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaMirrorTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+
+        let target = temporaryRoot.appendingPathComponent("settings.json")
+        let link = temporaryRoot.appendingPathComponent("settings-link.json")
+        try #"{"hooks": {}}"#.write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let canonical = Capability(
+            id: "hook:canonical",
+            name: "Claude settings",
+            type: .hook,
+            scope: .project,
+            source: CapabilitySource(kind: "claude-settings-hook", path: target.path)
+        )
+        let linked = Capability(
+            id: "hook:linked",
+            name: "Claude settings",
+            type: .hook,
+            scope: .project,
+            source: CapabilitySource(kind: "claude-settings-hook", path: link.path)
+        )
+
+        let items = CapabilityDisplayGrouper().items(for: [canonical, linked], preservesInputOrder: true)
+
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected mirrored group")
+        }
+        XCTAssertEqual(group.kind, .mirror)
+        XCTAssertEqual(group.capabilities.map(\.id), ["hook:canonical", "hook:linked"])
+        XCTAssertEqual(group.inspectionCapability.type, .hook)
+    }
+
     func testCapabilityDisplayGrouperSynthesizesSelectablePluginGroup() {
         let capabilities = [
             displayCapability(name: "brainstorming", pluginID: "plugin:codex-cache:openai-curated:superpowers", packageName: "superpowers"),
@@ -1142,11 +1210,55 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(result.completedOperations.count, plan.operations.count)
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/skills/lark-doc").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: skill.source.path))
+        XCTAssertFalse(plan.operations.contains { $0.kind == .cachePath })
 
         let manifestText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/manifest.json"), encoding: .utf8)
         let logText = try String(contentsOf: temporaryRoot.appendingPathComponent(".agents/logs/apply.log"), encoding: .utf8)
         XCTAssertTrue(manifestText.contains(CapabilityStatus.disabled.rawValue))
         XCTAssertTrue(logText.contains("disable"))
+    }
+
+    func testDisableNonSymlinkAgentSourceCachesAndEnableRestoresIt() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let skillDirectory = temporaryRoot.appendingPathComponent(".codex/skills/browser")
+        let skillFile = skillDirectory.appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: browser
+        description: browser skill
+        ---
+        """.write(to: skillFile, atomically: true, encoding: .utf8)
+
+        let capability = Capability(
+            id: "skill:\(skillFile.path)",
+            name: "browser",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "codex-skill", path: skillFile.path),
+            metadata: ["contentHash": "browser-hash"]
+        )
+        let graph = CapabilityGraph(projectRoot: temporaryRoot.path, capabilities: [capability], issues: [])
+        let builder = ApplyPlanBuilder()
+        let executor = ApplyPlanExecutor()
+
+        let disable = try builder.planDisable(capabilityID: capability.id, graph: graph)
+        let cacheOperation = try XCTUnwrap(disable.operations.first { $0.kind == .cachePath })
+        _ = try executor.apply(disable)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: skillDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(cacheOperation.target)))
+
+        let enable = try builder.planEnable(capabilityID: capability.id, graph: graph)
+        let restoreOperation = try XCTUnwrap(enable.operations.first { $0.kind == .restorePath })
+        _ = try executor.apply(enable)
+
+        XCTAssertEqual(restoreOperation.path, cacheOperation.target)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: skillFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: restoreOperation.path))
     }
 
     func testDisableAfterMergePreservesOtherManifestEntries() throws {

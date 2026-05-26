@@ -13,6 +13,8 @@ public enum ApplyOperationKind: String, Codable, Sendable {
     case readSource
     case createDirectory
     case createSymlink
+    case cachePath
+    case restorePath
     case removePath
     case writeFile
     case appendLog
@@ -113,51 +115,28 @@ public struct ApplyPlan: Codable, Identifiable, Sendable {
 }
 
 public final class ApplyPlanBuilder {
-    public init() {}
+    private let fileManager: FileManager
+
+    public init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
 
     public func planEnable(capabilityID: String, graph: CapabilityGraph) throws -> ApplyPlan {
         guard let capability = graph.capabilities.first(where: { $0.id == capabilityID }) else {
             throw OrbitaError.capabilityNotFound(capabilityID)
         }
 
-        let agentsRoot = URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".agents")
-        var operations = baseIndexOperations(
-            action: .enable,
-            capability: capability,
-            graph: graph,
-            agentsRoot: agentsRoot
-        )
+        return try planStatusChange(action: .enable, capabilities: [capability], planCapabilityID: capabilityID, graph: graph)
+    }
 
-        if capability.type == .skill {
-            let skillsRoot = agentsRoot.appendingPathComponent("skills")
-            operations.append(ApplyOperation(
-                kind: .createDirectory,
-                path: skillsRoot.path,
-                risk: .write,
-                description: "Create project skill links directory"
-            ))
-            operations.append(ApplyOperation(
-                kind: .createSymlink,
-                path: skillsRoot.appendingPathComponent(capability.name).path,
-                target: skillDirectoryPath(for: capability),
-                risk: .write,
-                description: "Link skill into project capability index"
-            ))
-        }
-
-        operations.append(contentsOf: adapterPreviewOperations(
-            graph: graphWithProjectedIntent(capabilityID: capabilityID, status: .enabled, graph: graph)
-        ))
-        operations.append(logOperation(action: .enable, capability: capability, agentsRoot: agentsRoot))
-
-        return ApplyPlan(
-            projectRoot: graph.projectRoot,
-            action: .enable,
-            capabilityID: capabilityID,
-            appliesChanges: false,
-            requiresConfirmation: requiresConfirmation(for: capability, operations: operations),
-            operations: operations
-        )
+    public func planEnable(
+        capabilityIDs: [String],
+        groupID: String,
+        groupName: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let capabilities = try capabilities(matching: capabilityIDs, fallbackID: groupID, graph: graph)
+        return try planStatusChange(action: .enable, capabilities: capabilities, planCapabilityID: groupID, graph: graph)
     }
 
     public func planDisable(capabilityID: String, graph: CapabilityGraph) throws -> ApplyPlan {
@@ -165,34 +144,90 @@ public final class ApplyPlanBuilder {
             throw OrbitaError.capabilityNotFound(capabilityID)
         }
 
+        return try planStatusChange(action: .disable, capabilities: [capability], planCapabilityID: capabilityID, graph: graph)
+    }
+
+    public func planDisable(
+        capabilityIDs: [String],
+        groupID: String,
+        groupName: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let capabilities = try capabilities(matching: capabilityIDs, fallbackID: groupID, graph: graph)
+        return try planStatusChange(action: .disable, capabilities: capabilities, planCapabilityID: groupID, graph: graph)
+    }
+
+    private func planStatusChange(
+        action: ApplyAction,
+        capabilities: [Capability],
+        planCapabilityID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        guard action == .enable || action == .disable else {
+            throw OrbitaError.invalidApplyPlan("Unsupported status change action: \(action.rawValue)")
+        }
+        guard let primaryCapability = capabilities.first else {
+            throw OrbitaError.capabilityNotFound(planCapabilityID)
+        }
+
         let agentsRoot = URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".agents")
         var operations = baseIndexOperations(
-            action: .disable,
-            capability: capability,
+            action: action,
+            capabilities: capabilities,
             graph: graph,
             agentsRoot: agentsRoot
         )
 
-        if capability.type == .skill {
-            operations.append(ApplyOperation(
-                kind: .removePath,
-                path: agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path,
-                risk: .write,
-                description: "Remove project skill link without deleting source"
-            ))
+        for capability in capabilities {
+            switch action {
+            case .enable:
+                if let restoreOperation = restoreOperation(for: capability, graph: graph) {
+                    operations.append(restoreOperation)
+                } else if capability.type == .skill {
+                    let skillsRoot = agentsRoot.appendingPathComponent("skills")
+                    operations.append(ApplyOperation(
+                        kind: .createDirectory,
+                        path: skillsRoot.path,
+                        risk: .write,
+                        description: "Create project skill links directory"
+                    ))
+                    operations.append(ApplyOperation(
+                        kind: .createSymlink,
+                        path: skillsRoot.appendingPathComponent(capability.name).path,
+                        target: skillDirectoryPath(for: capability),
+                        risk: .write,
+                        description: "Link skill into project capability index"
+                    ))
+                }
+            case .disable:
+                operations.append(contentsOf: disableSourceOperations(for: capability, graph: graph, agentsRoot: agentsRoot))
+            case .delete, .merge, .rollback, .clean:
+                break
+            }
         }
 
         operations.append(contentsOf: adapterPreviewOperations(
-            graph: graphWithProjectedIntent(capabilityID: capabilityID, status: .disabled, graph: graph)
+            graph: graphWithProjectedIntent(capabilityIDs: capabilities.map(\.id), status: action == .enable ? .enabled : .disabled, graph: graph)
         ))
-        operations.append(logOperation(action: .disable, capability: capability, agentsRoot: agentsRoot))
+        if capabilities.count == 1 {
+            operations.append(logOperation(action: action, capability: primaryCapability, agentsRoot: agentsRoot))
+        } else {
+            operations.append(ApplyOperation(
+                kind: .appendLog,
+                path: agentsRoot.appendingPathComponent("logs/apply.log").path,
+                content: "\(ISO8601DateFormatter().string(from: Date())) \(action.rawValue) \(planCapabilityID) affected:\(capabilities.count)\n",
+                risk: .write,
+                description: "Append grouped \(action.rawValue) operation log"
+            ))
+        }
 
         return ApplyPlan(
             projectRoot: graph.projectRoot,
-            action: .disable,
-            capabilityID: capabilityID,
+            action: action,
+            capabilityID: planCapabilityID,
+            affectedCapabilityIDs: capabilities.count > 1 ? capabilities.map(\.id) : nil,
             appliesChanges: false,
-            requiresConfirmation: true,
+            requiresConfirmation: requiresConfirmation(for: capabilities, operations: operations),
             operations: operations
         )
     }
@@ -608,22 +643,25 @@ public final class ApplyPlanBuilder {
     }
 
     private func graphWithProjectedIntent(capabilityID: String, status: CapabilityStatus, graph: CapabilityGraph) -> CapabilityGraph {
-        var projected = graph
-        guard let index = projected.capabilities.firstIndex(where: { $0.id == capabilityID }) else {
-            return projected
-        }
+        graphWithProjectedIntent(capabilityIDs: [capabilityID], status: status, graph: graph)
+    }
 
-        switch status {
-        case .enabled:
-            projected.capabilities[index].statuses.removeAll { $0 == .disabled }
-            appendStatus(.enabled, to: &projected.capabilities[index])
-        case .disabled:
-            projected.capabilities[index].statuses.removeAll { $0 == .enabled }
-            appendStatus(.disabled, to: &projected.capabilities[index])
-        default:
-            appendStatus(status, to: &projected.capabilities[index])
+    private func graphWithProjectedIntent(capabilityIDs: [String], status: CapabilityStatus, graph: CapabilityGraph) -> CapabilityGraph {
+        var projected = graph
+        let selectedIDs = Set(capabilityIDs)
+        for index in projected.capabilities.indices where selectedIDs.contains(projected.capabilities[index].id) {
+            switch status {
+            case .enabled:
+                projected.capabilities[index].statuses.removeAll { $0 == .disabled }
+                appendStatus(.enabled, to: &projected.capabilities[index])
+            case .disabled:
+                projected.capabilities[index].statuses.removeAll { $0 == .enabled }
+                appendStatus(.disabled, to: &projected.capabilities[index])
+            default:
+                appendStatus(status, to: &projected.capabilities[index])
+            }
+            projected.capabilities[index].metadata["manifestStatus"] = status.rawValue
         }
-        projected.capabilities[index].metadata["manifestStatus"] = status.rawValue
         return projected
     }
 
@@ -680,15 +718,21 @@ public final class ApplyPlanBuilder {
     }
 
     private func baseIndexOperations(action: ApplyAction, capability: Capability, graph: CapabilityGraph, agentsRoot: URL) -> [ApplyOperation] {
-        let capabilityIntents = projectedCapabilityIntents(action: action, capability: capability, graph: graph)
+        baseIndexOperations(action: action, capabilities: [capability], graph: graph, agentsRoot: agentsRoot)
+    }
+
+    private func baseIndexOperations(action: ApplyAction, capabilities: [Capability], graph: CapabilityGraph, agentsRoot: URL) -> [ApplyOperation] {
+        let capabilityIntents = projectedCapabilityIntents(action: action, capabilities: capabilities, graph: graph)
         let indexedCapabilities = capabilityIntents.map(\.capability)
-        return [
+        var operations = capabilities.map { capability in
             ApplyOperation(
                 kind: .readSource,
-                path: capability.source.path,
+                path: manifestSourcePath(for: capability),
                 risk: .read,
                 description: "Read capability source before indexing"
-            ),
+            )
+        }
+        operations.append(contentsOf: [
             ApplyOperation(
                 kind: .createDirectory,
                 path: agentsRoot.path,
@@ -709,7 +753,8 @@ public final class ApplyPlanBuilder {
                 risk: .write,
                 description: "Record resolved source, risk, and hash metadata"
             )
-        ]
+        ])
+        return operations
     }
 
     private func projectedCapabilityIntents(
@@ -717,23 +762,36 @@ public final class ApplyPlanBuilder {
         capability selectedCapability: Capability,
         graph: CapabilityGraph
     ) -> [(capability: Capability, status: CapabilityStatus)] {
+        projectedCapabilityIntents(action: action, capabilities: [selectedCapability], graph: graph)
+    }
+
+    private func projectedCapabilityIntents(
+        action: ApplyAction,
+        capabilities selectedCapabilities: [Capability],
+        graph: CapabilityGraph
+    ) -> [(capability: Capability, status: CapabilityStatus)] {
         let selectedStatus: CapabilityStatus = action == .enable ? .enabled : .disabled
+        let selectedIDs = Set(selectedCapabilities.map(\.id))
+        let selectedManifestIDs = Set(selectedCapabilities.map(manifestCapabilityID(for:)))
         var values: [(capability: Capability, status: CapabilityStatus)] = graph.capabilities.compactMap { capability -> (capability: Capability, status: CapabilityStatus)? in
-            guard capability.id == selectedCapability.id || capability.metadata["manifestStatus"] != nil else {
+            let isSelected = selectedIDs.contains(capability.id) || selectedManifestIDs.contains(manifestCapabilityID(for: capability))
+            guard isSelected || capability.metadata["manifestStatus"] != nil else {
                 return nil
             }
             guard !capability.source.kind.hasPrefix("agents-") else {
                 return nil
             }
-            if capability.id == selectedCapability.id {
+            if isSelected {
                 return (capability: capability, status: selectedStatus)
             }
             let status = capability.metadata["manifestStatus"].flatMap(CapabilityStatus.init(rawValue:)) ?? .enabled
             return (capability: capability, status: status)
         }
 
-        if !values.contains(where: { $0.capability.id == selectedCapability.id }) {
+        var existingManifestIDs = Set(values.map { manifestCapabilityID(for: $0.capability) })
+        for selectedCapability in selectedCapabilities where !existingManifestIDs.contains(manifestCapabilityID(for: selectedCapability)) {
             values.append((capability: selectedCapability, status: selectedStatus))
+            existingManifestIDs.insert(manifestCapabilityID(for: selectedCapability))
         }
 
         return values.sorted { lhs, rhs in
@@ -784,11 +842,140 @@ public final class ApplyPlanBuilder {
         return !allRisks.isDisjoint(with: [.exec, .network, .secret, .write, .global])
     }
 
-    private func skillDirectoryPath(for capability: Capability) -> String {
-        if capability.source.path.hasSuffix("/SKILL.md") {
-            return String(capability.source.path.dropLast("/SKILL.md".count))
+    private func capabilities(matching capabilityIDs: [String], fallbackID: String, graph: CapabilityGraph) throws -> [Capability] {
+        let selectedIDs = Set(capabilityIDs)
+        let capabilities = graph.capabilities
+            .filter { selectedIDs.contains($0.id) }
+            .sorted { $0.id < $1.id }
+        guard !capabilities.isEmpty else {
+            throw OrbitaError.capabilityNotFound(fallbackID)
         }
-        return capability.source.path
+        return capabilities
+    }
+
+    private func disableSourceOperations(for capability: Capability, graph: CapabilityGraph, agentsRoot: URL) -> [ApplyOperation] {
+        if let symlinkPath = symbolicDisablePath(for: capability, agentsRoot: agentsRoot) {
+            return [
+                ApplyOperation(
+                    kind: .removePath,
+                    path: symlinkPath,
+                    risk: .write,
+                    description: "Remove symbolic link so the current host stops loading this capability; linked target content remains"
+                )
+            ]
+        }
+
+        guard let sourcePath = cacheableSourcePath(for: capability),
+              isCacheableAgentSourcePath(sourcePath),
+              fileManager.fileExists(atPath: sourcePath)
+        else {
+            return []
+        }
+
+        return [
+            ApplyOperation(
+                kind: .cachePath,
+                path: sourcePath,
+                target: disabledCachePath(for: capability, sourcePath: sourcePath, graph: graph),
+                risk: .write,
+                description: "Copy capability source into .orbita disabled cache before removing it from the host-visible location"
+            )
+        ]
+    }
+
+    private func restoreOperation(for capability: Capability, graph: CapabilityGraph) -> ApplyOperation? {
+        guard let sourcePath = cacheableSourcePath(for: capability) else {
+            return nil
+        }
+        let cachePath = disabledCachePath(for: capability, sourcePath: sourcePath, graph: graph)
+        guard fileManager.fileExists(atPath: cachePath) else {
+            return nil
+        }
+        return ApplyOperation(
+            kind: .restorePath,
+            path: cachePath,
+            target: sourcePath,
+            risk: .write,
+            description: "Restore capability source from .orbita disabled cache"
+        )
+    }
+
+    private func symbolicDisablePath(for capability: Capability, agentsRoot: URL) -> String? {
+        if let skillLink = agentsSkillLinkPath(for: capability, agentsRoot: agentsRoot),
+           isSymbolicLink(atPath: skillLink) {
+            return skillLink
+        }
+        guard let sourcePath = cacheableSourcePath(for: capability) else {
+            return nil
+        }
+        if isSymbolicLink(atPath: sourcePath) {
+            return sourcePath
+        }
+        if capability.type == .skill {
+            let parent = URL(fileURLWithPath: manifestSourcePath(for: capability)).deletingLastPathComponent().path
+            if isSymbolicLink(atPath: parent) {
+                return parent
+            }
+        }
+        return nil
+    }
+
+    private func agentsSkillLinkPath(for capability: Capability, agentsRoot: URL) -> String? {
+        guard capability.type == .skill else {
+            return nil
+        }
+        return agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path
+    }
+
+    private func isSymbolicLink(atPath path: String) -> Bool {
+        (try? fileManager.destinationOfSymbolicLink(atPath: path)) != nil
+    }
+
+    private func cacheableSourcePath(for capability: Capability) -> String? {
+        let path = manifestSourcePath(for: capability)
+        guard !path.isEmpty, path != "-" else {
+            return nil
+        }
+        if capability.type == .skill, path.hasSuffix("/SKILL.md") {
+            return URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL.path
+        }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func isCacheableAgentSourcePath(_ path: String) -> Bool {
+        let components = Set(URL(fileURLWithPath: path).standardizedFileURL.pathComponents)
+        return components.contains(".agents")
+            || components.contains(".codex")
+            || components.contains(".claude")
+            || components.contains(".cursor")
+    }
+
+    private func disabledCachePath(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> String {
+        let key = cacheKey(for: "\(manifestCapabilityID(for: capability))|\(sourcePath)")
+        let sourceName = URL(fileURLWithPath: sourcePath).lastPathComponent
+        return URL(fileURLWithPath: graph.projectRoot)
+            .appendingPathComponent(".orbita/cache/disabled")
+            .appendingPathComponent(capability.type.rawValue)
+            .appendingPathComponent(key)
+            .appendingPathComponent(sourceName.isEmpty ? "source" : sourceName)
+            .path
+    }
+
+    private func cacheKey(for value: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(hash, radix: 16)
+    }
+
+    private func skillDirectoryPath(for capability: Capability) -> String {
+        let path = manifestSourcePath(for: capability)
+        if path.hasSuffix("/SKILL.md") {
+            return String(path.dropLast("/SKILL.md".count))
+        }
+        return path
     }
 
     private func managedCapabilityPath(for capability: Capability, agentsRoot: URL) -> String? {
@@ -916,11 +1103,12 @@ public final class ApplyPlanExecutor {
 
     public func apply(_ plan: ApplyPlan) throws -> ApplyExecutionResult {
         let agentsRoot = URL(fileURLWithPath: plan.projectRoot).appendingPathComponent(".agents").standardizedFileURL
+        let orbitaRoot = URL(fileURLWithPath: plan.projectRoot).appendingPathComponent(".orbita").standardizedFileURL
         var completed: [ApplyOperation] = []
 
         for (index, operation) in plan.operations.enumerated() {
             do {
-                try validate(operation: operation, action: plan.action, agentsRoot: agentsRoot)
+                try validate(operation: operation, action: plan.action, agentsRoot: agentsRoot, orbitaRoot: orbitaRoot)
                 try perform(operation)
                 completed.append(operation)
             } catch {
@@ -980,6 +1168,14 @@ public final class ApplyPlanExecutor {
             } else {
                 try fileManager.createSymbolicLink(atPath: operation.path, withDestinationPath: target)
             }
+        case .cachePath, .restorePath:
+            guard let target = operation.target else {
+                throw OrbitaError.invalidApplyPlan("Missing target for \(operation.path)")
+            }
+            try copyReplacingItem(from: operation.path, to: target)
+            if fileManager.fileExists(atPath: operation.path) || (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) != nil {
+                try fileManager.removeItem(atPath: operation.path)
+            }
         case .removePath:
             if fileManager.fileExists(atPath: operation.path) || (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) != nil {
                 try fileManager.removeItem(atPath: operation.path)
@@ -987,17 +1183,70 @@ public final class ApplyPlanExecutor {
         }
     }
 
-    private func validate(operation: ApplyOperation, action: ApplyAction, agentsRoot: URL) throws {
+    private func copyReplacingItem(from sourcePath: String, to destinationPath: String) throws {
+        guard fileManager.fileExists(atPath: sourcePath) || (try? fileManager.destinationOfSymbolicLink(atPath: sourcePath)) != nil else {
+            throw OrbitaError.invalidApplyPlan("Source does not exist: \(sourcePath)")
+        }
+        let destinationURL = URL(fileURLWithPath: destinationPath)
+        let parent = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: destinationPath) || (try? fileManager.destinationOfSymbolicLink(atPath: destinationPath)) != nil {
+            try fileManager.removeItem(atPath: destinationPath)
+        }
+        try fileManager.copyItem(atPath: sourcePath, toPath: destinationPath)
+    }
+
+    private func validate(operation: ApplyOperation, action: ApplyAction, agentsRoot: URL, orbitaRoot: URL) throws {
         guard operation.kind != .readSource else { return }
         if action == .delete, operation.kind == .removePath {
             return
         }
-        let operationPath = normalizedContainmentPath(URL(fileURLWithPath: operation.path).standardizedFileURL.path)
-        let rootPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
-        let agentsPath = rootPath + "/"
-        guard operationPath == rootPath || operationPath.hasPrefix(agentsPath) else {
-            throw OrbitaError.invalidApplyPlan("Operation is outside .agents: \(operation.path)")
+        if action == .disable, operation.kind == .removePath {
+            return
         }
+        let operationPath = normalizedContainmentPath(URL(fileURLWithPath: operation.path).standardizedFileURL.path)
+        let agentsRootPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
+        let orbitaRootPath = normalizedContainmentPath(orbitaRoot.standardizedFileURL.path)
+        switch operation.kind {
+        case .cachePath:
+            guard let target = operation.target else {
+                throw OrbitaError.invalidApplyPlan("Missing cache target for \(operation.path)")
+            }
+            guard isAgentStoragePath(operationPath) else {
+                throw OrbitaError.invalidApplyPlan("Cache source is outside known agent storage: \(operation.path)")
+            }
+            let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
+            guard targetPath == orbitaRootPath || targetPath.hasPrefix(orbitaRootPath + "/") else {
+                throw OrbitaError.invalidApplyPlan("Cache target is outside .orbita: \(target)")
+            }
+        case .restorePath:
+            guard let target = operation.target else {
+                throw OrbitaError.invalidApplyPlan("Missing restore target for \(operation.path)")
+            }
+            guard operationPath == orbitaRootPath || operationPath.hasPrefix(orbitaRootPath + "/") else {
+                throw OrbitaError.invalidApplyPlan("Restore source is outside .orbita: \(operation.path)")
+            }
+            let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
+            guard isAgentStoragePath(targetPath) else {
+                throw OrbitaError.invalidApplyPlan("Restore target is outside known agent storage: \(target)")
+            }
+        default:
+            guard operationPath == agentsRootPath
+                || operationPath.hasPrefix(agentsRootPath + "/")
+                || operationPath == orbitaRootPath
+                || operationPath.hasPrefix(orbitaRootPath + "/")
+            else {
+                throw OrbitaError.invalidApplyPlan("Operation is outside .agents or .orbita: \(operation.path)")
+            }
+        }
+    }
+
+    private func isAgentStoragePath(_ path: String) -> Bool {
+        let components = Set(URL(fileURLWithPath: path).standardizedFileURL.pathComponents)
+        return components.contains(".agents")
+            || components.contains(".codex")
+            || components.contains(".claude")
+            || components.contains(".cursor")
     }
 
     private func normalizedContainmentPath(_ path: String) -> String {

@@ -16,6 +16,7 @@ struct CapabilityMainView: View {
     let agentOptions: [AgentSelection]
     let categoryOptions: [CapabilityCategory]
     let displaySections: [CapabilityCollectionSection]
+    let graphForAgentVisibility: CapabilityGraph?
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let onAddAgent: () -> Void
@@ -86,6 +87,8 @@ struct CapabilityMainView: View {
                             } else {
                                 CapabilityCollectionView(
                                     sections: displaySections,
+                                    graph: graphForAgentVisibility,
+                                    agentOptions: agentOptions,
                                     selectedCapability: $selectedCapability,
                                     expandedGroupIDs: $expandedGroupIDs,
                                     availableWidth: contentWidth

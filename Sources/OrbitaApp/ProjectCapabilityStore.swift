@@ -327,10 +327,21 @@ final class ProjectCapabilityStore: ObservableObject {
         graph?.capabilities.first { $0.id == id }
     }
 
-    func planEnable(_ capability: Capability) -> ApplyPlan? {
+    func planEnable(_ capability: Capability, visibleTo agent: AgentSelection? = nil) -> ApplyPlan? {
         guard let graph else { return nil }
         do {
-            let plan = try ApplyPlanBuilder().planEnable(capabilityID: capability.id, graph: graph)
+            let plan: ApplyPlan
+            let capabilityIDs = scopedCapabilityIDs(for: capability, visibleTo: agent, graph: graph)
+            if isVirtualGroup(capability), capabilityIDs.count > 1 {
+                plan = try ApplyPlanBuilder().planEnable(
+                    capabilityIDs: capabilityIDs,
+                    groupID: capability.id,
+                    groupName: capability.name,
+                    graph: graph
+                )
+            } else {
+                plan = try ApplyPlanBuilder().planEnable(capabilityID: capabilityIDs.first ?? capability.id, graph: graph)
+            }
             OrbitaTelemetry.apply.notice("plan.enable capability=\(capability.name, privacy: .public) operations=\(plan.operations.count, privacy: .public)")
             return plan
         } catch {
@@ -340,10 +351,21 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
-    func planDisable(_ capability: Capability) -> ApplyPlan? {
+    func planDisable(_ capability: Capability, visibleTo agent: AgentSelection? = nil) -> ApplyPlan? {
         guard let graph else { return nil }
         do {
-            let plan = try ApplyPlanBuilder().planDisable(capabilityID: capability.id, graph: graph)
+            let plan: ApplyPlan
+            let capabilityIDs = scopedCapabilityIDs(for: capability, visibleTo: agent, graph: graph)
+            if isVirtualGroup(capability), capabilityIDs.count > 1 {
+                plan = try ApplyPlanBuilder().planDisable(
+                    capabilityIDs: capabilityIDs,
+                    groupID: capability.id,
+                    groupName: capability.name,
+                    graph: graph
+                )
+            } else {
+                plan = try ApplyPlanBuilder().planDisable(capabilityID: capabilityIDs.first ?? capability.id, graph: graph)
+            }
             OrbitaTelemetry.apply.notice("plan.disable capability=\(capability.name, privacy: .public) operations=\(plan.operations.count, privacy: .public)")
             return plan
         } catch {
@@ -353,12 +375,12 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
-    func planDelete(_ capability: Capability) -> ApplyPlan? {
+    func planDelete(_ capability: Capability, visibleTo agent: AgentSelection? = nil) -> ApplyPlan? {
         guard let graph else { return nil }
         do {
             let plan: ApplyPlan
-            if capability.source.kind == "virtual-plugin" {
-                let childIDs = groupedCapabilityIDs(for: capability)
+            if isVirtualGroup(capability) {
+                let childIDs = scopedCapabilityIDs(for: capability, visibleTo: agent, graph: graph)
                 plan = try ApplyPlanBuilder().planDelete(
                     capabilityIDs: childIDs,
                     groupID: capability.id,
@@ -375,6 +397,23 @@ final class ProjectCapabilityStore: ObservableObject {
             OrbitaTelemetry.apply.error("plan.delete.failed capability=\(capability.name, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    private func isVirtualGroup(_ capability: Capability) -> Bool {
+        capability.source.kind == "virtual-plugin" || capability.source.kind == "virtual-mirror"
+    }
+
+    private func scopedCapabilityIDs(for capability: Capability, visibleTo agent: AgentSelection?, graph: CapabilityGraph) -> [String] {
+        var ids = groupedCapabilityIDs(for: capability)
+        if ids.isEmpty {
+            ids = [capability.id]
+        }
+        guard let agent else {
+            return ids
+        }
+        let visibleIDs = Set(agent.visibleCapabilities(in: graph).map(\.id))
+        let scoped = ids.filter { visibleIDs.contains($0) }
+        return scoped.isEmpty ? ids : scoped
     }
 
     private func groupedCapabilityIDs(for capability: Capability) -> [String] {

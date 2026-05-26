@@ -25,7 +25,7 @@ struct ContentView: View {
     @State private var settingsPresented = false
     @State private var markdownPreviewDocument: MarkdownPreviewDocument?
     @State private var pendingPlan: ApplyPlan?
-    @State private var pendingDeletePlan: PendingDeletePlan?
+    @State private var pendingScopedAction: PendingScopedCapabilityAction?
     @State private var importerPresented = false
     @State private var didPrepareStore = false
     @State private var didPreflightUserDirectoryAccess = false
@@ -78,31 +78,35 @@ struct ContentView: View {
                 pendingPlan = nil
             }
         }
-        .alert(
-            pendingDeletePlan.map { "Delete \($0.name)?" } ?? "Delete capability?",
+        .confirmationDialog(
+            pendingScopedAction?.title ?? "Apply capability action?",
             isPresented: Binding(
-                get: { pendingDeletePlan != nil },
+                get: { pendingScopedAction != nil },
                 set: { isPresented in
                     if !isPresented {
-                        pendingDeletePlan = nil
+                        pendingScopedAction = nil
                     }
                 }
-            )
+            ),
+            titleVisibility: .visible
         ) {
-            Button("Cancel", role: .cancel) {
-                pendingDeletePlan = nil
-            }
-            Button("Delete", role: .destructive) {
-                if let plan = pendingDeletePlan?.plan {
-                    apply(plan)
-                } else if let pendingDeletePlan,
-                          let command = pendingDeletePlan.nativeCommand {
-                    runNativeDelete(command: command, workingDirectory: pendingDeletePlan.workingDirectory)
+            if let currentPlan = pendingScopedAction?.currentPlan {
+                Button(pendingScopedAction?.currentButtonTitle ?? "Current Agent", role: pendingScopedAction?.role) {
+                    apply(currentPlan)
+                    pendingScopedAction = nil
                 }
-                pendingDeletePlan = nil
+            }
+            if let allPlan = pendingScopedAction?.allPlan {
+                Button(pendingScopedAction?.allButtonTitle ?? "All Copies", role: pendingScopedAction?.role) {
+                    apply(allPlan)
+                    pendingScopedAction = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingScopedAction = nil
             }
         } message: {
-            Text(deleteConfirmationMessage)
+            Text(pendingScopedAction?.message ?? "")
         }
         .sheet(isPresented: $addingAgentPresented) {
             AddAgentSheet { agent in
@@ -196,6 +200,7 @@ struct ContentView: View {
                         agentOptions: agentOptions,
                         categoryOptions: categoryOptions,
                         displaySections: capabilityDisplaySections,
+                        graphForAgentVisibility: store.graph,
                         selectedCapability: $selectedCapability,
                         expandedGroupIDs: $expandedGroupIDs,
                         onAddAgent: {
@@ -237,22 +242,13 @@ struct ContentView: View {
                                 }
                             },
                             onEnable: { capability in
-                                pendingPlan = store.planEnable(capability)
+                                pendingPlan = store.planEnable(capability, visibleTo: selectedAgent)
                             },
                             onDisable: { capability in
-                                pendingPlan = store.planDisable(capability)
+                                pendingScopedAction = scopedCapabilityAction(kind: .disable, capability: capability)
                             },
                             onDelete: { capability in
-                                if let command = capability.metadata["deleteCommand"],
-                                   ["codex", "agents-skills"].contains(capability.metadata["manager"] ?? "") {
-                                    pendingDeletePlan = PendingDeletePlan(
-                                        name: capability.name,
-                                        nativeCommand: command,
-                                        workingDirectory: FileManager.default.currentDirectoryPath
-                                    )
-                                } else if let plan = store.planDelete(capability) {
-                                    pendingDeletePlan = PendingDeletePlan(plan: plan, name: capability.name)
-                                }
+                                pendingScopedAction = scopedCapabilityAction(kind: .delete, capability: capability)
                             },
                             onOpenMarkdownPreview: { document in
                                 withAnimation(.snappy(duration: 0.22)) {
@@ -732,18 +728,41 @@ struct ContentView: View {
         }
     }
 
-    private var deleteConfirmationMessage: String {
-        guard let pendingDeletePlan else {
-            return "This will permanently delete the selected capability source."
+    private func scopedCapabilityAction(kind: PendingScopedCapabilityAction.Kind, capability: Capability) -> PendingScopedCapabilityAction? {
+        let allPlan: ApplyPlan?
+        let currentPlan: ApplyPlan?
+        switch kind {
+        case .delete:
+            allPlan = store.planDelete(capability)
+            currentPlan = selectedAgent.flatMap { store.planDelete(capability, visibleTo: $0) }
+        case .disable:
+            allPlan = store.planDisable(capability)
+            currentPlan = selectedAgent.flatMap { store.planDisable(capability, visibleTo: $0) }
         }
-        if pendingDeletePlan.nativeCommand != nil {
-            return "This will run the native manager remove command for this capability."
+
+        guard let allPlan else {
+            return nil
         }
-        let affectedCount = pendingDeletePlan.plan?.affectedCapabilityIDs?.count ?? 1
-        if affectedCount > 1 {
-            return "This will permanently delete \(affectedCount) capability sources in this virtual plugin."
+
+        let scopedPlan: ApplyPlan?
+        if let currentPlan,
+           affectedCapabilityIDs(in: currentPlan) != affectedCapabilityIDs(in: allPlan) {
+            scopedPlan = currentPlan
+        } else {
+            scopedPlan = nil
         }
-        return "This will permanently delete this capability source."
+
+        return PendingScopedCapabilityAction(
+            kind: kind,
+            name: capability.name,
+            allPlan: allPlan,
+            currentPlan: scopedPlan,
+            currentAgentName: selectedAgent?.displayName
+        )
+    }
+
+    private func affectedCapabilityIDs(in plan: ApplyPlan) -> Set<String> {
+        Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
     }
 
     private var currentSortOption: CapabilitySortOption {
@@ -774,28 +793,109 @@ private enum CapabilitySectionKind: String, CaseIterable {
     }
 }
 
-private struct PendingDeletePlan: Identifiable {
+private struct PendingScopedCapabilityAction: Identifiable {
+    enum Kind {
+        case delete
+        case disable
+    }
+
+    let kind: Kind
     let name: String
-    let plan: ApplyPlan?
-    let nativeCommand: String?
-    let workingDirectory: String
+    let allPlan: ApplyPlan
+    let currentPlan: ApplyPlan?
+    let currentAgentName: String?
 
     var id: String {
-        plan?.id ?? nativeCommand ?? name
+        "\(kind):\(allPlan.id):\(currentPlan?.id ?? "all")"
     }
 
-    init(plan: ApplyPlan, name: String) {
-        self.name = name
-        self.plan = plan
-        self.nativeCommand = nil
-        self.workingDirectory = FileManager.default.currentDirectoryPath
+    var title: String {
+        switch kind {
+        case .delete:
+            return "Delete \(name)?"
+        case .disable:
+            return "Disable \(name)?"
+        }
     }
 
-    init(name: String, nativeCommand: String, workingDirectory: String) {
-        self.name = name
-        self.plan = nil
-        self.nativeCommand = nativeCommand
-        self.workingDirectory = workingDirectory
+    var role: ButtonRole? {
+        switch kind {
+        case .delete:
+            return .destructive
+        case .disable:
+            return nil
+        }
+    }
+
+    var currentButtonTitle: String {
+        let agentName = currentAgentName ?? "Current Agent"
+        switch kind {
+        case .delete:
+            return "Delete Only \(agentName)"
+        case .disable:
+            return "Disable Only \(agentName)"
+        }
+    }
+
+    var allButtonTitle: String {
+        switch kind {
+        case .delete:
+            return "Delete All Copies"
+        case .disable:
+            return "Disable All Copies"
+        }
+    }
+
+    var message: String {
+        switch kind {
+        case .delete:
+            return deleteMessage
+        case .disable:
+            return disableMessage
+        }
+    }
+
+    private var deleteMessage: String {
+        let count = affectedCount(in: allPlan)
+        if currentPlan != nil, count > 1 {
+            return "Choose whether to permanently remove only the current agent-visible source or all \(count) mirrored sources."
+        }
+        if count > 1 {
+            return "This will permanently remove \(count) mirrored capability sources."
+        }
+        return "This will permanently remove the selected capability source."
+    }
+
+    private var disableMessage: String {
+        let scopedText: String
+        let count = affectedCount(in: allPlan)
+        if currentPlan != nil, count > 1 {
+            scopedText = "Choose whether to disable only the current agent-visible source or all \(count) mirrored sources."
+        } else if count > 1 {
+            scopedText = "This will disable all \(count) mirrored sources."
+        } else {
+            scopedText = "This will disable the selected capability source."
+        }
+
+        let operations = allPlan.operations
+        let hasCache = operations.contains { $0.kind == .cachePath }
+        let hasSymlinkRemoval = operations.contains { operation in
+            operation.kind == .removePath && operation.description.localizedCaseInsensitiveContains("symbolic link")
+        }
+        if hasCache && hasSymlinkRemoval {
+            return "\(scopedText) Symbolic links are removed as links only. Real files are copied to .orbita/cache/disabled and restored when enabled."
+        }
+        if hasCache {
+            return "\(scopedText) Real files are copied to .orbita/cache/disabled and restored when enabled."
+        }
+        if hasSymlinkRemoval {
+            return "\(scopedText) Symbolic links are removed as links only; their targets remain untouched."
+        }
+        return "\(scopedText) Orbita will record disabled intent in .agents."
+    }
+
+    private func affectedCount(in plan: ApplyPlan) -> Int {
+        plan.affectedCapabilityIDs?.count ?? 1
     }
 }
 

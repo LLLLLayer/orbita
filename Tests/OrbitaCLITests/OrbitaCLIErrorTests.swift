@@ -135,7 +135,8 @@ final class OrbitaCLIErrorTests: XCTestCase {
         let data = try XCTUnwrap(result.stdout.data(using: .utf8))
         let plan = try JSONDecoder().decode(ApplyPlan.self, from: data)
         XCTAssertEqual(plan.action, .disable)
-        XCTAssertTrue(plan.operations.contains { $0.kind == .removePath && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/manifest.json") && ($0.content ?? "").contains(CapabilityStatus.disabled.rawValue) })
+        XCTAssertFalse(plan.operations.contains { $0.kind == .removePath && $0.path.hasSuffix("/.agents/skills/lark-doc") })
     }
 
     func testPlanTextPrintsOperationDescriptionsAndRisks() throws {

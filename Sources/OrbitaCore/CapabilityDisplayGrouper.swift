@@ -3,6 +3,7 @@ import Foundation
 public struct CapabilityGroup: Hashable, Sendable, Identifiable {
     public enum Kind: String, Hashable, Sendable {
         case plugin
+        case mirror
         case prefix
     }
 
@@ -40,18 +41,18 @@ public struct CapabilityGroup: Hashable, Sendable, Identifiable {
         return Capability(
             id: id,
             name: name,
-            type: .plugin,
+            type: groupType(),
             scope: groupScope(),
             statuses: statuses.isEmpty ? [.discovered] : statuses,
             risks: risks.isEmpty ? [.info] : risks,
             source: CapabilitySource(
-                kind: "virtual-plugin",
+                kind: virtualSourceKind,
                 path: sourcePath,
                 packageName: packageNames.count == 1 ? packageNames.first : nil,
                 inferred: true
             ),
             pluginID: pluginIDs.count == 1 ? pluginIDs.first : nil,
-            summary: "Virtual plugin group containing \(capabilities.count) capabilities",
+            summary: groupSummary,
             metadata: [
                 "childIDs": capabilities.map(\.id).joined(separator: "\n"),
                 "childCount": String(capabilities.count),
@@ -59,6 +60,34 @@ public struct CapabilityGroup: Hashable, Sendable, Identifiable {
                 "sourcePath": sourcePath
             ].filter { !$0.value.isEmpty }
         )
+    }
+
+    private func groupType() -> CapabilityType {
+        switch kind {
+        case .plugin, .prefix:
+            return .plugin
+        case .mirror:
+            let types = Set(capabilities.map(\.type))
+            return types.count == 1 ? (types.first ?? .unknown) : .unknown
+        }
+    }
+
+    private var virtualSourceKind: String {
+        switch kind {
+        case .plugin, .prefix:
+            return "virtual-plugin"
+        case .mirror:
+            return "virtual-mirror"
+        }
+    }
+
+    private var groupSummary: String {
+        switch kind {
+        case .plugin, .prefix:
+            return "Virtual plugin group containing \(capabilities.count) capabilities"
+        case .mirror:
+            return "Mirrored capability group containing \(capabilities.count) matching sources"
+        }
     }
 
     private func groupScope() -> CapabilityScope {
@@ -144,6 +173,15 @@ public enum CapabilityDisplayItem: Hashable, Sendable, Identifiable {
             return group.inspectionCapability
         }
     }
+
+    public var capabilities: [Capability] {
+        switch self {
+        case let .capability(capability):
+            return [capability]
+        case let .group(group):
+            return group.capabilities
+        }
+    }
 }
 
 public final class CapabilityDisplayGrouper {
@@ -155,11 +193,13 @@ public final class CapabilityDisplayGrouper {
         preservesInputOrder: Bool = false
     ) -> [CapabilityDisplayItem] {
         let sorted = preservesInputOrder ? capabilities : capabilities.sorted(by: sortByName)
+        let mirrorGroups = mirrorDisplayGroups(in: sorted, preservesInputOrder: preservesInputOrder)
+        let mirroredCapabilityIDs = Set(mirrorGroups.values.flatMap(\.capabilities).map(\.id))
         let pluginCapabilities = Dictionary(uniqueKeysWithValues: sorted.compactMap { capability in
             capability.type == .plugin ? (capability.id, capability) : nil
         })
         let pluginChildren = Dictionary(grouping: sorted.filter { capability in
-            capability.type != .plugin && capability.pluginID != nil
+            capability.type != .plugin && capability.pluginID != nil && !mirroredCapabilityIDs.contains(capability.id)
         }, by: { $0.pluginID ?? "" })
 
         let pluginGroupIDs = Set(pluginChildren.compactMap { pluginID, children in
@@ -171,6 +211,7 @@ public final class CapabilityDisplayGrouper {
             capability.type != .plugin
                 && capability.type != .hook
                 && !groupedChildIDs.contains(capability.id)
+                && !mirroredCapabilityIDs.contains(capability.id)
         }
         let grouped = Dictionary(grouping: prefixCandidates, by: groupKey(for:))
         let prefixGroupKeys = Set(grouped.compactMap { key, values in
@@ -180,6 +221,19 @@ public final class CapabilityDisplayGrouper {
         var emittedGroups = Set<String>()
         var items: [CapabilityDisplayItem] = []
         for capability in sorted {
+            if let mirrorGroup = mirrorGroups[capability.id] {
+                guard !emittedGroups.contains(mirrorGroup.id) else {
+                    continue
+                }
+                emittedGroups.insert(mirrorGroup.id)
+                items.append(.group(mirrorGroup))
+                continue
+            }
+
+            if mirroredCapabilityIDs.contains(capability.id) {
+                continue
+            }
+
             if capability.type == .plugin,
                pluginGroupIDs.contains(capability.id),
                let groupCapabilities = pluginChildren[capability.id] {
@@ -249,6 +303,68 @@ public final class CapabilityDisplayGrouper {
         return items
     }
 
+    private func mirrorDisplayGroups(
+        in capabilities: [Capability],
+        preservesInputOrder: Bool
+    ) -> [String: CapabilityGroup] {
+        var remaining = capabilities
+        var groups: [CapabilityGroup] = []
+
+        for grouping in [mirrorPathKey(for:), mirrorHashKey(for:)] {
+            let candidates = Dictionary(grouping: remaining, by: grouping)
+                .filter { entry in
+                    entry.key != nil && entry.value.count > 1
+                }
+            let emittedIDs = Set(candidates.values.flatMap { $0.map(\.id) })
+            groups.append(contentsOf: candidates.compactMap { entry in
+                guard let key = entry.key else { return nil }
+                let values = entry.value
+                let orderedValues = ordered(values, preservesInputOrder: preservesInputOrder)
+                return CapabilityGroup(
+                    id: "mirror-group:\(key)",
+                    name: mirrorGroupName(for: orderedValues),
+                    capabilities: orderedValues,
+                    kind: .mirror
+                )
+            })
+            remaining.removeAll { emittedIDs.contains($0.id) }
+        }
+
+        var byCapabilityID: [String: CapabilityGroup] = [:]
+        for group in groups {
+            for capability in group.capabilities {
+                byCapabilityID[capability.id] = group
+            }
+        }
+        return byCapabilityID
+    }
+
+    private func mirrorPathKey(for capability: Capability) -> String? {
+        guard !capability.source.inferred, !capability.source.path.isEmpty else {
+            return nil
+        }
+        let resolvedPath = URL(fileURLWithPath: capability.source.path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        return "path:\(capability.type.rawValue):\(resolvedPath)"
+    }
+
+    private func mirrorHashKey(for capability: Capability) -> String? {
+        guard let hash = capability.metadata["contentHash"], !hash.isEmpty else {
+            return nil
+        }
+        return "hash:\(capability.type.rawValue):\(hash)"
+    }
+
+    private func mirrorGroupName(for capabilities: [Capability]) -> String {
+        let names = uniquePreservingOrder(capabilities.map(\.name))
+        guard let first = names.first else {
+            return "Mirrored capability"
+        }
+        return names.count == 1 ? first : "\(first) + \(names.count - 1)"
+    }
+
     private func groupKey(for capability: Capability) -> String {
         let name = capability.name
         guard let separator = name.firstIndex(of: "-"), separator > name.startIndex else {
@@ -278,5 +394,15 @@ public final class CapabilityDisplayGrouper {
             .split(separator: "-")
             .map { word in word.prefix(1).uppercased() + String(word.dropFirst()) }
             .joined(separator: " ")
+    }
+
+    private func uniquePreservingOrder(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values where !seen.contains(value) {
+            seen.insert(value)
+            result.append(value)
+        }
+        return result
     }
 }
