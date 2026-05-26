@@ -392,7 +392,7 @@ struct ContentView: View {
     private func preflightUserDirectoryAccess() {
         guard !isPreflightingUserDirectoryAccess else { return }
         isPreflightingUserDirectoryAccess = true
-        userDirectoryAccessMessage = "Checking the folders Orbita is about to scan..."
+        userDirectoryAccessMessage = nil
 
         Task {
             let result = await Task.detached(priority: .userInitiated) {

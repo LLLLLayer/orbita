@@ -125,8 +125,8 @@ struct FullDiskAccessOnboardingView: View {
                         .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
-                if let directoryAccessMessage {
-                    Label(directoryAccessMessage, systemImage: isPreflightingDirectoryAccess ? "arrow.triangle.2.circlepath" : "folder.badge.questionmark")
+                if let directoryAccessMessage, !isPreflightingDirectoryAccess {
+                    Label(directoryAccessMessage, systemImage: "folder.badge.questionmark")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(12)
