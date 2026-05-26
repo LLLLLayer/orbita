@@ -447,7 +447,7 @@ struct CapabilityFilterBar: View {
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
-                        .disabled(agent.id.hasPrefix("built-in:"))
+                        .disabled(agent.isDeleteProtected)
                     }
                 }
             }

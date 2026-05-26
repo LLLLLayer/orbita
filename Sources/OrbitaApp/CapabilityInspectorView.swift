@@ -13,6 +13,7 @@ struct CapabilityInspectorView: View {
 
     @State private var runningNativeActionID: String?
     @State private var nativeActionResult: NativePluginActionResult?
+    @AppStorage("nativePluginVersionChecksJSON") private var nativePluginVersionChecksJSON = "{}"
 
     var body: some View {
         Group {
@@ -111,6 +112,7 @@ struct CapabilityInspectorView: View {
                             actions: nativeSecondaryActions,
                             runningActionID: runningNativeActionID,
                             result: nativeActionResult,
+                            versionCheck: nativePluginVersionCheck(for: capability),
                             onRun: { action in
                                 runNativePluginAction(action, capability: capability)
                             }
@@ -206,6 +208,38 @@ struct CapabilityInspectorView: View {
         NativePluginAction.actions(for: capability)
     }
 
+    private func nativePluginVersionCheck(for capability: Capability) -> NativePluginVersionCheck? {
+        nativePluginVersionChecks[capability.id]
+    }
+
+    private var nativePluginVersionChecks: [String: NativePluginVersionCheck] {
+        guard let data = nativePluginVersionChecksJSON.data(using: .utf8),
+              let checks = try? JSONDecoder().decode([String: NativePluginVersionCheck].self, from: data)
+        else {
+            return [:]
+        }
+        return checks
+    }
+
+    private func saveNativePluginVersionCheck(_ check: NativePluginVersionCheck, for capability: Capability) {
+        var checks = nativePluginVersionChecks
+        checks[capability.id] = check
+        saveNativePluginVersionChecks(checks)
+    }
+
+    private func removeNativePluginVersionCheck(for capability: Capability) {
+        var checks = nativePluginVersionChecks
+        checks.removeValue(forKey: capability.id)
+        saveNativePluginVersionChecks(checks)
+    }
+
+    private func saveNativePluginVersionChecks(_ checks: [String: NativePluginVersionCheck]) {
+        if let data = try? JSONEncoder().encode(checks),
+           let json = String(data: data, encoding: .utf8) {
+            nativePluginVersionChecksJSON = json
+        }
+    }
+
     private func shortHash(_ value: String) -> String {
         value.count > 16 ? String(value.prefix(16)) : value
     }
@@ -230,6 +264,12 @@ struct CapabilityInspectorView: View {
             }
             await MainActor.run {
                 nativeActionResult = NativePluginActionResult(action: action, result: result)
+                let summary = NativePluginResultSummary(capability: capability, action: action, result: result)
+                if result.exitCode == 0, let versionCheck = summary.versionCheck {
+                    saveNativePluginVersionCheck(versionCheck, for: capability)
+                } else if result.exitCode == 0, action.kind == .check {
+                    removeNativePluginVersionCheck(for: capability)
+                }
                 runningNativeActionID = nil
                 if result.exitCode == 0 {
                     onNativePluginChanged()
@@ -416,44 +456,73 @@ private struct InspectorHeaderButton: View {
     }
 }
 
+private struct NativePluginVersionCheck: Codable, Equatable {
+    var currentVersion: String?
+    var latestVersion: String?
+    var hasUpdate: Bool
+    var checkedAt: Date
+
+    var compactChangeText: String {
+        let current = currentVersion ?? "unknown"
+        let latest = latestVersion ?? "unknown"
+        return "\(current) -> \(latest)"
+    }
+}
+
 private struct NativePluginActionSection: View {
     let capability: Capability
     let actions: [NativePluginAction]
     let runningActionID: String?
     let result: NativePluginActionResult?
+    let versionCheck: NativePluginVersionCheck?
     let onRun: (NativePluginAction) -> Void
 
     var body: some View {
         InspectorSection {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label(sectionTitle, systemImage: sectionIcon)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    Text(capability.metadata["manager"] ?? "plugin")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                if let note = capability.metadata["lifecycleNote"] {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                HStack(spacing: 8) {
-                    ForEach(actions) { action in
-                        NativePluginInlineButton(
-                            title: runningActionID == action.id ? "Running" : action.title,
-                            systemImage: runningActionID == action.id ? "hourglass" : action.systemImage,
-                            isDisabled: runningActionID != nil
-                        ) {
-                            onRun(action)
+                HStack(alignment: .bottom, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Label(sectionTitle, systemImage: sectionIcon)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(capability.metadata["manager"] ?? "plugin")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
                         }
-                        .help(action.command)
+
+                        if let note = capability.metadata["lifecycleNote"] {
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if let versionCheck, versionCheck.hasUpdate {
+                            Text("New version available \(versionCheck.compactChangeText)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.orange)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                        }
+
+                        HStack(spacing: 8) {
+                            ForEach(actions) { action in
+                                NativePluginInlineButton(
+                                    title: runningActionID == action.id ? "Running" : action.title,
+                                    systemImage: runningActionID == action.id ? "hourglass" : action.systemImage,
+                                    isDisabled: runningActionID != nil
+                                ) {
+                                    onRun(action)
+                                }
+                                .help(action.command)
+                            }
+                        }
+                    }
+                    .frame(alignment: .trailing)
                 }
 
                 if let result {
@@ -529,10 +598,14 @@ private struct NativePluginActionResultView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(summary.title)
                     .font(.caption.weight(.semibold))
-                Text(summary.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let versionCheck = summary.versionCheck {
+                    NativePluginVersionRows(versionCheck: versionCheck)
+                } else {
+                    Text(summary.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(12)
@@ -541,6 +614,32 @@ private struct NativePluginActionResultView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(OrbitaTheme.border)
+        }
+    }
+}
+
+private struct NativePluginVersionRows: View {
+    let versionCheck: NativePluginVersionCheck
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            versionRow(title: "Current", value: versionCheck.currentVersion ?? "Unknown")
+            versionRow(title: "Latest", value: versionCheck.latestVersion ?? "Unknown")
+        }
+        .padding(.top, 2)
+    }
+
+    private func versionRow(title: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.tertiary)
+                .frame(width: 46, alignment: .leading)
+            Text(value)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }
@@ -556,6 +655,7 @@ private struct NativePluginResultSummary {
     let detail: String
     let systemImage: String
     let tone: Tone
+    let versionCheck: NativePluginVersionCheck?
 
     init(capability: Capability, action: NativePluginAction, result: CommandRunResult) {
         if result.exitCode != 0 {
@@ -563,6 +663,7 @@ private struct NativePluginResultSummary {
             self.detail = Self.conciseOutput(result.output, fallback: "The command failed before returning readable plugin details.")
             self.systemImage = "exclamationmark.triangle"
             self.tone = .failure
+            self.versionCheck = nil
             return
         }
 
@@ -572,6 +673,7 @@ private struct NativePluginResultSummary {
             self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) was installed from its Skills CLI lock source.")
             self.systemImage = "checkmark.circle"
             self.tone = .success
+            self.versionCheck = nil
         case .check:
             self = Self.checkSummary(capability: capability, output: result.output)
         case .update:
@@ -581,11 +683,13 @@ private struct NativePluginResultSummary {
             self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) is enabled. Restart the host app if it does not pick up the change immediately.")
             self.systemImage = "checkmark.circle"
             self.tone = .success
+            self.versionCheck = nil
         case .disable:
             self.title = "Disabled"
             self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) is disabled. Restart the host app if it does not pick up the change immediately.")
             self.systemImage = "minus.circle"
             self.tone = .success
+            self.versionCheck = nil
         }
     }
 
@@ -602,36 +706,30 @@ private struct NativePluginResultSummary {
 
     private static func checkSummary(capability: Capability, output: String) -> NativePluginResultSummary {
         if let update = updateVersionChange(in: output) {
+            let versionCheck = NativePluginVersionCheck(
+                currentVersion: update.from,
+                latestVersion: update.to,
+                hasUpdate: update.from != update.to,
+                checkedAt: Date()
+            )
             return NativePluginResultSummary(
                 title: "Update available",
                 detail: "\(capability.name) can move from \(update.from) to \(update.to). Use Update to apply it.",
                 systemImage: "arrow.down.circle",
-                tone: .warning
+                tone: .warning,
+                versionCheck: versionCheck
             )
         }
 
-        if let record = matchingPluginRecord(in: output, capability: capability) {
-            let installed = stringValue(record["installedVersion"])
-                ?? stringValue(record["version"])
-                ?? capability.metadata["installedVersion"]
-            let latest = stringValue(record["latestVersion"])
-                ?? stringValue(record["availableVersion"])
-                ?? stringValue(record["marketplaceVersion"])
-            if let installed, let latest, installed != latest {
-                return NativePluginResultSummary(
-                    title: "Update available",
-                    detail: "\(capability.name) can move from \(installed) to \(latest). Use Update to apply it.",
-                    systemImage: "arrow.down.circle",
-                    tone: .warning
-                )
-            }
-            let state = boolValue(record["enabled"]).map { $0 ? "enabled" : "disabled" }
-            let versionText = installed.map { "Version \($0)" } ?? "Plugin found"
+        if let versionCheck = pluginVersionCheck(in: output, capability: capability) {
             return NativePluginResultSummary(
-                title: "Checked",
-                detail: [versionText, state].compactMap { $0 }.joined(separator: ", "),
-                systemImage: "checkmark.circle",
-                tone: .success
+                title: versionCheck.hasUpdate ? "Update available" : "Checked",
+                detail: versionCheck.hasUpdate
+                    ? "\(capability.name) can move from \(versionCheck.currentVersion ?? "unknown") to \(versionCheck.latestVersion ?? "unknown")."
+                    : "\(capability.name) is checked.",
+                systemImage: versionCheck.hasUpdate ? "arrow.down.circle" : "checkmark.circle",
+                tone: versionCheck.hasUpdate ? .warning : .success,
+                versionCheck: versionCheck
             )
         }
 
@@ -654,21 +752,37 @@ private struct NativePluginResultSummary {
 
     private static func updateSummary(capability: Capability, output: String) -> NativePluginResultSummary {
         if let update = updateVersionChange(in: output) {
+            let versionCheck = NativePluginVersionCheck(
+                currentVersion: update.to,
+                latestVersion: update.to,
+                hasUpdate: false,
+                checkedAt: Date()
+            )
             return NativePluginResultSummary(
                 title: "Updated",
                 detail: "\(capability.name) moved from \(update.from) to \(update.to). Restart the host app if it does not pick up the new version immediately.",
                 systemImage: "checkmark.circle",
-                tone: .success
+                tone: .success,
+                versionCheck: versionCheck
             )
         }
 
         let lowercased = output.lowercased()
         if lowercased.contains("already") || lowercased.contains("up to date") || lowercased.contains("no update") {
+            let versionCheck = pluginVersionCheck(in: output, capability: capability).map {
+                NativePluginVersionCheck(
+                    currentVersion: $0.currentVersion,
+                    latestVersion: $0.latestVersion ?? $0.currentVersion,
+                    hasUpdate: false,
+                    checkedAt: Date()
+                )
+            }
             return NativePluginResultSummary(
                 title: "Already up to date",
                 detail: conciseOutput(output, fallback: "\(capability.name) is already on the latest available version."),
                 systemImage: "checkmark.circle",
-                tone: .success
+                tone: .success,
+                versionCheck: versionCheck
             )
         }
 
@@ -680,14 +794,24 @@ private struct NativePluginResultSummary {
         )
     }
 
-    private init(title: String, detail: String, systemImage: String, tone: Tone) {
+    private init(
+        title: String,
+        detail: String,
+        systemImage: String,
+        tone: Tone,
+        versionCheck: NativePluginVersionCheck? = nil
+    ) {
         self.title = title
         self.detail = detail
         self.systemImage = systemImage
         self.tone = tone
+        self.versionCheck = versionCheck
     }
 
     private static func matchingCodexListLine(in output: String, capability: Capability) -> String? {
+        guard jsonObject(in: output) == nil else {
+            return nil
+        }
         let selector = capability.metadata["pluginSelector"] ?? capability.name
         return output
             .split(separator: "\n")
@@ -695,27 +819,46 @@ private struct NativePluginResultSummary {
             .first { $0.hasPrefix(selector + " ") || $0.hasPrefix(selector + "(") || $0.contains(selector) }
     }
 
-    private static func matchingPluginRecord(in output: String, capability: Capability) -> [String: Any]? {
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = trimmed.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) else {
+    private static func pluginVersionCheck(in output: String, capability: Capability) -> NativePluginVersionCheck? {
+        guard let records = matchingPluginRecords(in: output, capability: capability) else {
+            return nil
+        }
+        let current = records.first(where: isInstalledRecord).flatMap(installedVersion)
+            ?? records.compactMap { stringValue($0["currentVersion"]) ?? stringValue($0["installedVersion"]) }.first
+            ?? capability.metadata["installedVersion"]
+        let latest = records.compactMap(latestVersion).first
+
+        guard current != nil || latest != nil else {
+            return nil
+        }
+        return NativePluginVersionCheck(
+            currentVersion: current,
+            latestVersion: latest,
+            hasUpdate: current != nil && latest != nil && current != latest,
+            checkedAt: Date()
+        )
+    }
+
+    private static func matchingPluginRecords(in output: String, capability: Capability) -> [[String: Any]]? {
+        guard let json = jsonObject(in: output) else {
             return nil
         }
         let selector = capability.metadata["pluginSelector"] ?? capability.name
         let pluginName = selector.split(separator: "@", maxSplits: 1).first.map(String.init) ?? capability.name
-        return pluginRecords(in: json).first { record in
-            let values = ["id", "selector", "name", "plugin", "pluginName", "packageName"]
+        let records = pluginRecords(in: json).filter { record in
+            let values = ["id", "pluginId", "selector", "name", "plugin", "pluginName", "packageName"]
                 .compactMap { stringValue(record[$0]) }
             return values.contains(selector)
                 || values.contains(pluginName)
                 || values.contains(capability.name)
                 || values.contains(where: { $0.hasPrefix(selector) })
         }
+        return records.isEmpty ? nil : records
     }
 
-    private static func pluginRecords(in value: Any) -> [[String: Any]] {
+    private static func pluginRecords(in value: Any, container: String? = nil) -> [[String: Any]] {
         if let array = value as? [Any] {
-            return array.flatMap(pluginRecords)
+            return array.flatMap { pluginRecords(in: $0, container: container) }
         }
 
         guard let dictionary = value as? [String: Any] else {
@@ -723,8 +866,12 @@ private struct NativePluginResultSummary {
         }
 
         var records: [[String: Any]] = []
-        if dictionary.keys.contains(where: { ["id", "selector", "name", "version", "enabled"].contains($0) }) {
-            records.append(dictionary)
+        if dictionary.keys.contains(where: { ["id", "pluginId", "selector", "name", "version", "enabled"].contains($0) }) {
+            var record = dictionary
+            if let container {
+                record["recordContainer"] = record["recordContainer"] ?? container
+            }
+            records.append(record)
         }
 
         for key in ["plugins", "items", "data", "installed", "available"] {
@@ -733,20 +880,72 @@ private struct NativePluginResultSummary {
                 for (id, value) in keyed {
                     if var record = value as? [String: Any] {
                         record["id"] = record["id"] ?? id
+                        record["recordContainer"] = record["recordContainer"] ?? key
                         records.append(record)
                     } else if let array = value as? [Any] {
-                        records.append(contentsOf: array.flatMap(pluginRecords).map { record in
+                        records.append(contentsOf: array.flatMap { pluginRecords(in: $0, container: key) }.map { record in
                             var record = record
                             record["id"] = record["id"] ?? id
+                            record["recordContainer"] = record["recordContainer"] ?? key
                             return record
                         })
                     }
                 }
             } else {
-                records.append(contentsOf: pluginRecords(in: nested))
+                records.append(contentsOf: pluginRecords(in: nested, container: key))
             }
         }
         return records
+    }
+
+    private static func installedVersion(in record: [String: Any]) -> String? {
+        stringValue(record["installedVersion"])
+            ?? stringValue(record["currentVersion"])
+            ?? stringValue(record["version"])
+    }
+
+    private static func latestVersion(in record: [String: Any]) -> String? {
+        stringValue(record["latestVersion"])
+            ?? stringValue(record["availableVersion"])
+            ?? stringValue(record["marketplaceVersion"])
+            ?? (isAvailableRecord(record) ? stringValue(record["version"]) : nil)
+    }
+
+    private static func isInstalledRecord(_ record: [String: Any]) -> Bool {
+        stringValue(record["recordContainer"]) == "installed"
+            || record["installPath"] != nil
+            || record["installedAt"] != nil
+            || record["lastUpdated"] != nil
+    }
+
+    private static func isAvailableRecord(_ record: [String: Any]) -> Bool {
+        stringValue(record["recordContainer"]) == "available"
+            || (record["pluginId"] != nil && record["installCount"] != nil)
+    }
+
+    private static func jsonObject(in output: String) -> Any? {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        if let data = trimmed.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) {
+            return json
+        }
+
+        for (opening, closing) in [("{", "}"), ("[", "]")] {
+            guard let start = trimmed.firstIndex(of: Character(opening)),
+                  let end = trimmed.lastIndex(of: Character(closing)),
+                  start < end else {
+                continue
+            }
+            let candidate = String(trimmed[start...end])
+            if let data = candidate.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) {
+                return json
+            }
+        }
+        return nil
     }
 
     private static func updateVersionChange(in output: String) -> (from: String, to: String)? {

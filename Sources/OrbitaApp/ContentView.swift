@@ -7,6 +7,7 @@ struct ContentView: View {
     @StateObject private var fullDiskAccess = FullDiskAccessGate()
     @AppStorage("customAgentsJSON") private var customAgentsJSON = "[]"
     @AppStorage("agentOrderJSON") private var agentOrderJSON = "[]"
+    @AppStorage("hiddenAgentIDsJSON") private var hiddenAgentIDsJSON = "[]"
     @AppStorage("categoryOrderJSON") private var categoryOrderJSON = "[]"
     @AppStorage("hiddenCategoryIDsJSON") private var hiddenCategoryIDsJSON = "[]"
     @AppStorage("scanRefreshPolicy") private var scanRefreshPolicy = ScanRefreshPolicy.oneHour.rawValue
@@ -427,7 +428,9 @@ struct ContentView: View {
     }
 
     private var defaultAgentOptions: [AgentSelection] {
-        AgentSelection.defaultAgents + customAgents
+        let hiddenIDs = hiddenAgentIDs
+        let defaultAgents = AgentSelection.defaultAgents.filter { !hiddenIDs.contains($0.id) }
+        return defaultAgents + customAgents
     }
 
     private var customAgents: [AgentSelection] {
@@ -458,6 +461,30 @@ struct ContentView: View {
         return ids
     }
 
+    private var hiddenAgentIDs: Set<String> {
+        guard let data = hiddenAgentIDsJSON.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(ids).subtracting(deleteProtectedAgentIDs)
+    }
+
+    private var deleteProtectedAgentIDs: Set<String> {
+        [AgentSelection.codex.id, AgentSelection.claudeCode.id]
+    }
+
+    private func saveHiddenAgentIDs(_ hiddenIDs: Set<String>) {
+        let sanitizedIDs = hiddenIDs.subtracting(deleteProtectedAgentIDs)
+        if let selectedAgent, sanitizedIDs.contains(selectedAgent.id) {
+            self.selectedAgent = nil
+        }
+        if let data = try? JSONEncoder().encode(Array(sanitizedIDs).sorted()),
+           let json = String(data: data, encoding: .utf8) {
+            hiddenAgentIDsJSON = json
+        }
+    }
+
     private func saveAgentOrder(_ orderedAgents: [AgentSelection]) {
         saveAgentOrderIDs(orderedAgents.map(\.id))
     }
@@ -482,9 +509,17 @@ struct ContentView: View {
     }
 
     private func deleteAgent(id agentID: String) {
-        guard !agentID.hasPrefix("built-in:") else {
+        guard !deleteProtectedAgentIDs.contains(agentID) else {
             return
         }
+        if AgentSelection.defaultAgents.contains(where: { $0.id == agentID }) {
+            var hiddenIDs = hiddenAgentIDs
+            hiddenIDs.insert(agentID)
+            saveHiddenAgentIDs(hiddenIDs)
+            saveAgentOrderIDs(agentOrderIDs.filter { $0 != agentID })
+            return
+        }
+
         let remainingAgents = customAgents.filter { $0.id != agentID }
         guard remainingAgents.count != customAgents.count else {
             return

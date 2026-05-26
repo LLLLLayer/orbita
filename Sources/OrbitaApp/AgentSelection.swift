@@ -24,6 +24,14 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
     static let cursor = AgentSelection(id: "built-in:cursor", displayName: "Cursor", behavior: .cursorSource)
     static let defaultAgents = [agents, codex, claudeCode, cursor]
 
+    var isBuiltIn: Bool {
+        id.hasPrefix("built-in:")
+    }
+
+    var isDeleteProtected: Bool {
+        id == Self.codex.id || id == Self.claudeCode.id
+    }
+
     func visibleCapabilities(in graph: CapabilityGraph) -> [Capability] {
         switch behavior {
         case .agentsSource:
