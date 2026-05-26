@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import OrbitaCore
@@ -13,7 +14,6 @@ struct ContentView: View {
     @AppStorage("scanRefreshPolicy") private var scanRefreshPolicy = ScanRefreshPolicy.oneHour.rawValue
     @AppStorage("orbitaLanguageCode") private var orbitaLanguageCode = OrbitaLanguage.english.rawValue
     @AppStorage("capabilitySortOption") private var capabilitySortOption = CapabilitySortOption.nameAscending.rawValue
-    @AppStorage("fullDiskAccessOnboardingDismissed") private var fullDiskAccessOnboardingDismissed = false
     @State private var selectedProject: String? = ProjectCapabilityStore.environmentSelectionID
     @State private var selectedAgent: AgentSelection?
     @State private var selectedGroup = CapabilityCategory.all
@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var pendingDeletePlan: PendingDeletePlan?
     @State private var importerPresented = false
     @State private var didPrepareStore = false
+    @State private var limitedDirectoryAccessURL: URL?
 
     var body: some View {
         Group {
@@ -41,8 +42,7 @@ struct ContentView: View {
                         fullDiskAccess.openSystemSettings()
                     },
                     onContinueWithoutAccess: {
-                        fullDiskAccessOnboardingDismissed = true
-                        prepareStoreIfPermitted()
+                        requestLimitedDirectoryAccess()
                     }
                 )
                 .transition(.opacity)
@@ -350,7 +350,29 @@ struct ContentView: View {
     }
 
     private var canEnterApp: Bool {
-        fullDiskAccess.status.isGranted || fullDiskAccessOnboardingDismissed
+        fullDiskAccess.status.isGranted || limitedDirectoryAccessURL != nil
+    }
+
+    private func requestLimitedDirectoryAccess() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let panel = NSOpenPanel()
+        panel.title = "Grant Folder Access"
+        panel.message = "Select your home folder so Orbita can read local agent config and project directories without Full Disk Access."
+        panel.prompt = "Grant Access"
+        panel.directoryURL = home
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else {
+                return
+            }
+            _ = url.startAccessingSecurityScopedResource()
+            limitedDirectoryAccessURL = url
+            prepareStoreIfPermitted()
+        }
     }
 
     private var filteredCapabilities: [Capability] {

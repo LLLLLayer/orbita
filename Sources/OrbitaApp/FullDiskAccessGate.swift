@@ -101,7 +101,7 @@ struct FullDiskAccessOnboardingView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("You can continue without it. macOS may then ask for folder access when Orbita opens projects in protected locations such as Downloads, Documents, or Desktop.")
+                        Text("You can skip Full Disk Access and grant access to your home folder instead. Orbita will ask for that folder only after you choose to skip.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -131,7 +131,7 @@ struct FullDiskAccessOnboardingView: View {
                     .controlSize(.large)
 
                     Button(action: onContinueWithoutAccess) {
-                        Label("Continue Without Access", systemImage: "arrow.right")
+                        Label("Skip and Choose Folder", systemImage: "folder")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
