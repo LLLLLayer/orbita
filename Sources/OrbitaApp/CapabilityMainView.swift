@@ -13,11 +13,14 @@ struct CapabilityMainView: View {
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     let agentOptions: [AgentSelection]
+    let categoryOptions: [CapabilityCategory]
     let displaySections: [CapabilityCollectionSection]
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let onAddAgent: () -> Void
     let onManageAgents: () -> Void
+    let onManageCategories: () -> Void
+    let onHideCategories: () -> Void
     let onOpenProject: () -> Void
     let onRefresh: () -> Void
     let onMerge: () -> Void
@@ -47,10 +50,13 @@ struct CapabilityMainView: View {
 
                             CapabilityFilterBar(
                                 agentOptions: agentOptions,
+                                categoryOptions: categoryOptions,
                                 selectedAgent: $selectedAgent,
                                 selectedGroup: $selectedGroup,
                                 onAddAgent: onAddAgent,
-                                onManageAgents: onManageAgents
+                                onManageAgents: onManageAgents,
+                                onManageCategories: onManageCategories,
+                                onHideCategories: onHideCategories
                             )
 
                             if selectedAgent == nil {
@@ -374,14 +380,20 @@ private struct RefreshButtonIcon: View {
 
 struct CapabilityFilterBar: View {
     let agentOptions: [AgentSelection]
+    let categoryOptions: [CapabilityCategory]
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     let onAddAgent: () -> Void
     let onManageAgents: () -> Void
+    let onManageCategories: () -> Void
+    let onHideCategories: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
+                FilterIconButton(systemImage: "plus", help: "Add coding agent", action: onAddAgent)
+                FilterIconButton(systemImage: "arrow.up.arrow.down", help: "Manage agent order", action: onManageAgents)
+
                 FilterChip(title: "Overview", systemImage: "square.grid.2x2", isSelected: selectedAgent == nil) {
                     withAnimation(.snappy(duration: 0.18)) {
                         selectedAgent = nil
@@ -394,27 +406,14 @@ struct CapabilityFilterBar: View {
                         }
                     }
                 }
-                Button(action: onAddAgent) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .orbitaControlSurface(cornerRadius: 10)
-                .help("Add coding agent")
-                Button(action: onManageAgents) {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .orbitaControlSurface(cornerRadius: 10)
-                .help("Manage agent order")
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
-                    ForEach(CapabilityCategory.allCases) { category in
+                    FilterIconButton(systemImage: "arrow.up.arrow.down", help: "Manage category order", action: onManageCategories)
+                    FilterIconButton(systemImage: "eye.slash", help: "Hide categories", action: onHideCategories)
+
+                    ForEach(categoryOptions) { category in
                         FilterChip(title: category.title, isSelected: selectedGroup == category) {
                             withAnimation(.snappy(duration: 0.18)) {
                                 selectedGroup = category
@@ -424,6 +423,23 @@ struct CapabilityFilterBar: View {
                 }
             }
         }
+    }
+}
+
+private struct FilterIconButton: View {
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .orbitaControlSurface(cornerRadius: 10)
+        .help(help)
     }
 }
 

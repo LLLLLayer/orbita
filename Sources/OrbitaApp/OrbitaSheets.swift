@@ -561,6 +561,323 @@ private struct ManageAgentMoveButton: View {
     }
 }
 
+struct ManageCategoriesSheet: View {
+    let defaultOrder: [CapabilityCategory]
+    let onSave: ([CapabilityCategory]) -> Void
+    let onCancel: () -> Void
+
+    @State private var orderedCategories: [CapabilityCategory]
+
+    init(
+        categories: [CapabilityCategory],
+        defaultOrder: [CapabilityCategory],
+        onSave: @escaping ([CapabilityCategory]) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.defaultOrder = defaultOrder
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _orderedCategories = State(initialValue: categories)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            CategorySheetHeader(
+                title: "Category Order",
+                subtitle: "Second filter sequence",
+                systemImage: "arrow.up.arrow.down"
+            )
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(Array(orderedCategories.enumerated()), id: \.element.id) { index, category in
+                        ManageCategoryOrderRow(
+                            category: category,
+                            index: index,
+                            isFirst: index == orderedCategories.startIndex,
+                            isLast: index == orderedCategories.index(before: orderedCategories.endIndex),
+                            onMoveUp: {
+                                moveCategory(from: index, to: index - 1)
+                            },
+                            onMoveDown: {
+                                moveCategory(from: index, to: index + 1)
+                            }
+                        )
+                    }
+                }
+                .padding(14)
+            }
+            .frame(height: 340)
+            .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+
+            HStack(spacing: 10) {
+                AddAgentActionButton(title: "Reset", systemImage: "arrow.counterclockwise") {
+                    orderedCategories = defaultOrder
+                }
+
+                Spacer(minLength: 0)
+
+                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(
+                    title: "Save",
+                    systemImage: "checkmark",
+                    prominent: true
+                ) {
+                    onSave(orderedCategories)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 560)
+        .background(OrbitaTheme.canvas)
+        .presentationBackground(OrbitaTheme.canvas)
+    }
+
+    private func moveCategory(from sourceIndex: Int, to destinationIndex: Int) {
+        guard orderedCategories.indices.contains(sourceIndex),
+              orderedCategories.indices.contains(destinationIndex),
+              sourceIndex != destinationIndex else {
+            return
+        }
+        withAnimation(.snappy(duration: 0.18)) {
+            let category = orderedCategories.remove(at: sourceIndex)
+            orderedCategories.insert(category, at: destinationIndex)
+        }
+    }
+}
+
+struct HideCategoriesSheet: View {
+    let categories: [CapabilityCategory]
+    let onSave: (Set<String>) -> Void
+    let onCancel: () -> Void
+
+    @State private var hiddenIDs: Set<String>
+
+    init(
+        categories: [CapabilityCategory],
+        hiddenCategoryIDs: Set<String>,
+        onSave: @escaping (Set<String>) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.categories = categories
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _hiddenIDs = State(initialValue: hiddenCategoryIDs)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            CategorySheetHeader(
+                title: "Hidden Categories",
+                subtitle: "Second filter visibility",
+                systemImage: "eye.slash"
+            )
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(categories) { category in
+                        HideCategoryRow(
+                            category: category,
+                            isHidden: hiddenIDs.contains(category.rawValue),
+                            isLocked: category == .all
+                        ) {
+                            toggle(category)
+                        }
+                    }
+                }
+                .padding(14)
+            }
+            .frame(height: 340)
+            .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+
+            HStack(spacing: 10) {
+                AddAgentActionButton(title: "Show All", systemImage: "eye") {
+                    hiddenIDs.removeAll()
+                }
+
+                Spacer(minLength: 0)
+
+                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(
+                    title: "Save",
+                    systemImage: "checkmark",
+                    prominent: true
+                ) {
+                    onSave(hiddenIDs)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 560)
+        .background(OrbitaTheme.canvas)
+        .presentationBackground(OrbitaTheme.canvas)
+    }
+
+    private func toggle(_ category: CapabilityCategory) {
+        guard category != .all else {
+            return
+        }
+        withAnimation(.snappy(duration: 0.18)) {
+            if hiddenIDs.contains(category.rawValue) {
+                hiddenIDs.remove(category.rawValue)
+            } else {
+                hiddenIDs.insert(category.rawValue)
+            }
+        }
+    }
+}
+
+private struct CategorySheetHeader: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(OrbitaTheme.controlFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(OrbitaTheme.border)
+                    }
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 20, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct ManageCategoryOrderRow: View {
+    let category: CapabilityCategory
+    let index: Int
+    let isFirst: Bool
+    let isLast: Bool
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("\(index + 1)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+
+            CategoryIcon(category: category)
+
+            Text(category.title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            ManageAgentMoveButton(systemImage: "chevron.up", isDisabled: isFirst, action: onMoveUp)
+            ManageAgentMoveButton(systemImage: "chevron.down", isDisabled: isLast, action: onMoveDown)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+    }
+}
+
+private struct HideCategoryRow: View {
+    let category: CapabilityCategory
+    let isHidden: Bool
+    let isLocked: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            CategoryIcon(category: category)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(category.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(isLocked ? "Always visible" : isHidden ? "Hidden" : "Visible")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            Button(action: onToggle) {
+                Image(systemName: isHidden ? "eye.slash" : "eye")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 34, height: 28)
+            }
+            .buttonStyle(.plain)
+            .orbitaControlSurface(selected: isHidden, cornerRadius: 9)
+            .disabled(isLocked)
+            .opacity(isLocked ? 0.42 : 1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+    }
+}
+
+private struct CategoryIcon: View {
+    let category: CapabilityCategory
+
+    var body: some View {
+        Image(systemName: category.managementSystemImage)
+            .font(.system(size: 16, weight: .semibold))
+            .frame(width: 34, height: 34)
+            .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(OrbitaTheme.border)
+            }
+    }
+}
+
+private extension CapabilityCategory {
+    var managementSystemImage: String {
+        switch self {
+        case .all:
+            return "square.grid.2x2"
+        case .plugin:
+            return "shippingbox"
+        case .skill:
+            return "wand.and.stars"
+        case .command:
+            return "terminal"
+        case .mcp:
+            return "server.rack"
+        case .hook:
+            return "link"
+        case .instruction:
+            return "text.book.closed"
+        }
+    }
+}
+
 struct ApplyPlanSheet: View {
     let plan: ApplyPlan
     let onCancel: () -> Void

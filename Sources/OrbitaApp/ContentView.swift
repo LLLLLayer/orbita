@@ -7,6 +7,8 @@ struct ContentView: View {
     @StateObject private var fullDiskAccess = FullDiskAccessGate()
     @AppStorage("customAgentsJSON") private var customAgentsJSON = "[]"
     @AppStorage("agentOrderJSON") private var agentOrderJSON = "[]"
+    @AppStorage("categoryOrderJSON") private var categoryOrderJSON = "[]"
+    @AppStorage("hiddenCategoryIDsJSON") private var hiddenCategoryIDsJSON = "[]"
     @AppStorage("scanRefreshPolicy") private var scanRefreshPolicy = ScanRefreshPolicy.oneHour.rawValue
     @AppStorage("orbitaLanguageCode") private var orbitaLanguageCode = OrbitaLanguage.english.rawValue
     @AppStorage("capabilitySortOption") private var capabilitySortOption = CapabilitySortOption.nameAscending.rawValue
@@ -20,6 +22,8 @@ struct ContentView: View {
     @State private var inspectorVisible = true
     @State private var addingAgentPresented = false
     @State private var managingAgentsPresented = false
+    @State private var managingCategoriesPresented = false
+    @State private var hidingCategoriesPresented = false
     @State private var settingsPresented = false
     @State private var pendingPlan: ApplyPlan?
     @State private var pendingDeletePlan: PendingDeletePlan?
@@ -123,6 +127,32 @@ struct ContentView: View {
                 }
             )
         }
+        .sheet(isPresented: $managingCategoriesPresented) {
+            ManageCategoriesSheet(
+                categories: orderedCategoryOptions,
+                defaultOrder: defaultCategoryOptions,
+                onSave: { orderedCategories in
+                    saveCategoryOrder(orderedCategories)
+                    managingCategoriesPresented = false
+                },
+                onCancel: {
+                    managingCategoriesPresented = false
+                }
+            )
+        }
+        .sheet(isPresented: $hidingCategoriesPresented) {
+            HideCategoriesSheet(
+                categories: orderedCategoryOptions,
+                hiddenCategoryIDs: hiddenCategoryIDs,
+                onSave: { hiddenIDs in
+                    saveHiddenCategories(hiddenIDs)
+                    hidingCategoriesPresented = false
+                },
+                onCancel: {
+                    hidingCategoriesPresented = false
+                }
+            )
+        }
         .onAppear {
             store.configure(refreshPolicy: scanRefreshPolicy)
             fullDiskAccess.refresh()
@@ -180,6 +210,7 @@ struct ContentView: View {
                         selectedAgent: $selectedAgent,
                         selectedGroup: $selectedGroup,
                         agentOptions: agentOptions,
+                        categoryOptions: categoryOptions,
                         displaySections: capabilityDisplaySections,
                         selectedCapability: $selectedCapability,
                         expandedGroupIDs: $expandedGroupIDs,
@@ -188,6 +219,12 @@ struct ContentView: View {
                         },
                         onManageAgents: {
                             managingAgentsPresented = true
+                        },
+                        onManageCategories: {
+                            managingCategoriesPresented = true
+                        },
+                        onHideCategories: {
+                            hidingCategoriesPresented = true
                         },
                         onOpenProject: {
                             importerPresented = true
@@ -421,6 +458,73 @@ struct ContentView: View {
         if let data = try? JSONEncoder().encode(ids),
            let json = String(data: data, encoding: .utf8) {
             agentOrderJSON = json
+        }
+    }
+
+    private var categoryOptions: [CapabilityCategory] {
+        let hiddenIDs = hiddenCategoryIDs
+        return orderedCategoryOptions.filter { category in
+            category == .all || !hiddenIDs.contains(category.rawValue)
+        }
+    }
+
+    private var orderedCategoryOptions: [CapabilityCategory] {
+        let defaultOptions = defaultCategoryOptions
+        let orderIDs = categoryOrderIDs
+        guard !orderIDs.isEmpty else {
+            return defaultOptions
+        }
+
+        let orderRank = Dictionary(uniqueKeysWithValues: orderIDs.enumerated().map { ($0.element, $0.offset) })
+        return defaultOptions.enumerated().sorted { lhs, rhs in
+            let lhsRank = orderRank[lhs.element.rawValue] ?? Int.max
+            let rhsRank = orderRank[rhs.element.rawValue] ?? Int.max
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
+            return lhs.offset < rhs.offset
+        }
+        .map(\.element)
+    }
+
+    private var defaultCategoryOptions: [CapabilityCategory] {
+        CapabilityCategory.allCases
+    }
+
+    private var categoryOrderIDs: [String] {
+        guard let data = categoryOrderJSON.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return ids
+    }
+
+    private var hiddenCategoryIDs: Set<String> {
+        guard let data = hiddenCategoryIDsJSON.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(ids).subtracting([CapabilityCategory.all.rawValue])
+    }
+
+    private func saveCategoryOrder(_ orderedCategories: [CapabilityCategory]) {
+        let ids = orderedCategories.map(\.rawValue)
+        if let data = try? JSONEncoder().encode(ids),
+           let json = String(data: data, encoding: .utf8) {
+            categoryOrderJSON = json
+        }
+    }
+
+    private func saveHiddenCategories(_ hiddenIDs: Set<String>) {
+        let sanitizedIDs = hiddenIDs.subtracting([CapabilityCategory.all.rawValue])
+        if sanitizedIDs.contains(selectedGroup.rawValue) {
+            selectedGroup = .all
+        }
+        if let data = try? JSONEncoder().encode(Array(sanitizedIDs).sorted()),
+           let json = String(data: data, encoding: .utf8) {
+            hiddenCategoryIDsJSON = json
         }
     }
 
