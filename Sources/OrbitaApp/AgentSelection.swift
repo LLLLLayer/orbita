@@ -105,6 +105,22 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return "person.crop.circle"
         }
     }
+
+    var brandIconAssetName: String? {
+        if id == Self.codex.id || behavior == .codexSource || behavior == .codexLike || skillsAgentID == "codex" {
+            return "codex"
+        }
+        if id == Self.claudeCode.id || behavior == .claudeSource || behavior == .claudeLike || skillsAgentID == "claude-code" {
+            return "claude"
+        }
+        if id == Self.cursor.id || behavior == .cursorSource || skillsAgentID == "cursor" {
+            return "cursor"
+        }
+        if skillsAgentID == "trae" || skillsAgentID == "trae-cn" || displayName.localizedCaseInsensitiveContains("trae") {
+            return "trae"
+        }
+        return nil
+    }
 }
 
 private extension Capability {

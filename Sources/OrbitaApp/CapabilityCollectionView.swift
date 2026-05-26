@@ -8,6 +8,7 @@ struct CapabilityCollectionView: View {
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let availableWidth: CGFloat
+    let onSyncCapability: (Capability) -> Void
 
     @State private var expandedGroupOrder: [String] = []
     @State private var collapsedSectionIDs: Set<String> = []
@@ -65,7 +66,8 @@ struct CapabilityCollectionView: View {
                         graph: graph,
                         agentOptions: agentOptions,
                         selectedCapability: $selectedCapability,
-                        columns: columns
+                        columns: columns,
+                        onSyncCapability: onSyncCapability
                     )
                 }
             }
@@ -105,7 +107,10 @@ struct CapabilityCollectionView: View {
             CapabilityTile(
                 capability: capability,
                 visibleAgents: visibleAgents(for: item),
-                isSelected: selectedCapability?.id == capability.id
+                isSelected: selectedCapability?.id == capability.id,
+                onSync: {
+                    onSyncCapability(capability)
+                }
             ) {
                 withAnimation(.snappy(duration: 0.18)) {
                     selectedCapability = capability
@@ -117,7 +122,10 @@ struct CapabilityCollectionView: View {
                 group: group,
                 visibleAgents: visibleAgents(for: item),
                 isExpanded: expandedGroupIDs.contains(group.id),
-                isSelected: selectedCapability?.id == inspectionCapability.id
+                isSelected: selectedCapability?.id == inspectionCapability.id,
+                onSync: {
+                    onSyncCapability(inspectionCapability)
+                }
             ) {
                 withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.08)) {
                     selectedCapability = inspectionCapability
@@ -239,17 +247,35 @@ private struct ExpandedCapabilityGroupShelf: View {
     let agentOptions: [AgentSelection]
     @Binding var selectedCapability: Capability?
     let columns: [GridItem]
+    let onSyncCapability: (Capability) -> Void
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-            ForEach(group.capabilities) { capability in
-                CapabilityTile(
-                    capability: capability,
-                    visibleAgents: visibleAgents(for: capability),
-                    isSelected: selectedCapability?.id == capability.id
-                ) {
-                    withAnimation(.snappy(duration: 0.18)) {
-                        selectedCapability = capability
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(shelfSections) { section in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Text(section.title)
+                            .font(.subheadline.weight(.semibold))
+                        Text("\(section.capabilities.count) items")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                        ForEach(section.capabilities) { capability in
+                            CapabilityTile(
+                                capability: capability,
+                                visibleAgents: visibleAgents(for: capability),
+                                isSelected: selectedCapability?.id == capability.id,
+                                onSync: {
+                                    onSyncCapability(capability)
+                                }
+                            ) {
+                                withAnimation(.snappy(duration: 0.18)) {
+                                    selectedCapability = capability
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -278,6 +304,97 @@ private struct ExpandedCapabilityGroupShelf: View {
             agent.visibleCapabilities(in: graph).contains { $0.id == capability.id }
         }
     }
+
+    private var shelfSections: [ExpandedGroupSection] {
+        guard group.kind == .plugin else {
+            return [
+                ExpandedGroupSection(
+                    id: "all",
+                    title: group.kindLabel,
+                    capabilities: group.capabilities
+                )
+            ]
+        }
+        let grouped = Dictionary(grouping: group.capabilities) { capability in
+            CapabilityTypeSection(type: capability.type)
+        }
+        return CapabilityTypeSection.displayOrder.compactMap { section in
+            guard let capabilities = grouped[section], !capabilities.isEmpty else {
+                return nil
+            }
+            return ExpandedGroupSection(
+                id: section.id,
+                title: section.title,
+                capabilities: capabilities.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            )
+        }
+    }
+}
+
+private struct ExpandedGroupSection: Identifiable {
+    let id: String
+    let title: String
+    let capabilities: [Capability]
+}
+
+private enum CapabilityTypeSection: String, CaseIterable, Hashable {
+    case plugins
+    case skills
+    case commands
+    case mcp
+    case hooks
+    case instructions
+    case other
+
+    init(type: CapabilityType) {
+        switch type {
+        case .plugin:
+            self = .plugins
+        case .skill:
+            self = .skills
+        case .command:
+            self = .commands
+        case .mcpServer:
+            self = .mcp
+        case .hook:
+            self = .hooks
+        case .instruction, .rule:
+            self = .instructions
+        case .unknown:
+            self = .other
+        }
+    }
+
+    static let displayOrder: [CapabilityTypeSection] = [
+        .skills,
+        .hooks,
+        .commands,
+        .mcp,
+        .instructions,
+        .plugins,
+        .other
+    ]
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .plugins:
+            return "Plugins"
+        case .skills:
+            return "Skills"
+        case .commands:
+            return "Commands"
+        case .mcp:
+            return "MCP"
+        case .hooks:
+            return "Hooks"
+        case .instructions:
+            return "Instructions"
+        case .other:
+            return "Other"
+        }
+    }
 }
 
 private struct CapabilityGroupTile: View {
@@ -285,58 +402,61 @@ private struct CapabilityGroupTile: View {
     let visibleAgents: [AgentSelection]
     let isExpanded: Bool
     let isSelected: Bool
+    let onSync: () -> Void
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 8) {
-                    CapabilityKindPill(
-                        title: group.kindLabel,
-                        systemImage: group.systemImage,
-                        isSelected: isSelected
-                    )
-                    Spacer(minLength: 6)
-                    AgentVisibilityStack(agents: visibleAgents)
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                CapabilityKindPill(
+                    title: group.kindLabel,
+                    systemImage: group.systemImage,
+                    isSelected: isSelected
+                )
+                Spacer(minLength: 6)
+                GroupTopBadge(text: groupTopBadgeText, isExpanded: isExpanded)
+            }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(group.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    Text(groupSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(group.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(groupSubtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 6) {
-                    Image(systemName: "square.stack.3d.up")
-                        .font(.caption2.weight(.semibold))
-                    Text("\(group.capabilities.count) mirrors")
-                        .font(.caption2.weight(.medium))
-                    Spacer(minLength: 0)
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption2.weight(.semibold))
-                }
-                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                AgentVisibilityStack(agents: visibleAgents)
+                AgentSyncButton(action: onSync)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 128, alignment: .top)
-            .contentShape(Rectangle())
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(tileBorderColor, style: group.outlineStyle(lineWidth: isSelected ? 1.5 : 1))
-            }
-            .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 10, x: 0, y: 5)
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: CapabilityTileMetrics.height,
+            maxHeight: CapabilityTileMetrics.height,
+            alignment: .top
+        )
+        .contentShape(Rectangle())
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tileBorderColor, style: group.outlineStyle(lineWidth: isSelected ? 1.5 : 1))
+        }
+        .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 10, x: 0, y: 5)
+        .onTapGesture(perform: action)
+        .accessibilityAddTraits(.isButton)
     }
 
     private var tileBorderColor: Color {
@@ -355,6 +475,10 @@ private struct CapabilityGroupTile: View {
         }
         let typeNames = Set(group.capabilities.map { $0.type.displayName }).sorted()
         return typeNames.prefix(2).joined(separator: ", ")
+    }
+
+    private var groupTopBadgeText: String {
+        "\(group.capabilities.count)"
     }
 }
 
@@ -410,49 +534,61 @@ private struct CapabilityTile: View {
     let capability: Capability
     let visibleAgents: [AgentSelection]
     let isSelected: Bool
+    let onSync: () -> Void
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 8) {
-                    CapabilityKindPill(
-                        title: capability.type.displayName,
-                        systemImage: CapabilityVisuals.iconName(for: capability.type),
-                        isSelected: isSelected
-                    )
-                    Spacer(minLength: 6)
-                    AgentVisibilityStack(agents: visibleAgents)
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                CapabilityKindPill(
+                    title: capability.type.displayName,
+                    systemImage: CapabilityVisuals.iconName(for: capability.type),
+                    isSelected: isSelected
+                )
+                Spacer(minLength: 6)
+            }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(capability.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .frame(minHeight: 32)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(capability.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    Text(sourceLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(sourceLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 128, alignment: .top)
-            .contentShape(Rectangle())
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                AgentVisibilityStack(agents: visibleAgents)
+                AgentSyncButton(action: onSync)
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(tileBorderColor, style: tileOutlineStyle)
-            }
-            .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 10, x: 0, y: 5)
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: CapabilityTileMetrics.height,
+            maxHeight: CapabilityTileMetrics.height,
+            alignment: .top
+        )
+        .contentShape(Rectangle())
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tileBorderColor, style: tileOutlineStyle)
+        }
+        .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 10, x: 0, y: 5)
+        .onTapGesture(perform: action)
+        .accessibilityAddTraits(.isButton)
         .animation(.snappy(duration: 0.18), value: isSelected)
     }
 
@@ -470,6 +606,10 @@ private struct CapabilityTile: View {
     private var sourceLabel: String {
         "\(capability.type.displayName) - \(CapabilitySourceClassifier.label(for: capability))"
     }
+}
+
+private enum CapabilityTileMetrics {
+    static let height: CGFloat = 142
 }
 
 private extension Capability {
@@ -501,6 +641,51 @@ private struct CapabilityKindPill: View {
     }
 }
 
+private struct GroupTopBadge: View {
+    let text: String
+    let isExpanded: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.caption2.weight(.bold))
+        }
+        .foregroundStyle(.secondary)
+        .frame(minWidth: 34)
+        .frame(height: 28)
+        .padding(.horizontal, 8)
+        .background(OrbitaTheme.controlFill, in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(OrbitaTheme.border)
+        }
+        .accessibilityLabel("\(text) items")
+    }
+}
+
+private struct AgentSyncButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(width: 28, height: 28)
+                .background(OrbitaTheme.elevatedSurface, in: Circle())
+                .overlay {
+                    Circle().strokeBorder(OrbitaTheme.border)
+                }
+                .shadow(color: OrbitaTheme.cardShadow, radius: 3, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+        .help("Sync to another agent")
+        .accessibilityLabel("Sync capability to another agent")
+    }
+}
+
 private struct AgentVisibilityStack: View {
     let agents: [AgentSelection]
 
@@ -510,15 +695,7 @@ private struct AgentVisibilityStack: View {
 
     var body: some View {
         if agents.isEmpty {
-            Image(systemName: "eye.slash")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 28, height: 28)
-                .background(OrbitaTheme.controlFill, in: Circle())
-                .overlay {
-                    Circle().strokeBorder(OrbitaTheme.border)
-                }
-                .help("No visible agent")
+            EmptyView()
         } else {
             ZStack(alignment: .leading) {
                 ForEach(Array(visibleAgents.enumerated()), id: \.element.id) { index, agent in
@@ -555,9 +732,7 @@ private struct AgentVisibilityBadge: View {
     let agent: AgentSelection
 
     var body: some View {
-        Image(systemName: agent.systemImage)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.primary)
+        AgentBrandIcon(agent: agent, size: 14)
             .frame(width: 28, height: 28)
             .background(OrbitaTheme.elevatedSurface, in: Circle())
             .overlay {

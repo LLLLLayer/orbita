@@ -28,6 +28,9 @@ let package = Package(
                 "OrbitaCore",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Textual", package: "textual")
+            ],
+            resources: [
+                .process("Resources")
             ]
         ),
         .testTarget(

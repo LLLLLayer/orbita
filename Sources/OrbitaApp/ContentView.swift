@@ -226,6 +226,9 @@ struct ContentView: View {
                         },
                         onClean: {
                             pendingPlan = store.planClean()
+                        },
+                        onSyncCapability: { capability in
+                            pendingPlan = store.planEnable(capability)
                         }
                     )
                     .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)

@@ -31,6 +31,7 @@ struct CapabilityMainView: View {
     let onRefresh: () -> Void
     let onMerge: () -> Void
     let onClean: () -> Void
+    let onSyncCapability: (Capability) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -91,7 +92,8 @@ struct CapabilityMainView: View {
                                     agentOptions: agentOptions,
                                     selectedCapability: $selectedCapability,
                                     expandedGroupIDs: $expandedGroupIDs,
-                                    availableWidth: contentWidth
+                                    availableWidth: contentWidth,
+                                    onSyncCapability: onSyncCapability
                                 )
                                 .padding(.top, 4)
                             }
@@ -423,6 +425,7 @@ struct CapabilityFilterBar: View {
                         id: agent.id,
                         title: agent.displayName,
                         systemImage: agent.systemImage,
+                        agentIcon: agent,
                         isSelected: selectedAgent == agent,
                         draggedID: $draggedAgentID,
                         activeDropTargetID: $agentDropTargetID,
@@ -503,6 +506,7 @@ private struct ReorderableFilterChip: View {
     let id: String
     let title: String
     var systemImage: String?
+    var agentIcon: AgentSelection?
     let isSelected: Bool
     @Binding var draggedID: String?
     @Binding var activeDropTargetID: String?
@@ -510,7 +514,7 @@ private struct ReorderableFilterChip: View {
     let action: () -> Void
 
     var body: some View {
-        FilterChip(title: title, systemImage: systemImage, isSelected: isSelected, action: action)
+        FilterChip(title: title, systemImage: systemImage, agentIcon: agentIcon, isSelected: isSelected, action: action)
             .onDrag {
                 draggedID = id
                 activeDropTargetID = nil
@@ -584,13 +588,17 @@ private struct FilterIconButton: View {
 private struct FilterChip: View {
     let title: String
     var systemImage: String?
+    var agentIcon: AgentSelection?
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                if let systemImage {
+                if let agentIcon {
+                    AgentBrandIcon(agent: agentIcon, size: 15, isSelected: isSelected)
+                        .frame(width: 15)
+                } else if let systemImage {
                     Image(systemName: systemImage)
                         .font(.system(size: 13, weight: .medium))
                         .frame(width: 15)
@@ -601,7 +609,7 @@ private struct FilterChip: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 30)
-            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : .primary)
+            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : Color.primary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
