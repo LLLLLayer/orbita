@@ -290,12 +290,67 @@ final class CapabilityScannerTests: XCTestCase {
             )
         )
 
-        let hook = try XCTUnwrap(result.capabilities.first { $0.name == "PostToolUse (.*)" && $0.source.kind == "codex-hook" })
+        let hook = try XCTUnwrap(result.capabilities.first { $0.name == "Hook Runner - PostToolUse (.*)" && $0.source.kind == "codex-hook" })
         XCTAssertEqual(hook.scope, .user)
         XCTAssertEqual(hook.statuses.first, .enabled)
         XCTAssertEqual(hook.metadata["event"], "PostToolUse")
         XCTAssertEqual(hook.metadata["command"], "npx hook-runner")
+        XCTAssertEqual(hook.metadata["handlerKind"], "command")
+        XCTAssertEqual(hook.metadata["handlerHost"], "Hook Runner")
+        XCTAssertEqual(hook.metadata["handlerRunner"], "npx")
+        XCTAssertEqual(hook.metadata["handlerScript"], "hook-runner")
         XCTAssertTrue(hook.risks.contains(.network))
+    }
+
+    func testScansClaudeHookHandlerHostFromCommandScript() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let claudeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudeHooks-\(UUID().uuidString)")
+        let settings = claudeRoot.appendingPathComponent("settings.json")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: claudeRoot, withIntermediateDirectories: true)
+        try """
+        {
+          "hooks": {
+            "PermissionRequest": [
+              {
+                "matcher": "*",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "python3 '\(claudeRoot.path)/hooks/claude-island-state.py'",
+                    "timeout": 86400
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: settings, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: claudeRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                codexConfigURL: claudeRoot.appendingPathComponent("missing-config.toml"),
+                codexPluginCacheRoot: claudeRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: claudeRoot.appendingPathComponent("missing-plugins.json"),
+                claudeSettingsURLs: [settings]
+            )
+        )
+
+        let hook = try XCTUnwrap(result.capabilities.first { $0.name == "Vibe Notch - PermissionRequest (*)" })
+        XCTAssertEqual(hook.source.kind, "claude-settings-hook")
+        XCTAssertEqual(hook.metadata["handlerHost"], "Vibe Notch")
+        XCTAssertEqual(hook.metadata["handlerRunner"], "python3")
+        XCTAssertEqual(hook.metadata["handlerScript"], "\(claudeRoot.path)/hooks/claude-island-state.py")
+        XCTAssertEqual(hook.metadata["timeout"], "86400")
     }
 
     func testScansCursorLegacyRulesAndClaudeWorkspaceFiles() throws {
@@ -310,9 +365,10 @@ final class CapabilityScannerTests: XCTestCase {
         let claudeCommand = result.capabilities.first { $0.name == "review" && $0.type == .command }
         XCTAssertEqual(claudeCommand?.source.kind, "claude-command")
 
-        let claudeHook = result.capabilities.first { $0.name == "PostToolUse (Write)" && $0.type == .hook }
+        let claudeHook = result.capabilities.first { $0.name == "Swift - PostToolUse (Write)" && $0.type == .hook }
         XCTAssertEqual(claudeHook?.source.kind, "claude-settings-hook")
         XCTAssertEqual(claudeHook?.metadata["command"], "swift test")
+        XCTAssertEqual(claudeHook?.metadata["handlerHost"], "Swift")
         XCTAssertTrue(claudeHook?.risks.contains(.exec) == true)
     }
 
@@ -582,7 +638,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "bootstrap" && $0.source.kind == "codex-command" })
         XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
         XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
-        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "PostToolUse (Write)" && $0.source.kind == "claude-settings-hook" })
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "Swift - PostToolUse (Write)" && $0.source.kind == "claude-settings-hook" })
         XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
     }
 

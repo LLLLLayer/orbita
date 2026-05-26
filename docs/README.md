@@ -23,6 +23,8 @@ Orbita 是一个 CLI-first 的 macOS 工具方向，用于统一管理 Coding Ag
 
 当前 scanner 已覆盖 Codex、Claude Code、Cursor 的主要项目级入口，包括 `.codex/commands`、`.codex/hooks`、`.claude/commands`、`.claude/settings.json`、`.cursor/rules`、legacy `.cursorrules`、`.mcp.json` 和项目 instructions。
 
+Hook 解析规则见 `docs/hook-logic.md`：Orbita 按具体 handler 建模 Hook，而不是把 `settings.json` 或 `hooks.json` 当成单个 Hook。
+
 Resolver 会回读 `.agents/manifest.json` 的 enabled/disabled intent；当能力在 `.agents` 中 disabled 但原始来源仍能被扫描到时，会标记为 drifted 并在 Drift Report 中解释原因。Agent view 和 adapter preview 会把 disabled capability 视为 hidden，而不是继续暴露为可见能力。单能力 enable、disable 和 rollback 会保留 manifest 中其他能力的 intent。
 
 Apply Plan 只允许写入项目 `.agents` 内部。`--apply` 执行 remove/create symlink 时会处理断链 symlink，并在 macOS `/var` 与 `/private/var` 路径等价场景下保持 `.agents` 写入边界校验。

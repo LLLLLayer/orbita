@@ -339,6 +339,7 @@ public final class CapabilityScanner {
                 let matcher = entry["matcher"] as? String
                 let hooks = hookObjects(in: entry)
                 for (hookIndex, hook) in hooks.enumerated() {
+                    let descriptor = hookDescriptor(for: hook, baseMetadata: baseMetadata)
                     let pathKey = "\(url.path)#\(event):\(entryIndex):\(hookIndex)"
                     let stateKey = codexHookStateKey(
                         path: url.path,
@@ -352,24 +353,25 @@ public final class CapabilityScanner {
                     metadata["manager"] = manager
                     metadata["event"] = event
                     metadata["matcher"] = matcher ?? ""
-                    metadata["hookType"] = hook["type"] as? String ?? ""
-                    metadata["command"] = hook["command"] as? String ?? ""
-                    metadata["url"] = hook["url"] as? String ?? ""
+                    metadata["hookType"] = descriptor.kind
+                    metadata["handlerKind"] = descriptor.kind
                     metadata["timeout"] = stringValue(hook["timeout"])
                     metadata["entryIndex"] = String(entryIndex)
                     metadata["hookIndex"] = String(hookIndex)
                     metadata["stateKey"] = stateKey
+                    metadata["filter"] = hook["if"] as? String ?? ""
+                    descriptor.metadata.forEach { metadata[$0.key] = $0.value }
 
                     capabilities.append(Capability(
                         id: stableID(type: .hook, path: pathKey),
-                        name: hookDisplayName(event: event, matcher: matcher),
+                        name: hookDisplayName(event: event, matcher: matcher, hostName: descriptor.hostName, kind: descriptor.kind),
                         type: .hook,
                         scope: scope,
                         statuses: hookStatuses(enabled: enabled, risks: risks),
                         risks: risks,
                         source: CapabilitySource(kind: sourceKind, path: url.path, packageName: baseMetadata["pluginName"]),
                         pluginID: pluginID,
-                        summary: hookSummary(for: hook),
+                        summary: descriptor.summary,
                         metadata: fileMetadata(for: url, merging: metadata.filter { !$0.value.isEmpty })
                     ))
                     scannedCount += 1
@@ -383,20 +385,99 @@ public final class CapabilityScanner {
         if let hooks = entry["hooks"] as? [[String: Any]] {
             return hooks
         }
-        if entry["command"] != nil || entry["url"] != nil || entry["prompt"] != nil {
+        if entry["command"] != nil
+            || entry["url"] != nil
+            || entry["prompt"] != nil
+            || entry["tool"] != nil
+            || entry["server"] != nil
+            || entry["agent"] != nil {
             return [entry]
         }
         return []
     }
 
-    private func hookDisplayName(event: String, matcher: String?) -> String {
-        guard let matcher, !matcher.isEmpty else {
-            return "\(event) hook"
-        }
-        return "\(event) (\(matcher))"
+    private struct HookHandlerDescriptor {
+        var kind: String
+        var hostName: String?
+        var summary: String?
+        var metadata: [String: String]
     }
 
-    private func hookSummary(for hook: [String: Any]) -> String? {
+    private struct HookCommandAnalysis {
+        var hostName: String?
+        var executable: String?
+        var runner: String?
+        var script: String?
+    }
+
+    private func hookDescriptor(for hook: [String: Any], baseMetadata: [String: String]) -> HookHandlerDescriptor {
+        let kind = hookKind(for: hook)
+        var metadata: [String: String] = [:]
+
+        switch kind.lowercased() {
+        case "command":
+            let command = hook["command"] as? String ?? ""
+            let analysis = analyzeHookCommand(command, pluginName: baseMetadata["pluginName"])
+            metadata["command"] = command
+            metadata["handlerHost"] = analysis.hostName ?? ""
+            metadata["handlerExecutable"] = analysis.executable ?? ""
+            metadata["handlerRunner"] = analysis.runner ?? ""
+            metadata["handlerScript"] = analysis.script ?? ""
+            return HookHandlerDescriptor(kind: kind, hostName: analysis.hostName, summary: command, metadata: metadata)
+        case "http":
+            let url = hook["url"] as? String ?? ""
+            let host = URL(string: url)?.host
+            metadata["url"] = url
+            metadata["handlerHost"] = host ?? ""
+            return HookHandlerDescriptor(kind: kind, hostName: host, summary: url, metadata: metadata)
+        case "prompt":
+            let prompt = hook["prompt"] as? String ?? ""
+            metadata["prompt"] = prompt
+            return HookHandlerDescriptor(kind: kind, hostName: "Prompt", summary: prompt, metadata: metadata)
+        case "agent":
+            let agentName = hook["agent"] as? String ?? hook["name"] as? String ?? "Agent"
+            metadata["agent"] = agentName
+            return HookHandlerDescriptor(kind: kind, hostName: humanizedHookHost(agentName), summary: agentName, metadata: metadata)
+        case "mcp_tool":
+            let toolName = hook["tool"] as? String ?? hook["name"] as? String ?? hook["server"] as? String ?? "MCP Tool"
+            metadata["tool"] = toolName
+            return HookHandlerDescriptor(kind: kind, hostName: humanizedHookHost(toolName), summary: toolName, metadata: metadata)
+        default:
+            let summary = hookSummaryValue(for: hook)
+            return HookHandlerDescriptor(kind: kind, hostName: nil, summary: summary, metadata: metadata)
+        }
+    }
+
+    private func hookKind(for hook: [String: Any]) -> String {
+        if let type = hook["type"] as? String, !type.isEmpty {
+            return type
+        }
+        if hook["command"] is String { return "command" }
+        if hook["url"] is String { return "http" }
+        if hook["prompt"] is String { return "prompt" }
+        if hook["tool"] is String || hook["server"] is String { return "mcp_tool" }
+        if hook["agent"] is String { return "agent" }
+        return "hook"
+    }
+
+    private func hookDisplayName(event: String, matcher: String?, hostName: String?, kind: String) -> String {
+        let eventName = {
+            guard let matcher, !matcher.isEmpty else {
+                return event
+            }
+            return "\(event) (\(matcher))"
+        }()
+
+        if let hostName, !hostName.isEmpty {
+            return "\(hostName) - \(eventName)"
+        }
+        if kind != "command", kind != "hook" {
+            return "\(humanizedHookHost(kind)) - \(eventName)"
+        }
+        return "\(eventName) hook"
+    }
+
+    private func hookSummaryValue(for hook: [String: Any]) -> String? {
         if let command = hook["command"] as? String {
             return command
         }
@@ -407,6 +488,169 @@ public final class CapabilityScanner {
             return prompt
         }
         return nil
+    }
+
+    private func analyzeHookCommand(_ command: String, pluginName: String?) -> HookCommandAnalysis {
+        let words = normalizedCommandWords(from: command)
+        guard let executable = words.first else {
+            return HookCommandAnalysis(hostName: pluginName.map(humanizedHookHost), executable: nil, runner: nil, script: nil)
+        }
+
+        let executableName = fileStem(forShellToken: executable)
+        let runnerNames: Set<String> = [
+            "bash", "sh", "zsh", "fish",
+            "python", "python3", "node", "ruby", "perl",
+            "deno", "bun", "npx", "tsx", "uv", "swift"
+        ]
+        let runner = runnerNames.contains(executableName.lowercased()) ? executableName : nil
+        let script: String?
+        if runner == nil {
+            script = executable
+        } else if executableName.lowercased() == "swift" {
+            script = nil
+        } else if executableName.lowercased() == "npx" {
+            script = words.dropFirst().first
+        } else {
+            script = scriptToken(in: words.dropFirst())
+        }
+        let hostName = hookHostName(command: command, pluginName: pluginName, script: script, executable: executable)
+
+        return HookCommandAnalysis(hostName: hostName, executable: executableName, runner: runner, script: script)
+    }
+
+    private func normalizedCommandWords(from command: String) -> [String] {
+        var words = shellWords(from: command)
+        while let first = words.first {
+            if first == "env" {
+                words.removeFirst()
+                continue
+            }
+            if first.contains("="), !first.hasPrefix("/"), !first.hasPrefix("./"), !first.hasPrefix("../") {
+                words.removeFirst()
+                continue
+            }
+            break
+        }
+        return words
+    }
+
+    private func scriptToken(in tokens: ArraySlice<String>) -> String? {
+        var skipNext = false
+        for token in tokens {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            if ["-c", "-lc", "-e", "-m"].contains(token) {
+                return nil
+            }
+            if ["--require", "--loader", "--import", "--eval"].contains(token) {
+                skipNext = true
+                continue
+            }
+            if token.hasPrefix("-") {
+                continue
+            }
+            return token
+        }
+        return nil
+    }
+
+    private func hookHostName(command: String, pluginName: String?, script: String?, executable: String) -> String {
+        let lowercasedCommand = command.lowercased()
+        if lowercasedCommand.contains("claude-island-state.py")
+            || lowercasedCommand.contains("claude island")
+            || lowercasedCommand.contains("vibe-notch") {
+            return "Vibe Notch"
+        }
+        if let pluginName, !pluginName.isEmpty {
+            return humanizedHookHost(pluginName)
+        }
+        if let script, !script.isEmpty {
+            return humanizedHookHost(fileStem(forShellToken: script))
+        }
+        return humanizedHookHost(fileStem(forShellToken: executable))
+    }
+
+    private func shellWords(from command: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+
+        func flush() {
+            if !current.isEmpty {
+                words.append(current)
+                current = ""
+            }
+        }
+
+        for character in command {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "'" || character == "\"" {
+                quote = character
+                continue
+            }
+            if character.isWhitespace {
+                flush()
+                continue
+            }
+            current.append(character)
+        }
+        flush()
+        return words
+    }
+
+    private func fileStem(forShellToken token: String) -> String {
+        let trimmed = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        let lastComponent = trimmed.split(separator: "/").last.map(String.init) ?? trimmed
+        let withoutExtension = (lastComponent as NSString).deletingPathExtension
+        return withoutExtension.isEmpty ? lastComponent : withoutExtension
+    }
+
+    private func humanizedHookHost(_ value: String) -> String {
+        let normalized = value
+            .replacingOccurrences(of: "${CLAUDE_PLUGIN_ROOT}", with: "")
+            .replacingOccurrences(of: "${PLUGIN_ROOT}", with: "")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: ".", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return value }
+        return normalized
+            .split(separator: " ")
+            .map { part in
+                let lower = part.lowercased()
+                switch lower {
+                case "mcp":
+                    return "MCP"
+                case "http":
+                    return "HTTP"
+                case "url":
+                    return "URL"
+                case "cli":
+                    return "CLI"
+                default:
+                    return lower.prefix(1).uppercased() + String(lower.dropFirst())
+                }
+            }
+            .joined(separator: " ")
     }
 
     private func hookStatuses(enabled: Bool?, risks: [RiskLevel]) -> [CapabilityStatus] {

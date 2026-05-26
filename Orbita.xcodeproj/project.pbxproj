@@ -37,6 +37,7 @@
 		200000000000000000001014 /* OrbitaWindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000014 /* OrbitaWindowChrome.swift */; };
 		200000000000000000001015 /* ProjectCapabilityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000015 /* ProjectCapabilityStore.swift */; };
 		200000000000000000001016 /* OrbitaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000016 /* OrbitaTheme.swift */; };
+		200000000000000000001017 /* UserDirectoryAccessPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000017 /* UserDirectoryAccessPreflight.swift */; };
 		300000000000000000001001 /* libOrbitaCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 300000000000000000000002 /* libOrbitaCore.a */; };
 		500000000000000000001001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002002 /* Sparkle */; };
 /* End PBXBuildFile section */
@@ -82,6 +83,7 @@
 		200000000000000000000014 /* OrbitaWindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitaWindowChrome.swift; sourceTree = "<group>"; };
 		200000000000000000000015 /* ProjectCapabilityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectCapabilityStore.swift; sourceTree = "<group>"; };
 		200000000000000000000016 /* OrbitaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitaTheme.swift; sourceTree = "<group>"; };
+		200000000000000000000017 /* UserDirectoryAccessPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDirectoryAccessPreflight.swift; sourceTree = "<group>"; };
 		300000000000000000000001 /* Orbita.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Orbita.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000002 /* libOrbitaCore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libOrbitaCore.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -147,6 +149,7 @@
 				200000000000000000000016 /* OrbitaTheme.swift */,
 				200000000000000000000014 /* OrbitaWindowChrome.swift */,
 				200000000000000000000015 /* ProjectCapabilityStore.swift */,
+				200000000000000000000017 /* UserDirectoryAccessPreflight.swift */,
 			);
 			path = OrbitaApp;
 			sourceTree = "<group>";
@@ -288,6 +291,7 @@
 				200000000000000000001016 /* OrbitaTheme.swift in Sources */,
 				200000000000000000001014 /* OrbitaWindowChrome.swift in Sources */,
 				200000000000000000001015 /* ProjectCapabilityStore.swift in Sources */,
+				200000000000000000001017 /* UserDirectoryAccessPreflight.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

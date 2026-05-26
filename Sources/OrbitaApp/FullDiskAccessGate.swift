@@ -78,6 +78,8 @@ final class FullDiskAccessGate: ObservableObject {
 
 struct FullDiskAccessOnboardingView: View {
     let status: FullDiskAccessStatus
+    let directoryAccessMessage: String?
+    let isPreflightingDirectoryAccess: Bool
     let onOpenSettings: () -> Void
     let onContinueWithoutAccess: () -> Void
 
@@ -101,7 +103,7 @@ struct FullDiskAccessOnboardingView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("You can skip Full Disk Access and grant access to your home folder instead. Orbita will ask for that folder only after you choose to skip.")
+                        Text("If you skip, Orbita will preflight the exact user and project paths it is about to scan so macOS can show permission prompts before the workspace opens.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -123,6 +125,15 @@ struct FullDiskAccessOnboardingView: View {
                         .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
+                if let directoryAccessMessage {
+                    Label(directoryAccessMessage, systemImage: isPreflightingDirectoryAccess ? "arrow.triangle.2.circlepath" : "folder.badge.questionmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
                 HStack(spacing: 10) {
                     Button(action: onOpenSettings) {
                         Label("Open System Settings", systemImage: "gear")
@@ -131,10 +142,11 @@ struct FullDiskAccessOnboardingView: View {
                     .controlSize(.large)
 
                     Button(action: onContinueWithoutAccess) {
-                        Label("Skip and Choose Folder", systemImage: "folder")
+                        Label(isPreflightingDirectoryAccess ? "Checking Access" : "Skip and Continue", systemImage: "arrow.right")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                    .disabled(isPreflightingDirectoryAccess)
 
                     Button {
                         NSApplication.shared.terminate(nil)

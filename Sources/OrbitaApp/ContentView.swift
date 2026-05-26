@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import OrbitaCore
@@ -28,7 +27,9 @@ struct ContentView: View {
     @State private var pendingDeletePlan: PendingDeletePlan?
     @State private var importerPresented = false
     @State private var didPrepareStore = false
-    @State private var limitedDirectoryAccessURL: URL?
+    @State private var didPreflightUserDirectoryAccess = false
+    @State private var isPreflightingUserDirectoryAccess = false
+    @State private var userDirectoryAccessMessage: String?
 
     var body: some View {
         Group {
@@ -38,11 +39,13 @@ struct ContentView: View {
             } else {
                 FullDiskAccessOnboardingView(
                     status: fullDiskAccess.status,
+                    directoryAccessMessage: userDirectoryAccessMessage,
+                    isPreflightingDirectoryAccess: isPreflightingUserDirectoryAccess,
                     onOpenSettings: {
                         fullDiskAccess.openSystemSettings()
                     },
                     onContinueWithoutAccess: {
-                        requestLimitedDirectoryAccess()
+                        preflightUserDirectoryAccess()
                     }
                 )
                 .transition(.opacity)
@@ -350,28 +353,29 @@ struct ContentView: View {
     }
 
     private var canEnterApp: Bool {
-        fullDiskAccess.status.isGranted || limitedDirectoryAccessURL != nil
+        fullDiskAccess.status.isGranted || didPreflightUserDirectoryAccess
     }
 
-    private func requestLimitedDirectoryAccess() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let panel = NSOpenPanel()
-        panel.title = "Grant Folder Access"
-        panel.message = "Select your home folder so Orbita can read local agent config and project directories without Full Disk Access."
-        panel.prompt = "Grant Access"
-        panel.directoryURL = home
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
+    private func preflightUserDirectoryAccess() {
+        guard !isPreflightingUserDirectoryAccess else { return }
+        isPreflightingUserDirectoryAccess = true
+        userDirectoryAccessMessage = "Checking the folders Orbita is about to scan..."
 
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else {
-                return
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                UserDirectoryAccessPreflight.run()
+            }.value
+
+            isPreflightingUserDirectoryAccess = false
+            if result.deniedURLs.isEmpty {
+                didPreflightUserDirectoryAccess = true
+                userDirectoryAccessMessage = nil
+                prepareStoreIfPermitted()
+            } else {
+                didPreflightUserDirectoryAccess = false
+                let path = result.deniedURLs.first?.abbreviatedPath ?? "a required folder"
+                userDirectoryAccessMessage = "Orbita still cannot read \(path). Allow the macOS prompt, then try again or enable Full Disk Access."
             }
-            _ = url.startAccessingSecurityScopedResource()
-            limitedDirectoryAccessURL = url
-            prepareStoreIfPermitted()
         }
     }
 
