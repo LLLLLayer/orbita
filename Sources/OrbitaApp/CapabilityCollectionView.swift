@@ -406,7 +406,7 @@ private struct CapabilityGroupTile: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 8) {
                 CapabilityKindPill(
                     title: group.kindLabel,
@@ -416,19 +416,9 @@ private struct CapabilityGroupTile: View {
                 Spacer(minLength: 6)
                 GroupTopBadge(text: groupTopBadgeText, isExpanded: isExpanded)
             }
+            .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(group.name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(groupSubtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            CapabilityTileTextBlock(title: group.name, subtitle: groupSubtitle)
 
             Spacer(minLength: 0)
 
@@ -436,6 +426,7 @@ private struct CapabilityGroupTile: View {
                 Spacer(minLength: 0)
                 AgentSyncStack(agents: visibleAgents, onSync: onSync)
             }
+            .frame(height: CapabilityTileMetrics.footerHeight, alignment: .bottom)
         }
         .padding(12)
         .frame(
@@ -537,7 +528,7 @@ private struct CapabilityTile: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 8) {
                 CapabilityKindPill(
                     title: capability.type.displayName,
@@ -546,20 +537,9 @@ private struct CapabilityTile: View {
                 )
                 Spacer(minLength: 6)
             }
+            .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(capability.name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(sourceLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            CapabilityTileTextBlock(title: capability.name, subtitle: sourceLabel)
 
             Spacer(minLength: 0)
 
@@ -567,6 +547,7 @@ private struct CapabilityTile: View {
                 Spacer(minLength: 0)
                 AgentSyncStack(agents: visibleAgents, onSync: onSync)
             }
+            .frame(height: CapabilityTileMetrics.footerHeight, alignment: .bottom)
         }
         .padding(12)
         .frame(
@@ -607,7 +588,36 @@ private struct CapabilityTile: View {
 }
 
 private enum CapabilityTileMetrics {
-    static let height: CGFloat = 142
+    static let height: CGFloat = 164
+    static let headerHeight: CGFloat = 30
+    static let textHeight: CGFloat = 58
+    static let footerHeight: CGFloat = 30
+}
+
+private struct CapabilityTileTextBlock: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(
+            maxWidth: .infinity,
+            minHeight: CapabilityTileMetrics.textHeight,
+            maxHeight: CapabilityTileMetrics.textHeight,
+            alignment: .topLeading
+        )
+    }
 }
 
 private extension Capability {

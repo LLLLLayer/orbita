@@ -418,7 +418,11 @@ struct ContentView: View {
 
     private var capabilityDisplaySections: [CapabilityCollectionSection] {
         let items = CapabilityDisplayGrouper()
-            .items(for: displayGroupingCapabilities, preservesInputOrder: true)
+            .items(
+                for: displayGroupingCapabilities,
+                preservesInputOrder: true,
+                groupsPluginChildren: selectedGroup == .all || selectedGroup == .plugin
+            )
             .filter(displayItemMatchesSelectedGroup)
         let grouped = Dictionary(grouping: items, by: CapabilitySectionKind.init(item:))
         return CapabilitySectionKind.allCases.compactMap { kind in
@@ -446,7 +450,12 @@ struct ContentView: View {
                 return group.kind == .plugin
             }
         default:
-            return selectedGroup.matches(item.inspectionCapability)
+            switch item {
+            case let .capability(capability):
+                return selectedGroup.matches(capability)
+            case let .group(group):
+                return group.capabilities.contains { selectedGroup.matches($0) }
+            }
         }
     }
 

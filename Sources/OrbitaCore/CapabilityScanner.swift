@@ -1622,8 +1622,9 @@ public final class CapabilityScanner {
             metadata["disableMode"] = "config"
             metadata["disableCommand"] = "Set [plugins.\"\(manifest.selector)\"].enabled = false in \(configPath)"
 
+            let pluginID = "plugin:codex-cache:\(normalized(manifest.marketplace)):\(normalized(manifest.pluginName))"
             capabilities.append(Capability(
-                id: "plugin:codex-cache:\(normalized(manifest.marketplace)):\(normalized(manifest.pluginName))",
+                id: pluginID,
                 name: pluginDisplayName(manifest.pluginName),
                 type: .plugin,
                 scope: scope,
@@ -1641,6 +1642,7 @@ public final class CapabilityScanner {
                 sourceKind: "codex-plugin-hook",
                 manager: "codex",
                 enabled: enabled,
+                pluginID: pluginID,
                 pluginSelector: manifest.selector,
                 pluginName: manifest.pluginName,
                 marketplace: manifest.marketplace,
@@ -1858,8 +1860,9 @@ public final class CapabilityScanner {
                     metadata["gitCommitSha"] = gitCommitSha
                 }
 
+                let pluginID = "plugin:claude:\(normalized(selector)):\(scopeValue):\(normalized(projectPath ?? "global"))"
                 capabilities.append(Capability(
-                    id: "plugin:claude:\(normalized(selector)):\(scopeValue):\(normalized(projectPath ?? "global"))",
+                    id: pluginID,
                     name: pluginDisplayName(pluginName),
                     type: .plugin,
                     scope: scope,
@@ -1876,6 +1879,7 @@ public final class CapabilityScanner {
                     sourceKind: "claude-plugin-hook",
                     manager: "claude-code",
                     enabled: enabled,
+                    pluginID: pluginID,
                     pluginSelector: selector,
                     pluginName: pluginName,
                     marketplace: marketplace,
@@ -1906,6 +1910,7 @@ public final class CapabilityScanner {
         sourceKind: String,
         manager: String,
         enabled: Bool?,
+        pluginID: String,
         pluginSelector: String,
         pluginName: String,
         marketplace: String,
@@ -1930,7 +1935,7 @@ public final class CapabilityScanner {
                 into: &capabilities,
                 issues: &issues,
                 inheritedEnabled: enabled,
-                pluginID: pluginSelector,
+                pluginID: pluginID,
                 metadata: [
                     "pluginSelector": pluginSelector,
                     "pluginName": pluginName,

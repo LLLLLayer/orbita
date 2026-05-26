@@ -1658,8 +1658,11 @@ final class CapabilityScannerTests: XCTestCase {
         let config = registryRoot.appendingPathComponent("config.toml")
         let manifest = registryRoot
             .appendingPathComponent("cache/test-marketplace/sample-plugin/1.2.3/.codex-plugin/plugin.json")
+        let hooks = registryRoot
+            .appendingPathComponent("cache/test-marketplace/sample-plugin/1.2.3/hooks/hooks.json")
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hooks.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
         [plugins."sample-plugin@test-marketplace"]
         enabled = false
@@ -1671,6 +1674,23 @@ final class CapabilityScannerTests: XCTestCase {
           "description": "Sample plugin"
         }
         """.write(to: manifest, atomically: true, encoding: .utf8)
+        try """
+        {
+          "hooks": {
+            "PostToolUse": [
+              {
+                "matcher": "Write",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node hooks/sample.js"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: hooks, atomically: true, encoding: .utf8)
         defer {
             try? FileManager.default.removeItem(at: projectRoot)
             try? FileManager.default.removeItem(at: registryRoot)
@@ -1702,6 +1722,19 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(plugin.metadata["disableMode"], "config")
         XCTAssertTrue(plugin.metadata["disableCommand"]?.contains("[plugins.\"sample-plugin@test-marketplace\"]") == true)
         XCTAssertTrue(plugin.metadata["updateCommand"]?.contains("codex plugin marketplace upgrade 'test-marketplace'") == true)
+
+        let hook = try XCTUnwrap(result.capabilities.first { $0.source.kind == "codex-plugin-hook" })
+        XCTAssertEqual(hook.type, .hook)
+        XCTAssertEqual(hook.pluginID, plugin.id)
+        XCTAssertEqual(hook.metadata["pluginSelector"], "sample-plugin@test-marketplace")
+
+        let items = CapabilityDisplayGrouper().items(for: [plugin, hook], preservesInputOrder: true)
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected plugin hook to be grouped under the real plugin")
+        }
+        XCTAssertEqual(group.kind, .plugin)
+        XCTAssertEqual(group.representative?.id, plugin.id)
     }
 
     func testScansProjectCodexPluginWhenUserScopeIsDisabled() throws {
@@ -1753,6 +1786,8 @@ final class CapabilityScannerTests: XCTestCase {
             atPath: "\(registryRoot.path)/cache/test-marketplace/project-tool/2.0.0",
             withIntermediateDirectories: true
         )
+        let pluginHooks = registryRoot.appendingPathComponent("cache/test-marketplace/project-tool/2.0.0/hooks/hooks.json")
+        try FileManager.default.createDirectory(at: pluginHooks.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
         {
           "version": 2,
@@ -1786,6 +1821,22 @@ final class CapabilityScannerTests: XCTestCase {
           }
         }
         """.write(to: settings, atomically: true, encoding: .utf8)
+        try """
+        {
+          "hooks": {
+            "SessionStart": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "bash hooks/project-tool.sh"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: pluginHooks, atomically: true, encoding: .utf8)
         defer {
             try? FileManager.default.removeItem(at: projectRoot)
             try? FileManager.default.removeItem(at: registryRoot)
@@ -1809,6 +1860,19 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(plugin.metadata["manager"], "claude-code")
         XCTAssertTrue(plugin.metadata["disableCommand"]?.contains("claude plugin disable 'project-tool@test-marketplace'") == true)
         XCTAssertFalse(result.capabilities.contains { $0.name == "Other Project" })
+
+        let hook = try XCTUnwrap(result.capabilities.first { $0.source.kind == "claude-plugin-hook" })
+        XCTAssertEqual(hook.type, .hook)
+        XCTAssertEqual(hook.pluginID, plugin.id)
+        XCTAssertEqual(hook.metadata["pluginSelector"], "project-tool@test-marketplace")
+
+        let items = CapabilityDisplayGrouper().items(for: [plugin, hook], preservesInputOrder: true)
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected Claude plugin hook to be grouped under the real plugin")
+        }
+        XCTAssertEqual(group.kind, .plugin)
+        XCTAssertEqual(group.representative?.id, plugin.id)
     }
 
     func testAgentsSkillsExposeSkillsCLIUpdateCommand() throws {

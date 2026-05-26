@@ -190,17 +190,18 @@ public final class CapabilityDisplayGrouper {
     public func items(
         for capabilities: [Capability],
         minimumGroupSize: Int = 3,
-        preservesInputOrder: Bool = false
+        preservesInputOrder: Bool = false,
+        groupsPluginChildren: Bool = true
     ) -> [CapabilityDisplayItem] {
         let sorted = preservesInputOrder ? capabilities : capabilities.sorted(by: sortByName)
         let mirrorGroups = mirrorDisplayGroups(in: sorted, preservesInputOrder: preservesInputOrder)
         let mirroredCapabilityIDs = Set(mirrorGroups.values.flatMap(\.capabilities).map(\.id))
-        let pluginCapabilities = Dictionary(uniqueKeysWithValues: sorted.compactMap { capability in
+        let pluginCapabilities = groupsPluginChildren ? Dictionary(uniqueKeysWithValues: sorted.compactMap { capability in
             capability.type == .plugin ? (capability.id, capability) : nil
-        })
-        let pluginChildren = Dictionary(grouping: sorted.filter { capability in
+        }) : [:]
+        let pluginChildren = groupsPluginChildren ? Dictionary(grouping: sorted.filter { capability in
             capability.type != .plugin && capability.pluginID != nil && !mirroredCapabilityIDs.contains(capability.id)
-        }, by: { $0.pluginID ?? "" })
+        }, by: { $0.pluginID ?? "" }) : [:]
 
         let pluginGroupIDs = Set(pluginChildren.compactMap { pluginID, children in
             pluginCapabilities[pluginID] != nil || children.count >= minimumGroupSize ? pluginID : nil
