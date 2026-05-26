@@ -6,6 +6,7 @@ struct ContentView: View {
     @StateObject private var store = ProjectCapabilityStore()
     @StateObject private var fullDiskAccess = FullDiskAccessGate()
     @AppStorage("customAgentsJSON") private var customAgentsJSON = "[]"
+    @AppStorage("agentOrderJSON") private var agentOrderJSON = "[]"
     @AppStorage("scanRefreshPolicy") private var scanRefreshPolicy = ScanRefreshPolicy.oneHour.rawValue
     @AppStorage("orbitaLanguageCode") private var orbitaLanguageCode = OrbitaLanguage.english.rawValue
     @AppStorage("capabilitySortOption") private var capabilitySortOption = CapabilitySortOption.nameAscending.rawValue
@@ -18,6 +19,7 @@ struct ContentView: View {
     @State private var sidebarCollapsed = false
     @State private var inspectorVisible = true
     @State private var addingAgentPresented = false
+    @State private var managingAgentsPresented = false
     @State private var settingsPresented = false
     @State private var pendingPlan: ApplyPlan?
     @State private var pendingDeletePlan: PendingDeletePlan?
@@ -108,6 +110,19 @@ struct ContentView: View {
                 addingAgentPresented = false
             }
         }
+        .sheet(isPresented: $managingAgentsPresented) {
+            ManageAgentsSheet(
+                agentOptions: agentOptions,
+                defaultOrder: defaultAgentOptions,
+                onSave: { orderedAgents in
+                    saveAgentOrder(orderedAgents)
+                    managingAgentsPresented = false
+                },
+                onCancel: {
+                    managingAgentsPresented = false
+                }
+            )
+        }
         .onAppear {
             store.configure(refreshPolicy: scanRefreshPolicy)
             fullDiskAccess.refresh()
@@ -170,6 +185,9 @@ struct ContentView: View {
                         expandedGroupIDs: $expandedGroupIDs,
                         onAddAgent: {
                             addingAgentPresented = true
+                        },
+                        onManageAgents: {
+                            managingAgentsPresented = true
                         },
                         onOpenProject: {
                             importerPresented = true
@@ -358,6 +376,25 @@ struct ContentView: View {
     }
 
     private var agentOptions: [AgentSelection] {
+        let defaultOptions = defaultAgentOptions
+        let orderIDs = agentOrderIDs
+        guard !orderIDs.isEmpty else {
+            return defaultOptions
+        }
+
+        let orderRank = Dictionary(uniqueKeysWithValues: orderIDs.enumerated().map { ($0.element, $0.offset) })
+        return defaultOptions.enumerated().sorted { lhs, rhs in
+            let lhsRank = orderRank[lhs.element.id] ?? Int.max
+            let rhsRank = orderRank[rhs.element.id] ?? Int.max
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
+            return lhs.offset < rhs.offset
+        }
+        .map(\.element)
+    }
+
+    private var defaultAgentOptions: [AgentSelection] {
         AgentSelection.defaultAgents + customAgents
     }
 
@@ -368,6 +405,23 @@ struct ContentView: View {
             return []
         }
         return agents
+    }
+
+    private var agentOrderIDs: [String] {
+        guard let data = agentOrderJSON.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return ids
+    }
+
+    private func saveAgentOrder(_ orderedAgents: [AgentSelection]) {
+        let ids = orderedAgents.map(\.id)
+        if let data = try? JSONEncoder().encode(ids),
+           let json = String(data: data, encoding: .utf8) {
+            agentOrderJSON = json
+        }
     }
 
     private func apply(_ plan: ApplyPlan) {

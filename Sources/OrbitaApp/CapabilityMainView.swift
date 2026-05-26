@@ -17,6 +17,7 @@ struct CapabilityMainView: View {
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let onAddAgent: () -> Void
+    let onManageAgents: () -> Void
     let onOpenProject: () -> Void
     let onRefresh: () -> Void
     let onMerge: () -> Void
@@ -48,7 +49,8 @@ struct CapabilityMainView: View {
                                 agentOptions: agentOptions,
                                 selectedAgent: $selectedAgent,
                                 selectedGroup: $selectedGroup,
-                                onAddAgent: onAddAgent
+                                onAddAgent: onAddAgent,
+                                onManageAgents: onManageAgents
                             )
 
                             if selectedAgent == nil {
@@ -375,6 +377,7 @@ struct CapabilityFilterBar: View {
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     let onAddAgent: () -> Void
+    let onManageAgents: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -399,6 +402,14 @@ struct CapabilityFilterBar: View {
                 .buttonStyle(.plain)
                 .orbitaControlSurface(cornerRadius: 10)
                 .help("Add coding agent")
+                Button(action: onManageAgents) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .orbitaControlSurface(cornerRadius: 10)
+                .help("Manage agent order")
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
