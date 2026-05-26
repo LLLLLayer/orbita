@@ -22,7 +22,7 @@ enum CapabilitySourceClassifier {
     }
 
     static func sourceKind(for capability: Capability) -> SourceKind {
-        let path = capability.source.path
+        let path = classificationPath(for: capability)
         if path.contains("/.agents/") {
             return .agents
         }
@@ -42,6 +42,19 @@ enum CapabilitySourceClassifier {
             return .project
         }
         return .other
+    }
+
+    private static func classificationPath(for capability: Capability) -> String {
+        if let path = capability.metadata["sourcePath"],
+           !path.isEmpty,
+           !isInternalOrbitaPath(path) {
+            return path
+        }
+        return capability.source.path
+    }
+
+    private static func isInternalOrbitaPath(_ path: String) -> Bool {
+        path.contains("/.orbita/")
     }
 
     enum SourceKind: String, CaseIterable {

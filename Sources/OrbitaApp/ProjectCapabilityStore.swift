@@ -80,12 +80,7 @@ final class ProjectCapabilityStore: ObservableObject {
         do {
             library = try projectLibraryStore.load()
             projects = library.projects
-            if let lastProjectPath = library.lastProjectPath,
-               FileManager.default.fileExists(atPath: lastProjectPath) {
-                openProject(URL(fileURLWithPath: lastProjectPath), recordInLibrary: false)
-            } else {
-                openEnvironment()
-            }
+            openEnvironment()
         } catch {
             errorMessage = error.localizedDescription
             openEnvironment()
@@ -622,6 +617,7 @@ final class ProjectCapabilityStore: ObservableObject {
         switch plan.action {
         case .enable:
             setStatus(.enabled, capabilityID: plan.capabilityID, in: &projected)
+            applyOptimisticSkillSync(from: plan, in: &projected)
         case .disable:
             setStatus(.disabled, capabilityID: plan.capabilityID, in: &projected)
         case .delete:
@@ -657,6 +653,74 @@ final class ProjectCapabilityStore: ObservableObject {
         if !capability.statuses.contains(status) {
             capability.statuses.append(status)
         }
+    }
+
+    private func applyOptimisticSkillSync(from plan: ApplyPlan, in graph: inout CapabilityGraph) {
+        guard let agentID = syncAgentID(from: plan),
+              let agent = SkillsAgentCatalog.agents.first(where: { $0.id == agentID })
+        else {
+            return
+        }
+
+        let symlinkTargetsByName = plan.operations
+            .filter { $0.kind == .createSymlink }
+            .reduce(into: [String: String]()) { result, operation in
+                result[URL(fileURLWithPath: operation.path).lastPathComponent] = operation.path
+            }
+        let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
+        for index in graph.capabilities.indices where affectedIDs.contains(graph.capabilities[index].id) {
+            guard graph.capabilities[index].type == .skill else {
+                continue
+            }
+            let installPath = symlinkTargetsByName[graph.capabilities[index].name]
+            appendMetadataListValue(agentID, key: "skillsInstalledAgentIDs", separator: ",", in: &graph.capabilities[index])
+            appendMetadataListValue(agent.displayName, key: "skillsInstalledAgents", separator: ", ", in: &graph.capabilities[index])
+            if let installPath {
+                upsertSkillInstallTarget(agentID: agentID, installPath: installPath, in: &graph.capabilities[index])
+            }
+        }
+    }
+
+    private func syncAgentID(from plan: ApplyPlan) -> String? {
+        for operation in plan.operations where operation.kind == .appendLog {
+            guard let content = operation.content,
+                  let range = content.range(of: " agent-target:")
+            else {
+                continue
+            }
+            let suffix = content[range.upperBound...]
+            let value = suffix.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).first
+            if let value, !value.isEmpty {
+                return String(value)
+            }
+        }
+        return nil
+    }
+
+    private func appendMetadataListValue(
+        _ value: String,
+        key: String,
+        separator: String,
+        in capability: inout Capability
+    ) {
+        let values = capability.metadata[key]?
+            .split(separator: separator.first ?? ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+        guard !values.contains(value) else {
+            return
+        }
+        capability.metadata[key] = (values + [value]).joined(separator: separator)
+    }
+
+    private func upsertSkillInstallTarget(agentID: String, installPath: String, in capability: inout Capability) {
+        let prefix = "\(agentID)="
+        var lines = capability.metadata["skillsInstallTargets"]?
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init) ?? []
+        lines.removeAll { $0.hasPrefix(prefix) }
+        lines.append("\(agentID)=symlink:\(installPath)")
+        capability.metadata["skillsInstallTargets"] = lines.joined(separator: "\n")
     }
 }
 
