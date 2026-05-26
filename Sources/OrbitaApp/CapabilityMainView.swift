@@ -621,15 +621,15 @@ private struct SourceOverviewStrip: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ForEach(sourceSummaries, id: \.kind) { summary in
-                    HStack(alignment: .top, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
                         Image(systemName: summary.kind.systemImage)
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(.secondary)
-                            .frame(width: 20, height: 22)
+                            .frame(width: 18, height: 22)
 
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(summary.kind.title)
                                 .font(.subheadline.weight(.semibold))
                                 .lineLimit(1)
@@ -640,16 +640,16 @@ private struct SourceOverviewStrip: View {
                             Text(secondaryDetail(for: summary))
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                     .frame(width: 258, alignment: .topLeading)
-                    .frame(minHeight: 76, alignment: .topLeading)
-                    .orbitaCard(cornerRadius: 16, shadowRadius: 5, shadowY: 2)
+                    .frame(height: 72, alignment: .topLeading)
+                    .orbitaControlSurface(cornerRadius: 10)
                 }
             }
         }
