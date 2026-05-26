@@ -215,6 +215,46 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(group.inspectionCapability.type, .hook)
     }
 
+    func testCapabilityDisplayGrouperSplitsHookMirrorsByHandlerHost() {
+        let sharedPath = "/tmp/hooks.json"
+        let ab = Capability(
+            id: "hook:ab",
+            name: "AB Agent Collect - PreToolUse (*)",
+            type: .hook,
+            scope: .user,
+            source: CapabilitySource(kind: "codex-hook", path: sharedPath),
+            metadata: ["handlerHost": "AB Agent Collect", "event": "PreToolUse", "matcher": "*"]
+        )
+        let vibeStart = Capability(
+            id: "hook:vibe-start",
+            name: "Vibe Island - SessionStart",
+            type: .hook,
+            scope: .user,
+            source: CapabilitySource(kind: "codex-hook", path: sharedPath),
+            metadata: ["handlerHost": "Vibe Island", "event": "SessionStart"]
+        )
+        let vibeStop = Capability(
+            id: "hook:vibe-stop",
+            name: "Vibe Island - Stop (*)",
+            type: .hook,
+            scope: .user,
+            source: CapabilitySource(kind: "codex-hook", path: sharedPath),
+            metadata: ["handlerHost": "Vibe Island", "event": "Stop", "matcher": "*"]
+        )
+
+        let items = CapabilityDisplayGrouper().items(for: [ab, vibeStart, vibeStop], preservesInputOrder: true)
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.contains { item in
+            guard case let .capability(capability) = item else { return false }
+            return capability.id == "hook:ab"
+        })
+        XCTAssertTrue(items.contains { item in
+            guard case let .group(group) = item else { return false }
+            return group.capabilities.map(\.id) == ["hook:vibe-start", "hook:vibe-stop"]
+        })
+    }
+
     func testCapabilityDisplayGrouperSynthesizesSelectablePluginGroup() {
         let capabilities = [
             displayCapability(name: "brainstorming", pluginID: "plugin:codex-cache:openai-curated:superpowers", packageName: "superpowers"),

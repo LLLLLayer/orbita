@@ -419,7 +419,7 @@ private struct CapabilityGroupTile: View {
                 }
                 .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
-                CapabilityTileTextBlock(title: group.name, subtitle: groupSubtitle)
+                CapabilityTileTextBlock(title: group.tileTitle, subtitle: groupSubtitle)
 
                 Spacer(minLength: 0)
             }
@@ -457,10 +457,13 @@ private struct CapabilityGroupTile: View {
 
     private var groupSubtitle: String {
         if group.kind == .mirror {
+            if let subtitle = group.hookTimingSummary {
+                return subtitle
+            }
             return group.mirrorRelationshipLabel
         }
         if group.kind == .plugin {
-            return "Plugin - \(group.capabilities.count) capabilities"
+            return "\(group.capabilities.count) capabilities"
         }
         let typeNames = Set(group.capabilities.map { $0.type.displayName }).sorted()
         return typeNames.prefix(2).joined(separator: ", ")
@@ -472,6 +475,41 @@ private struct CapabilityGroupTile: View {
 }
 
 private extension CapabilityGroup {
+    var tileTitle: String {
+        if let title = hookHostSummary {
+            return title
+        }
+        return name
+    }
+
+    var hookHostSummary: String? {
+        guard capabilities.allSatisfy({ $0.type == .hook }) else {
+            return nil
+        }
+        let hosts = uniquePreservingOrder(capabilities.map(\.hookHostTitle))
+        guard let first = hosts.first else {
+            return nil
+        }
+        return hosts.count == 1 ? first : "\(first) + \(hosts.count - 1)"
+    }
+
+    var hookTimingSummary: String? {
+        guard capabilities.allSatisfy({ $0.type == .hook }) else {
+            return nil
+        }
+        let timings = uniquePreservingOrder(capabilities.map(\.hookTimingLabel))
+        guard let first = timings.first else {
+            return nil
+        }
+        if timings.count == 1 {
+            return first
+        }
+        if timings.count == 2 {
+            return timings.joined(separator: ", ")
+        }
+        return "\(first), \(timings[1]) + \(timings.count - 2)"
+    }
+
     var systemImage: String {
         switch kind {
         case .plugin:
@@ -539,7 +577,7 @@ private struct CapabilityTile: View {
                 }
                 .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
-                CapabilityTileTextBlock(title: capability.name, subtitle: sourceLabel)
+                CapabilityTileTextBlock(title: capability.tileTitle, subtitle: sourceLabel)
 
                 Spacer(minLength: 0)
             }
@@ -581,7 +619,7 @@ private struct CapabilityTile: View {
     }
 
     private var sourceLabel: String {
-        "\(capability.type.displayName) - \(CapabilitySourceClassifier.label(for: capability))"
+        capability.tileSubtitle
     }
 }
 
@@ -621,6 +659,83 @@ private extension Capability {
     var isVirtualPlugin: Bool {
         type == .plugin && source.kind == "virtual-plugin"
     }
+
+    var tileTitle: String {
+        type == .hook ? hookHostTitle : name
+    }
+
+    var tileSubtitle: String {
+        if type == .hook {
+            return hookTimingLabel
+        }
+        if let summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return summary
+        }
+        return scopeLabel
+    }
+
+    var hookHostTitle: String {
+        if let host = metadata["handlerHost"], !host.isEmpty {
+            return normalizedHookHostTitle(host)
+        }
+        guard let separator = name.range(of: " - ") else {
+            return normalizedHookHostTitle(name)
+        }
+        return normalizedHookHostTitle(String(name[..<separator.lowerBound]))
+    }
+
+    var hookTimingLabel: String {
+        let rawEvent = metadata["event"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let event = rawEvent.isEmpty ? parsedHookTimingFromName : rawEvent
+        let matcher = metadata["matcher"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !event.isEmpty else {
+            return "Hook timing"
+        }
+        guard !matcher.isEmpty else {
+            return event
+        }
+        return "\(event) (\(matcher))"
+    }
+
+    private var parsedHookTimingFromName: String {
+        guard let separator = name.range(of: " - ") else {
+            return ""
+        }
+        return String(name[separator.upperBound...])
+    }
+
+    private var scopeLabel: String {
+        switch scope {
+        case .project:
+            return "Project scope"
+        case .user:
+            return "User scope"
+        case .installed:
+            return "Installed"
+        case .environment:
+            return "Environment"
+        }
+    }
+
+    private func normalizedHookHostTitle(_ value: String) -> String {
+        if value == "AB Agent Collect Event" {
+            return "AB Agent Collect"
+        }
+        return value
+    }
+}
+
+private func uniquePreservingOrder(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    var result: [String] = []
+    for value in values {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, seen.insert(trimmed).inserted else {
+            continue
+        }
+        result.append(trimmed)
+    }
+    return result
 }
 
 private struct CapabilityKindPill: View {

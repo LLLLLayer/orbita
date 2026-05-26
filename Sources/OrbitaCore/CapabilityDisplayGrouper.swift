@@ -348,14 +348,27 @@ public final class CapabilityDisplayGrouper {
             .standardizedFileURL
             .resolvingSymlinksInPath()
             .path
-        return "path:\(capability.type.rawValue):\(resolvedPath)"
+        return "path:\(capability.type.rawValue):\(hookHostMirrorComponent(for: capability)):\(resolvedPath)"
     }
 
     private func mirrorHashKey(for capability: Capability) -> String? {
         guard let hash = capability.metadata["contentHash"], !hash.isEmpty else {
             return nil
         }
-        return "hash:\(capability.type.rawValue):\(hash)"
+        return "hash:\(capability.type.rawValue):\(hookHostMirrorComponent(for: capability)):\(hash)"
+    }
+
+    private func hookHostMirrorComponent(for capability: Capability) -> String {
+        guard capability.type == .hook else { return "" }
+        let host = capability.metadata["handlerHost"] ?? hookHostFromName(capability.name)
+        return normalized(host)
+    }
+
+    private func hookHostFromName(_ name: String) -> String {
+        guard let separator = name.range(of: " - ") else {
+            return name
+        }
+        return String(name[..<separator.lowerBound])
     }
 
     private func mirrorGroupName(for capabilities: [Capability]) -> String {

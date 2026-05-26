@@ -576,7 +576,7 @@ public final class CapabilityScanner {
             return "Clawd On Desk"
         }
         if lowercasedCommand.contains("@dp/ab-agent-collect-event") {
-            return "AB Agent Collect Event"
+            return "AB Agent Collect"
         }
         if lowercasedCommand.contains("@dp/ai-code-report")
             || lowercasedCommand.contains("ai-report-hook-run") {
