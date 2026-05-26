@@ -255,25 +255,14 @@ private struct ExpandedCapabilityGroupShelf: View {
                     HStack(spacing: 6) {
                         Text(section.title)
                             .font(.subheadline.weight(.semibold))
-                        Text("\(section.capabilities.count) items")
+                        Text("\(section.itemCount) items")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
 
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                        ForEach(section.capabilities) { capability in
-                            CapabilityTile(
-                                capability: capability,
-                                visibleAgents: visibleAgents(for: capability),
-                                isSelected: selectedCapability?.id == capability.id,
-                                onSync: {
-                                    onSyncCapability(capability)
-                                }
-                            ) {
-                                withAnimation(.snappy(duration: 0.18)) {
-                                    selectedCapability = capability
-                                }
-                            }
+                        ForEach(section.items) { item in
+                            shelfTile(for: item)
                         }
                     }
                 }
@@ -297,34 +286,77 @@ private struct ExpandedCapabilityGroupShelf: View {
         ))
     }
 
-    private func visibleAgents(for capability: Capability) -> [AgentSelection] {
+    @ViewBuilder
+    private func shelfTile(for item: CapabilityDisplayItem) -> some View {
+        switch item {
+        case let .capability(capability):
+            CapabilityTile(
+                capability: capability,
+                visibleAgents: visibleAgents(for: item),
+                isSelected: selectedCapability?.id == capability.id,
+                onSync: {
+                    onSyncCapability(capability)
+                }
+            ) {
+                withAnimation(.snappy(duration: 0.18)) {
+                    selectedCapability = capability
+                }
+            }
+        case let .group(group):
+            let inspectionCapability = group.inspectionCapability
+            CapabilityGroupTile(
+                group: group,
+                visibleAgents: visibleAgents(for: item),
+                isExpanded: false,
+                isSelected: selectedCapability?.id == inspectionCapability.id,
+                showsDisclosure: false,
+                onSync: {
+                    onSyncCapability(inspectionCapability)
+                }
+            ) {
+                withAnimation(.snappy(duration: 0.18)) {
+                    selectedCapability = inspectionCapability
+                }
+            }
+        }
+    }
+
+    private func visibleAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
         guard let graph else { return [] }
         return agentOptions.filter { agent in
-            agent.includesCapability(capability, in: graph)
+            item.capabilities.contains { agent.includesCapability($0, in: graph) }
         }
     }
 
     private var shelfSections: [ExpandedGroupSection] {
-        guard group.kind == .plugin else {
+        if group.kind == .mirror {
             return [
                 ExpandedGroupSection(
                     id: "all",
                     title: group.kindLabel,
-                    capabilities: group.capabilities
+                    items: group.capabilities.map(CapabilityDisplayItem.capability)
                 )
             ]
         }
-        let grouped = Dictionary(grouping: group.capabilities) { capability in
-            CapabilityTypeSection(type: capability.type)
+
+        let displayItems = CapabilityDisplayGrouper().items(
+            for: group.capabilities,
+            minimumGroupSize: Int.max,
+            groupsPluginChildren: false
+        )
+        let grouped = Dictionary(grouping: displayItems) { item in
+            CapabilityTypeSection(type: item.inspectionCapability.type)
         }
         return CapabilityTypeSection.displayOrder.compactMap { section in
-            guard let capabilities = grouped[section], !capabilities.isEmpty else {
+            guard let items = grouped[section], !items.isEmpty else {
                 return nil
             }
             return ExpandedGroupSection(
                 id: section.id,
                 title: section.title,
-                capabilities: capabilities.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                items: items.sorted { lhs, rhs in
+                    lhs.inspectionCapability.name.localizedCaseInsensitiveCompare(rhs.inspectionCapability.name) == .orderedAscending
+                }
             )
         }
     }
@@ -333,7 +365,13 @@ private struct ExpandedCapabilityGroupShelf: View {
 private struct ExpandedGroupSection: Identifiable {
     let id: String
     let title: String
-    let capabilities: [Capability]
+    let items: [CapabilityDisplayItem]
+
+    var itemCount: Int {
+        items.reduce(0) { total, item in
+            total + item.capabilities.count
+        }
+    }
 }
 
 private enum CapabilityTypeSection: String, CaseIterable, Hashable {
@@ -401,6 +439,7 @@ private struct CapabilityGroupTile: View {
     let visibleAgents: [AgentSelection]
     let isExpanded: Bool
     let isSelected: Bool
+    var showsDisclosure = true
     let onSync: () -> Void
     let action: () -> Void
 
@@ -414,7 +453,11 @@ private struct CapabilityGroupTile: View {
                         isSelected: isSelected
                     )
                     Spacer(minLength: 6)
-                    GroupTopBadge(text: groupTopBadgeText, isExpanded: isExpanded)
+                    GroupTopBadge(
+                        text: groupTopBadgeText,
+                        isExpanded: isExpanded,
+                        showsDisclosure: showsDisclosure
+                    )
                 }
                 .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
@@ -779,14 +822,17 @@ private struct CapabilityKindPill: View {
 private struct GroupTopBadge: View {
     let text: String
     let isExpanded: Bool
+    var showsDisclosure = true
 
     var body: some View {
         HStack(spacing: 5) {
             Text(text)
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()
-            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                .font(.caption2.weight(.bold))
+            if showsDisclosure {
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
+            }
         }
         .foregroundStyle(.secondary)
         .frame(minWidth: 34)

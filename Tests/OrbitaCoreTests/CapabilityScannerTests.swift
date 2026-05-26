@@ -213,6 +213,29 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(group.inspectionCapability.metadata["childCount"], "2")
     }
 
+    func testCapabilityDisplayGrouperAggregatesMirroredPrefixes() {
+        let capabilities = [
+            mirroredDisplayCapability(name: "lark-base", sourceKind: "agents-skill", path: "/tmp/.agents/skills/lark-base/SKILL.md", hash: "base"),
+            mirroredDisplayCapability(name: "lark-base", sourceKind: "claude-skill", path: "/tmp/.claude/skills/lark-base/SKILL.md", hash: "base"),
+            mirroredDisplayCapability(name: "lark-calendar", sourceKind: "agents-skill", path: "/tmp/.agents/skills/lark-calendar/SKILL.md", hash: "calendar"),
+            mirroredDisplayCapability(name: "lark-calendar", sourceKind: "claude-skill", path: "/tmp/.claude/skills/lark-calendar/SKILL.md", hash: "calendar"),
+            mirroredDisplayCapability(name: "lark-contact", sourceKind: "agents-skill", path: "/tmp/.agents/skills/lark-contact/SKILL.md", hash: "contact"),
+            mirroredDisplayCapability(name: "lark-contact", sourceKind: "claude-skill", path: "/tmp/.claude/skills/lark-contact/SKILL.md", hash: "contact")
+        ]
+
+        let items = CapabilityDisplayGrouper().items(for: capabilities, minimumGroupSize: 3)
+
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected lark prefix group")
+        }
+        XCTAssertEqual(group.kind, .prefix)
+        XCTAssertEqual(group.name, "lark")
+        XCTAssertEqual(Set(group.capabilities.map(\.name)), ["lark-base", "lark-calendar", "lark-contact"])
+        XCTAssertEqual(group.inspectionCapability.source.kind, "virtual-plugin")
+        XCTAssertEqual(group.inspectionCapability.metadata["childCount"], "6")
+    }
+
     func testCapabilityDisplayGrouperMergesSymlinkMirrors() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaMirrorTests-\(UUID().uuidString)")
@@ -2188,6 +2211,17 @@ private func displayCapability(
         scope: .project,
         source: CapabilitySource(kind: "skill", path: "/tmp/\(name)/SKILL.md", packageName: packageName),
         pluginID: pluginID
+    )
+}
+
+private func mirroredDisplayCapability(name: String, sourceKind: String, path: String, hash: String) -> Capability {
+    Capability(
+        id: "skill:\(sourceKind):\(name)",
+        name: name,
+        type: .skill,
+        scope: .user,
+        source: CapabilitySource(kind: sourceKind, path: path),
+        metadata: ["contentHash": hash]
     )
 }
 

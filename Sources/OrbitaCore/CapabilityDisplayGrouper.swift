@@ -212,16 +212,34 @@ public final class CapabilityDisplayGrouper {
             capability.type != .plugin
                 && capability.type != .hook
                 && !groupedChildIDs.contains(capability.id)
-                && !mirroredCapabilityIDs.contains(capability.id)
         }
         let grouped = Dictionary(grouping: prefixCandidates, by: groupKey(for:))
         let prefixGroupKeys = Set(grouped.compactMap { key, values in
-            values.count >= minimumGroupSize ? key : nil
+            Set(values.map(\.name)).count >= minimumGroupSize ? key : nil
         })
 
         var emittedGroups = Set<String>()
         var items: [CapabilityDisplayItem] = []
         for capability in sorted {
+            if capability.type != .plugin,
+               capability.type != .hook {
+                let key = groupKey(for: capability)
+                if prefixGroupKeys.contains(key) {
+                    let groupID = "group:\(key)"
+                    guard !emittedGroups.contains(groupID), let groupCapabilities = grouped[key] else {
+                        continue
+                    }
+                    emittedGroups.insert(groupID)
+                    items.append(.group(CapabilityGroup(
+                        id: groupID,
+                        name: key,
+                        capabilities: groupCapabilities,
+                        kind: .prefix
+                    )))
+                    continue
+                }
+            }
+
             if let mirrorGroup = mirrorGroups[capability.id] {
                 guard !emittedGroups.contains(mirrorGroup.id) else {
                     continue
@@ -285,21 +303,7 @@ public final class CapabilityDisplayGrouper {
                 continue
             }
 
-            let key = groupKey(for: capability)
-            if prefixGroupKeys.contains(key) {
-                guard !emittedGroups.contains(key), let groupCapabilities = grouped[key] else {
-                    continue
-                }
-                emittedGroups.insert(key)
-                items.append(.group(CapabilityGroup(
-                    id: "group:\(key)",
-                    name: key,
-                    capabilities: groupCapabilities,
-                    kind: .prefix
-                )))
-            } else {
-                items.append(.capability(capability))
-            }
+            items.append(.capability(capability))
         }
         return items
     }
