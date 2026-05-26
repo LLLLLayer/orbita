@@ -2120,6 +2120,98 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(group.representative?.id, plugin.id)
     }
 
+    func testScansClaudePluginSkillsAndCommandsAsPluginChildren() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let registryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudePlugins-\(UUID().uuidString)")
+        let installed = registryRoot.appendingPathComponent("installed_plugins.json")
+        let settings = registryRoot.appendingPathComponent("settings.json")
+        let pluginRoot = registryRoot.appendingPathComponent("cache/superpowers-marketplace/superpowers/5.0.6")
+        let manifest = pluginRoot.appendingPathComponent(".claude-plugin/plugin.json")
+        let skill = pluginRoot.appendingPathComponent("skills/using-superpowers/SKILL.md")
+        let command = pluginRoot.appendingPathComponent("commands/brainstorm.md")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: command.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "name": "superpowers",
+          "description": "Core skills library for Claude Code",
+          "version": "5.0.6"
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+        try skillText(name: "using-superpowers", body: "Use Superpowers.")
+            .write(to: skill, atomically: true, encoding: .utf8)
+        try """
+        ---
+        description: Brainstorm with Superpowers
+        ---
+
+        Brainstorm the implementation.
+        """.write(to: command, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: registryRoot, withIntermediateDirectories: true)
+        try """
+        {
+          "version": 2,
+          "plugins": {
+            "superpowers@superpowers-marketplace": [
+              {
+                "scope": "user",
+                "installPath": "\(pluginRoot.path)",
+                "version": "5.0.6"
+              }
+            ]
+          }
+        }
+        """.write(to: installed, atomically: true, encoding: .utf8)
+        try """
+        {
+          "enabledPlugins": {
+            "superpowers@superpowers-marketplace": true
+          }
+        }
+        """.write(to: settings, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: registryRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                codexConfigURL: registryRoot.appendingPathComponent("missing-config.toml"),
+                codexPluginCacheRoot: registryRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: installed,
+                claudeSettingsURLs: [settings]
+            )
+        )
+
+        let plugin = try XCTUnwrap(result.capabilities.first { $0.name == "Superpowers" && $0.source.kind == "claude-plugin" })
+        let pluginSkill = try XCTUnwrap(result.capabilities.first { $0.name == "using-superpowers" && $0.source.kind == "claude-plugin-skill" })
+        let pluginCommand = try XCTUnwrap(result.capabilities.first { $0.name == "brainstorm" && $0.source.kind == "claude-plugin-command" })
+        XCTAssertEqual(pluginSkill.pluginID, plugin.id)
+        XCTAssertEqual(pluginCommand.pluginID, plugin.id)
+        XCTAssertEqual(pluginSkill.source.packageName, "superpowers")
+        XCTAssertEqual(pluginCommand.source.packageName, "superpowers")
+        XCTAssertEqual(pluginSkill.statuses, [.enabled])
+        XCTAssertEqual(pluginCommand.statuses, [.enabled])
+        XCTAssertEqual(pluginSkill.metadata["pluginSelector"], "superpowers@superpowers-marketplace")
+        XCTAssertEqual(pluginCommand.metadata["manager"], "claude-code")
+
+        let items = CapabilityDisplayGrouper().items(for: [plugin, pluginSkill, pluginCommand], preservesInputOrder: true)
+        XCTAssertEqual(items.count, 1)
+        guard case let .group(group) = items.first else {
+            return XCTFail("Expected Claude plugin skills and commands to be grouped under the real plugin")
+        }
+        XCTAssertEqual(group.kind, .plugin)
+        XCTAssertEqual(group.representative?.id, plugin.id)
+        XCTAssertEqual(group.capabilities.map(\.id).sorted(), [pluginCommand.id, pluginSkill.id].sorted())
+    }
+
     func testAgentsSkillsExposeSkillsCLIUpdateCommand() throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")

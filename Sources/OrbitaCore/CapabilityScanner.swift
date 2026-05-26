@@ -754,6 +754,12 @@ public final class CapabilityScanner {
         at directory: URL,
         type: CapabilityType,
         sourceKind: String,
+        scope: CapabilityScope = .project,
+        statuses: [CapabilityStatus] = [.discovered],
+        risks: [RiskLevel]? = nil,
+        packageName: String? = nil,
+        pluginID: String? = nil,
+        metadata baseMetadata: [String: String] = [:],
         into capabilities: inout [Capability],
         issues: inout [ScanIssue]
     ) {
@@ -774,16 +780,21 @@ public final class CapabilityScanner {
         for case let url as URL in enumerator {
             guard ["md", "json", "toml"].contains(url.pathExtension.lowercased()) else { continue }
             let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
+            var metadata = fileMetadata(for: url, merging: frontmatter)
+            for (key, value) in baseMetadata where !value.isEmpty {
+                metadata[key] = value
+            }
             capabilities.append(Capability(
                 id: stableID(type: type, path: url.path),
                 name: frontmatter["name"] ?? url.deletingPathExtension().lastPathComponent,
                 type: type,
-                scope: .project,
-                statuses: [.discovered],
-                risks: type == .hook ? [.exec, .read] : [.info, .read],
-                source: CapabilitySource(kind: sourceKind, path: url.path),
+                scope: scope,
+                statuses: statuses,
+                risks: risks ?? (type == .hook ? [.exec, .read] : [.info, .read]),
+                source: CapabilitySource(kind: sourceKind, path: url.path, packageName: packageName),
+                pluginID: pluginID,
                 summary: frontmatter["description"],
-                metadata: fileMetadata(for: url, merging: frontmatter)
+                metadata: metadata
             ))
         }
     }
@@ -1044,7 +1055,10 @@ public final class CapabilityScanner {
         skillsCanonicalRoot: URL? = nil,
         codexConfigPath: String? = nil,
         codexPluginStates: [String: Bool] = [:],
-        codexSkillStates: [String: Bool] = [:]
+        codexSkillStates: [String: Bool] = [:],
+        forcedPackageInfo: (packageName: String, pluginID: String)? = nil,
+        inheritedEnabled: Bool? = nil,
+        metadata baseMetadata: [String: String] = [:]
     ) {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -1092,7 +1106,10 @@ public final class CapabilityScanner {
                         skillsCanonicalRoot: skillsCanonicalRoot,
                         codexConfigPath: codexConfigPath,
                         codexPluginStates: codexPluginStates,
-                        codexSkillStates: codexSkillStates
+                        codexSkillStates: codexSkillStates,
+                        forcedPackageInfo: forcedPackageInfo,
+                        inheritedEnabled: inheritedEnabled,
+                        metadata: baseMetadata
                     ))
                 }
                 enumerator.skipDescendants()
@@ -1115,11 +1132,44 @@ public final class CapabilityScanner {
                 skillsCanonicalRoot: skillsCanonicalRoot,
                 codexConfigPath: codexConfigPath,
                 codexPluginStates: codexPluginStates,
-                codexSkillStates: codexSkillStates
+                codexSkillStates: codexSkillStates,
+                forcedPackageInfo: forcedPackageInfo,
+                inheritedEnabled: inheritedEnabled,
+                metadata: baseMetadata
             ))
         }
 
         emitProgress("scan.skills.finish", path: root.path, count: count, options: options)
+    }
+
+    private func scanRootSkill(
+        at url: URL,
+        projectRoot: URL,
+        scope: CapabilityScope,
+        sourceKind: String,
+        packageInfo: (packageName: String, pluginID: String),
+        inheritedEnabled: Bool?,
+        metadata baseMetadata: [String: String],
+        into capabilities: inout [Capability]
+    ) {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return
+        }
+        capabilities.append(scanSkill(
+            at: url,
+            projectRoot: projectRoot,
+            scope: scope,
+            sourceKind: sourceKind,
+            skillsLock: nil,
+            skillsCanonicalRoot: nil,
+            codexConfigPath: nil,
+            codexPluginStates: [:],
+            codexSkillStates: [:],
+            forcedPackageInfo: packageInfo,
+            inheritedEnabled: inheritedEnabled,
+            metadata: baseMetadata
+        ))
     }
 
     private func shouldSkipSkillDirectory(_ url: URL, scanRoot: URL, options: ScanOptions) -> Bool {
@@ -1199,14 +1249,21 @@ public final class CapabilityScanner {
         skillsCanonicalRoot: URL?,
         codexConfigPath: String?,
         codexPluginStates: [String: Bool],
-        codexSkillStates: [String: Bool]
+        codexSkillStates: [String: Bool],
+        forcedPackageInfo: (packageName: String, pluginID: String)? = nil,
+        inheritedEnabled: Bool? = nil,
+        metadata baseMetadata: [String: String] = [:]
     ) -> Capability {
         let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
         let parentName = url.deletingLastPathComponent().lastPathComponent
         let name = frontmatter["name"] ?? parentName
-        let packageInfo = packageInfo(for: url, projectRoot: projectRoot)
-        let codexCacheInfo = codexPluginCacheInfo(for: url)
+        let inferredPackageInfo = packageInfo(for: url, projectRoot: projectRoot)
+        let packageInfo = forcedPackageInfo ?? inferredPackageInfo
+        let codexCacheInfo = forcedPackageInfo == nil ? codexPluginCacheInfo(for: url) : nil
         var metadata = fileMetadata(for: url, merging: frontmatter)
+        for (key, value) in baseMetadata where !value.isEmpty {
+            metadata[key] = value
+        }
         var statuses: [CapabilityStatus]
         if sourceKind == "agents-skill" {
             metadata["manager"] = "agents-skills"
@@ -1242,6 +1299,8 @@ public final class CapabilityScanner {
             metadata["deleteCommand"] = "codex plugin remove \(shellQuoted(selector))"
             metadata["lifecycleNote"] = "This skill is bundled inside the \(pluginDisplayName(codexCacheInfo.pluginName)) Codex plugin; enable, disable, update, and delete apply to the plugin package."
             statuses = statusList(enabled: codexPluginStates[selector])
+        } else if forcedPackageInfo != nil {
+            statuses = statusList(enabled: inheritedEnabled)
         } else {
             statuses = [.discovered]
         }
@@ -1539,6 +1598,7 @@ public final class CapabilityScanner {
 
         scanClaudeInstalledPlugins(
             projectRoot: projectRoot,
+            options: options,
             installedPluginsURL: options.claudeInstalledPluginsURL,
             settingsURLs: options.claudeSettingsURLs + [projectRoot.appendingPathComponent(".claude/settings.json")],
             into: &capabilities,
@@ -1804,6 +1864,7 @@ public final class CapabilityScanner {
 
     private func scanClaudeInstalledPlugins(
         projectRoot: URL,
+        options: ScanOptions,
         installedPluginsURL: URL,
         settingsURLs: [URL],
         into capabilities: inout [Capability],
@@ -1870,8 +1931,53 @@ public final class CapabilityScanner {
                     metadata: metadata
                 ))
 
+                let pluginRoot = URL(fileURLWithPath: installPath)
+                let childMetadata = [
+                    "manager": "claude-code",
+                    "pluginSelector": selector,
+                    "pluginName": pluginName,
+                    "marketplace": marketplace,
+                    "installedVersion": install["version"] as? String ?? "",
+                    "managerScope": scopeValue,
+                    "projectPath": projectPath ?? "",
+                    "lifecycleNote": "This capability is bundled inside the \(pluginDisplayName(pluginName)) Claude Code plugin."
+                ].filter { !$0.value.isEmpty }
+                scanSkillFiles(
+                    at: pluginRoot.appendingPathComponent("skills"),
+                    options: options,
+                    into: &capabilities,
+                    issues: &issues,
+                    scope: scope,
+                    sourceKind: "claude-plugin-skill",
+                    projectRoot: projectRoot,
+                    forcedPackageInfo: (pluginName, pluginID),
+                    inheritedEnabled: enabled,
+                    metadata: childMetadata
+                )
+                scanRootSkill(
+                    at: pluginRoot.appendingPathComponent("SKILL.md"),
+                    projectRoot: projectRoot,
+                    scope: scope,
+                    sourceKind: "claude-plugin-skill",
+                    packageInfo: (pluginName, pluginID),
+                    inheritedEnabled: enabled,
+                    metadata: childMetadata,
+                    into: &capabilities
+                )
+                scanCodexMarkdownFiles(
+                    at: pluginRoot.appendingPathComponent("commands"),
+                    type: .command,
+                    sourceKind: "claude-plugin-command",
+                    scope: scope,
+                    statuses: statusList(enabled: enabled),
+                    packageName: pluginName,
+                    pluginID: pluginID,
+                    metadata: childMetadata,
+                    into: &capabilities,
+                    issues: &issues
+                )
                 scanPluginHooks(
-                    pluginRoot: URL(fileURLWithPath: installPath),
+                    pluginRoot: pluginRoot,
                     scope: scope,
                     sourceKind: "claude-plugin-hook",
                     manager: "claude-code",
@@ -1917,7 +2023,8 @@ public final class CapabilityScanner {
     ) {
         let hookURLs = [
             pluginRoot.appendingPathComponent("hooks/hooks.json"),
-            pluginRoot.appendingPathComponent("hooks.json")
+            pluginRoot.appendingPathComponent("hooks.json"),
+            pluginRoot.appendingPathComponent(".claude-plugin/plugin.json")
         ]
         var scannedPaths = Set<String>()
         for hookURL in hookURLs {
