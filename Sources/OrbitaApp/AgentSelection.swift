@@ -32,6 +32,22 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         id == Self.codex.id || id == Self.claudeCode.id
     }
 
+    var skillsInstallAgentID: String? {
+        if let skillsAgentID {
+            return skillsAgentID
+        }
+        if id == Self.codex.id || behavior == .codexSource || behavior == .codexLike {
+            return "codex"
+        }
+        if id == Self.claudeCode.id || behavior == .claudeSource || behavior == .claudeLike {
+            return "claude-code"
+        }
+        if id == Self.cursor.id || behavior == .cursorSource {
+            return "cursor"
+        }
+        return nil
+    }
+
     func visibleCapabilities(in graph: CapabilityGraph) -> [Capability] {
         switch behavior {
         case .agentsSource:

@@ -789,7 +789,7 @@ struct ContentView: View {
 
         let scopedPlan: ApplyPlan?
         if let currentPlan,
-           affectedCapabilityIDs(in: currentPlan) != affectedCapabilityIDs(in: allPlan) {
+           !plansHaveSameEffect(currentPlan, allPlan) {
             scopedPlan = currentPlan
         } else {
             scopedPlan = nil
@@ -806,6 +806,24 @@ struct ContentView: View {
 
     private func affectedCapabilityIDs(in plan: ApplyPlan) -> Set<String> {
         Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
+    }
+
+    private func plansHaveSameEffect(_ lhs: ApplyPlan, _ rhs: ApplyPlan) -> Bool {
+        affectedCapabilityIDs(in: lhs) == affectedCapabilityIDs(in: rhs)
+            && operationEffectSignature(lhs) == operationEffectSignature(rhs)
+    }
+
+    private func operationEffectSignature(_ plan: ApplyPlan) -> Set<String> {
+        Set(plan.operations
+            .filter { $0.kind != .appendLog }
+            .map { operation in
+                [
+                    operation.kind.rawValue,
+                    operation.path,
+                    operation.target ?? "",
+                    operation.content ?? ""
+                ].joined(separator: "\u{1F}")
+            })
     }
 
     private var currentSortOption: CapabilitySortOption {

@@ -379,7 +379,15 @@ final class ProjectCapabilityStore: ObservableObject {
         guard let graph else { return nil }
         do {
             let plan: ApplyPlan
-            if isVirtualGroup(capability) {
+            if let agent,
+               let agentID = agent.skillsInstallAgentID,
+               let agentScopedPlan = try? planDeleteSkillInstallTargets(
+                   capability,
+                   agentID: agentID,
+                   graph: graph
+               ) {
+                plan = agentScopedPlan
+            } else if isVirtualGroup(capability) {
                 let childIDs = scopedCapabilityIDs(for: capability, visibleTo: agent, graph: graph)
                 plan = try ApplyPlanBuilder().planDelete(
                     capabilityIDs: childIDs,
@@ -397,6 +405,27 @@ final class ProjectCapabilityStore: ObservableObject {
             OrbitaTelemetry.apply.error("plan.delete.failed capability=\(capability.name, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    private func planDeleteSkillInstallTargets(
+        _ capability: Capability,
+        agentID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let capabilityIDs = groupedCapabilityIDs(for: capability)
+        if capabilityIDs.isEmpty {
+            return try ApplyPlanBuilder().planDeleteSkillInstallTarget(
+                capabilityID: capability.id,
+                agentID: agentID,
+                graph: graph
+            )
+        }
+        return try ApplyPlanBuilder().planDeleteSkillInstallTargets(
+            capabilityIDs: capabilityIDs,
+            groupID: capability.id,
+            agentID: agentID,
+            graph: graph
+        )
     }
 
     private func isVirtualGroup(_ capability: Capability) -> Bool {

@@ -1160,6 +1160,53 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(plan.operations.contains { $0.kind == .appendLog && $0.path.hasSuffix("/.agents/logs/apply.log") })
     }
 
+    func testDeleteSkillInstallTargetRemovesOnlySelectedAgentCopy() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let canonical = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaAgents-\(UUID().uuidString)")
+            .appendingPathComponent(".agents/skills/bytedcli")
+        let traeCopy = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaTrae-\(UUID().uuidString)")
+            .appendingPathComponent(".trae/skills/bytedcli")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: canonical.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: traeCopy.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+        }
+
+        let skill = Capability(
+            id: "skill:\(canonical.appendingPathComponent("SKILL.md").path)",
+            name: "bytedcli",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "agents-skill", path: canonical.appendingPathComponent("SKILL.md").path),
+            metadata: [
+                "skillsInstallTargets": [
+                    "codex=canonical:\(canonical.path)",
+                    "trae=copy:\(traeCopy.path)"
+                ].joined(separator: "\n")
+            ]
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let plan = try ApplyPlanBuilder().planDeleteSkillInstallTarget(
+            capabilityID: skill.id,
+            agentID: "trae",
+            graph: graph
+        )
+
+        XCTAssertEqual(plan.action, .delete)
+        XCTAssertEqual(plan.capabilityID, skill.id)
+        XCTAssertTrue(plan.requiresConfirmation)
+        XCTAssertTrue(plan.operations.contains {
+            $0.kind == .removePath
+                && $0.path == traeCopy.path
+                && $0.description.contains("trae copy")
+        })
+        XCTAssertFalse(plan.operations.contains { $0.path == canonical.path })
+    }
+
     func testMergePlanIndexesDiscoveredProjectCapabilitiesWithoutDeletingSources() throws {
         let root = try fixtureURL("MixedProject")
         let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))

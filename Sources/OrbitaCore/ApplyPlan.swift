@@ -307,6 +307,35 @@ public final class ApplyPlanBuilder {
         )
     }
 
+    public func planDeleteSkillInstallTarget(
+        capabilityID: String,
+        agentID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let capabilities = try capabilities(matching: [capabilityID], fallbackID: capabilityID, graph: graph)
+        return try planDeleteSkillInstallTargets(
+            capabilities: capabilities,
+            planCapabilityID: capabilityID,
+            agentID: agentID,
+            graph: graph
+        )
+    }
+
+    public func planDeleteSkillInstallTargets(
+        capabilityIDs: [String],
+        groupID: String,
+        agentID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let capabilities = try capabilities(matching: capabilityIDs, fallbackID: groupID, graph: graph)
+        return try planDeleteSkillInstallTargets(
+            capabilities: capabilities,
+            planCapabilityID: groupID,
+            agentID: agentID,
+            graph: graph
+        )
+    }
+
     public func planDelete(
         capabilityIDs: [String],
         groupID: String,
@@ -398,6 +427,54 @@ public final class ApplyPlanBuilder {
             affectedCapabilityIDs: capabilities.map(\.id),
             appliesChanges: false,
             requiresConfirmation: requiresConfirmation(for: capabilities, operations: operations),
+            operations: operations
+        )
+    }
+
+    private func planDeleteSkillInstallTargets(
+        capabilities: [Capability],
+        planCapabilityID: String,
+        agentID: String,
+        graph: CapabilityGraph
+    ) throws -> ApplyPlan {
+        let targets = capabilities.compactMap { capability -> (capability: Capability, target: SkillInstallTarget)? in
+            guard let target = skillInstallTarget(for: capability, agentID: agentID),
+                  target.isAgentSpecific
+            else {
+                return nil
+            }
+            return (capability, target)
+        }
+        guard !targets.isEmpty else {
+            throw OrbitaError.invalidApplyPlan("No agent-specific skill install target for \(agentID)")
+        }
+
+        let agentsRoot = URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".agents")
+        var operations = targets
+            .sorted { $0.target.path < $1.target.path }
+            .map { entry in
+                ApplyOperation(
+                    kind: .removePath,
+                    path: entry.target.path,
+                    risk: .write,
+                    description: "Remove \(agentID) \(entry.target.relationship) skill install target for \(entry.capability.name)"
+                )
+            }
+        operations.append(ApplyOperation(
+            kind: .appendLog,
+            path: agentsRoot.appendingPathComponent("logs/apply.log").path,
+            content: "\(ISO8601DateFormatter().string(from: Date())) delete \(planCapabilityID) agent-target:\(agentID) affected:\(targets.count)\n",
+            risk: .write,
+            description: "Append agent-scoped delete operation log"
+        ))
+
+        return ApplyPlan(
+            projectRoot: graph.projectRoot,
+            action: .delete,
+            capabilityID: planCapabilityID,
+            affectedCapabilityIDs: targets.count > 1 ? targets.map { $0.capability.id } : nil,
+            appliesChanges: false,
+            requiresConfirmation: requiresConfirmation(for: targets.map(\.capability), operations: operations),
             operations: operations
         )
     }
@@ -851,6 +928,46 @@ public final class ApplyPlanBuilder {
             throw OrbitaError.capabilityNotFound(fallbackID)
         }
         return capabilities
+    }
+
+    private struct SkillInstallTarget {
+        var agentID: String
+        var relationship: String
+        var path: String
+
+        var isAgentSpecific: Bool {
+            switch relationship {
+            case "copy", "symlink", "symlink-other", "broken-symlink":
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private func skillInstallTarget(for capability: Capability, agentID: String) -> SkillInstallTarget? {
+        guard capability.type == .skill,
+              let value = capability.metadata["skillsInstallTargets"]
+        else {
+            return nil
+        }
+
+        for line in value.split(separator: "\n") {
+            let assignment = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard assignment.count == 2, assignment[0] == agentID else {
+                continue
+            }
+            let relationshipAndPath = assignment[1].split(separator: ":", maxSplits: 1).map(String.init)
+            guard relationshipAndPath.count == 2, !relationshipAndPath[1].isEmpty else {
+                return nil
+            }
+            return SkillInstallTarget(
+                agentID: assignment[0],
+                relationship: relationshipAndPath[0],
+                path: relationshipAndPath[1]
+            )
+        }
+        return nil
     }
 
     private func disableSourceOperations(for capability: Capability, graph: CapabilityGraph, agentsRoot: URL) -> [ApplyOperation] {
