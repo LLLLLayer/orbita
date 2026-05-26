@@ -90,7 +90,7 @@ struct OrbitaSettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             settingsSidebar
-                .frame(width: OrbitaLayoutMetrics.sidebarWidth)
+                .frame(width: 208)
             Divider()
             settingsDetail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -99,46 +99,35 @@ struct OrbitaSettingsView: View {
     }
 
     private var settingsSidebar: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Settings")
-                    .font(.title2.weight(.semibold))
+                    .font(.title3.weight(.semibold))
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
+                        .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
-                .orbitaControlSurface(cornerRadius: 10)
+                .orbitaControlSurface(cornerRadius: 8)
                 .help("Close settings")
             }
-            .padding(.top, 28)
-            .padding(.horizontal, 18)
+            .padding(.top, 26)
+            .padding(.horizontal, 16)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 ForEach(SettingsPage.allCases) { page in
-                    Button {
-                        selectedPage = page
-                    } label: {
-                        Label(page.title, systemImage: page.systemImage)
-                            .font(.subheadline.weight(selectedPage == page ? .semibold : .regular))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .frame(height: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(selectedPage == page ? .primary : .secondary)
-                    .background(selectedPage == page ? OrbitaTheme.elevatedSurface : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(selectedPage == page ? OrbitaTheme.border : Color.clear)
-                    }
-                    .shadow(color: selectedPage == page ? OrbitaTheme.selectedShadow : Color.clear, radius: 7, x: 0, y: 3)
+                    SettingsSidebarRow(
+                        page: page,
+                        isSelected: selectedPage == page,
+                        action: {
+                            selectedPage = page
+                        }
+                    )
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
 
             Spacer()
         }
@@ -156,35 +145,41 @@ struct OrbitaSettingsView: View {
                     pluginSettings
                 case .release:
                     releaseSettings
-                case .about:
-                    aboutSettings
                 }
             }
-            .padding(.top, 30)
-            .padding(.horizontal, 30)
+            .padding(.top, 28)
+            .padding(.horizontal, 32)
             .padding(.bottom, 34)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: 820, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .background(OrbitaTheme.canvas)
     }
 
     private var generalSettings: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        SettingsPageStack {
             SettingsHeader(title: "General", subtitle: "Scan behavior, language, and capability display preferences.")
-            SettingsCard(title: "Scan", systemImage: "arrow.clockwise") {
-                Picker("Refresh", selection: $refreshPolicy) {
-                    ForEach(ScanRefreshPolicy.allCases) { policy in
-                        Text(policy.title).tag(policy.rawValue)
+            SettingsCard(title: "Preferences", systemImage: "slider.horizontal.3") {
+                SettingsPreferenceRow(
+                    title: "Refresh",
+                    subtitle: "Controls cache lifetime before Orbita scans capabilities again."
+                ) {
+                    Picker("Refresh", selection: $refreshPolicy) {
+                        ForEach(ScanRefreshPolicy.allCases) { policy in
+                            Text(policy.title).tag(policy.rawValue)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 360)
                 }
-                .pickerStyle(.radioGroup)
-                .tint(OrbitaTheme.prominentControlFill)
-            }
-            SettingsCard(title: "Display", systemImage: "arrow.up.arrow.down") {
-                HStack(spacing: 12) {
-                    Text("Capability sort")
-                        .font(.callout)
-                    Spacer()
+
+                SettingsDivider()
+
+                SettingsPreferenceRow(
+                    title: "Capability sort",
+                    subtitle: "Default order for capability lists and grouped sections."
+                ) {
                     Picker("Capability sort", selection: $sortOption) {
                         ForEach(CapabilitySortOption.allCases) { option in
                             Text(option.title).tag(option.rawValue)
@@ -192,98 +187,111 @@ struct OrbitaSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .tint(OrbitaTheme.prominentControlFill)
-                    .frame(width: 180)
+                    .frame(width: 190)
                 }
-            }
-            SettingsCard(title: "Language", systemImage: "globe") {
-                Picker("Display language", selection: $languageCode) {
-                    ForEach(OrbitaLanguage.allCases) { language in
-                        Text(language.title).tag(language.rawValue)
+
+                SettingsDivider()
+
+                SettingsPreferenceRow(
+                    title: "Language",
+                    subtitle: "Display language used by the Orbita interface."
+                ) {
+                    Picker("Display language", selection: $languageCode) {
+                        ForEach(OrbitaLanguage.allCases) { language in
+                            Text(language.title).tag(language.rawValue)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 320)
                 }
-                .pickerStyle(.radioGroup)
-                .tint(OrbitaTheme.prominentControlFill)
             }
         }
     }
 
     private var pluginSettings: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        SettingsPageStack {
             SettingsHeader(title: "Plugins", subtitle: "Maintenance commands for Codex, Claude Code, and .agents skills.")
-            CommandCard(
-                title: "Codex marketplaces",
-                detail: "Refresh configured Git marketplace snapshots and rescan Orbita.",
-                command: "codex plugin marketplace upgrade",
-                isRunning: isRunningCommand,
-                onRun: { runCommand("codex plugin marketplace upgrade") }
-            )
-            CommandCard(
-                title: "Claude Code plugins",
-                detail: "List installed plugins with enable status. Update individual plugins from the inspector.",
-                command: "claude plugin list --json",
-                isRunning: isRunningCommand,
-                onRun: { runCommand("claude plugin list --json") }
-            )
-            CommandCard(
-                title: ".agents skills",
-                detail: "Trigger Skills CLI update in the current project context.",
-                command: projectRootPath == nil ? "npx skills update -y" : "npx skills update -p -y",
-                isRunning: isRunningCommand,
-                onRun: { runCommand(projectRootPath == nil ? "npx skills update -y" : "npx skills update -p -y") }
-            )
+            SettingsCard(title: "Maintenance", systemImage: "terminal") {
+                CommandRow(
+                    title: "Codex marketplaces",
+                    detail: "Refresh configured Git marketplace snapshots and rescan Orbita.",
+                    command: "codex plugin marketplace upgrade",
+                    isRunning: isRunningCommand,
+                    onRun: { runCommand("codex plugin marketplace upgrade") }
+                )
+
+                SettingsDivider()
+
+                CommandRow(
+                    title: "Claude Code plugins",
+                    detail: "List installed plugins with enable status. Update individual plugins from the inspector.",
+                    command: "claude plugin list --json",
+                    isRunning: isRunningCommand,
+                    onRun: { runCommand("claude plugin list --json") }
+                )
+
+                SettingsDivider()
+
+                CommandRow(
+                    title: ".agents skills",
+                    detail: "Trigger Skills CLI update in the current project context.",
+                    command: projectRootPath == nil ? "npx skills update -y" : "npx skills update -p -y",
+                    isRunning: isRunningCommand,
+                    onRun: { runCommand(projectRootPath == nil ? "npx skills update -y" : "npx skills update -p -y") }
+                )
+            }
             commandResultView
         }
     }
 
     private var releaseSettings: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsHeader(title: "Release", subtitle: "Signed DMG release, notarization, and Sparkle update feed readiness.")
-            SettingsCard(title: "GitHub Actions", systemImage: "shippingbox") {
+        SettingsPageStack {
+            SettingsHeader(title: "Release", subtitle: "Version metadata, signed DMG release, notarization, and Sparkle readiness.")
+            ReleaseSummaryCard(
+                versionInfo: VersionInfo.current,
+                projectName: projectName,
+                projectRootPath: projectRootPath
+            )
+
+            SettingsCard(title: "Pipeline", systemImage: "shippingbox") {
                 SettingsInfoRow(title: "Workflow", value: ".github/workflows/release.yml")
-                SettingsInfoRow(title: "Trigger", value: "Push a tag like v\(VersionInfo.current.version)")
+                SettingsInfoRow(title: "Tag", value: "v\(VersionInfo.current.version)")
                 SettingsInfoRow(title: "Artifact", value: "Orbita-v\(VersionInfo.current.version).dmg")
-            }
-            SettingsCard(title: "Distribution", systemImage: "checkmark.seal") {
+
+                SettingsDivider()
+
                 SettingsInfoRow(title: "Signing", value: "Developer ID Application")
                 SettingsInfoRow(title: "Runtime", value: "Hardened Runtime")
                 SettingsInfoRow(title: "Notary", value: "xcrun notarytool + stapler")
-            }
-            SettingsCard(title: "Auto Updates", systemImage: "arrow.triangle.2.circlepath") {
+
+                SettingsDivider()
+
                 SettingsInfoRow(title: "Updater", value: "Sparkle runtime + appcast")
                 SettingsInfoRow(title: "Feed", value: "SUFeedURL over HTTPS")
                 SettingsInfoRow(title: "Security", value: "SUPublicEDKey + EdDSA archive signatures")
             }
-            CommandCard(
-                title: "Check GitHub CLI",
-                detail: "Verify local gh authentication before creating tags or releases.",
-                command: "gh auth status",
-                isRunning: isRunningCommand,
-                onRun: { runCommand("gh auth status") }
-            )
-            CommandCard(
-                title: "Tag current version",
-                detail: "Create a local DMG, push the release tag, then let GitHub Actions sign, notarize, staple, and publish the DMG.",
-                command: "script/release_github.sh v\(VersionInfo.current.version)",
-                isRunning: isRunningCommand,
-                onRun: { runCommand("script/release_github.sh v\(VersionInfo.current.version)") }
-            )
-            commandResultView
-        }
-    }
 
-    private var aboutSettings: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsHeader(title: "Version", subtitle: "Build metadata and project context.")
-            SettingsCard(title: "Orbita", systemImage: "app.badge") {
-                SettingsInfoRow(title: "Version", value: VersionInfo.current.version)
-                SettingsInfoRow(title: "Build", value: VersionInfo.current.build)
-                SettingsInfoRow(title: "Bundle", value: VersionInfo.current.bundleIdentifier)
-                SettingsInfoRow(title: "Project", value: projectName)
-                if let projectRootPath {
-                    SettingsInfoRow(title: "Path", value: projectRootPath)
-                }
+            SettingsCard(title: "Actions", systemImage: "play.circle") {
+                CommandRow(
+                    title: "Check GitHub CLI",
+                    detail: "Verify local gh authentication before creating tags or releases.",
+                    command: "gh auth status",
+                    isRunning: isRunningCommand,
+                    onRun: { runCommand("gh auth status") }
+                )
+
+                SettingsDivider()
+
+                CommandRow(
+                    title: "Tag current version",
+                    detail: "Create a local DMG, push the release tag, then let GitHub Actions sign, notarize, staple, and publish the DMG.",
+                    command: "script/release_github.sh v\(VersionInfo.current.version)",
+                    isRunning: isRunningCommand,
+                    onRun: { runCommand("script/release_github.sh v\(VersionInfo.current.version)") }
+                )
             }
+            commandResultView
         }
     }
 
@@ -320,7 +328,6 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case general
     case plugins
     case release
-    case about
 
     var id: String { rawValue }
 
@@ -329,7 +336,6 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: return "General"
         case .plugins: return "Plugins"
         case .release: return "Release"
-        case .about: return "Version"
         }
     }
 
@@ -338,7 +344,54 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: return "gearshape"
         case .plugins: return "shippingbox"
         case .release: return "arrow.up.circle"
-        case .about: return "info.circle"
+        }
+    }
+}
+
+private struct SettingsSidebarRow: View {
+    let page: SettingsPage
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label {
+                Text(page.title)
+                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            } icon: {
+                Image(systemName: page.systemImage)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 18)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? .primary : .secondary)
+        .background(
+            isSelected ? OrbitaTheme.elevatedSurface : Color.clear,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isSelected ? OrbitaTheme.border : Color.clear)
+        }
+    }
+}
+
+private struct SettingsPageStack<Content: View>: View {
+    private let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            content()
         }
     }
 }
@@ -348,7 +401,7 @@ private struct SettingsHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.title2.weight(.semibold))
             Text(subtitle)
@@ -364,14 +417,108 @@ private struct SettingsCard<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 13) {
+            Label {
+                Text(title)
+                    .font(.headline)
+            } icon: {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+            }
             content()
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .orbitaCard(cornerRadius: 12, shadowRadius: 5, shadowY: 2)
+    }
+}
+
+private struct ReleaseSummaryCard: View {
+    let versionInfo: VersionInfo
+    let projectName: String
+    let projectRootPath: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "app.badge")
+                    .font(.system(size: 23, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
+                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Orbita")
+                        .font(.title3.weight(.semibold))
+                    Text("Build \(versionInfo.build) for \(projectName)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 16)
+
+                Text("v\(versionInfo.version)")
+                    .font(.callout.monospacedDigit().weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(OrbitaTheme.controlFill, in: Capsule())
+            }
+
+            SettingsDivider()
+
+            SettingsInfoRow(title: "Bundle", value: versionInfo.bundleIdentifier)
+            SettingsInfoRow(title: "Project", value: projectName)
+            if let projectRootPath {
+                SettingsInfoRow(title: "Path", value: projectRootPath)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .orbitaCard(cornerRadius: 18, shadowRadius: 7, shadowY: 3)
+        .orbitaCard(cornerRadius: 12, shadowRadius: 5, shadowY: 2)
+    }
+}
+
+private struct SettingsDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.vertical, 1)
+    }
+}
+
+private struct SettingsPreferenceRow<Control: View>: View {
+    let title: String
+    let subtitle: String
+    private let control: () -> Control
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder control: @escaping () -> Control
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.control = control
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            control()
+                .tint(OrbitaTheme.prominentControlFill)
+        }
     }
 }
 
@@ -384,7 +531,7 @@ private struct SettingsInfoRow: View {
             Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 76, alignment: .leading)
+                .frame(width: 86, alignment: .leading)
             Text(value)
                 .font(.subheadline)
                 .textSelection(.enabled)
@@ -395,7 +542,7 @@ private struct SettingsInfoRow: View {
     }
 }
 
-private struct CommandCard: View {
+private struct CommandRow: View {
     let title: String
     let detail: String
     let command: String
@@ -403,18 +550,28 @@ private struct CommandCard: View {
     let onRun: () -> Void
 
     var body: some View {
-        SettingsCard(title: title, systemImage: "terminal") {
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text(command)
-                .font(.caption.monospaced())
-                .textSelection(.enabled)
-                .lineLimit(2)
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(command)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Button(action: onRun) {
                 Label(isRunning ? "Running" : "Run", systemImage: isRunning ? "hourglass" : "play")
             }
             .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(isRunning)
         }
     }
