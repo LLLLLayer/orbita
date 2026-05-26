@@ -512,9 +512,10 @@ private struct HideCategoryRow: View {
                 Image(systemName: isHidden ? "eye.slash" : "eye")
                     .font(.system(size: 13, weight: .semibold))
                     .frame(width: 34, height: 28)
+                    .foregroundStyle(isHidden ? .secondary : .primary)
             }
             .buttonStyle(.plain)
-            .orbitaControlSurface(selected: isHidden, cornerRadius: 9)
+            .orbitaControlSurface(cornerRadius: 9)
             .disabled(isLocked)
             .opacity(isLocked ? 0.42 : 1)
         }

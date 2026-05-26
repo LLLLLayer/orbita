@@ -239,6 +239,65 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(command?.risks, [.info, .read])
     }
 
+    func testScansCodexHooksJSONFromUserConfigLayer() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let codexRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCodexHooks-\(UUID().uuidString)")
+        let config = codexRoot.appendingPathComponent("config.toml")
+        let hooks = codexRoot.appendingPathComponent("hooks.json")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexRoot, withIntermediateDirectories: true)
+        try """
+        [hooks.state]
+
+        [hooks.state."\(hooks.path):post_tool_use:0:0"]
+        enabled = true
+        trusted_hash = "sha256:test"
+        """.write(to: config, atomically: true, encoding: .utf8)
+        try """
+        {
+          "hooks": {
+            "PostToolUse": [
+              {
+                "matcher": ".*",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "npx hook-runner",
+                    "timeout": 30
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: hooks, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: codexRoot)
+        }
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                codexConfigURL: config,
+                codexPluginCacheRoot: codexRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: codexRoot.appendingPathComponent("missing-claude.json"),
+                claudeSettingsURLs: []
+            )
+        )
+
+        let hook = try XCTUnwrap(result.capabilities.first { $0.name == "PostToolUse (.*)" && $0.source.kind == "codex-hook" })
+        XCTAssertEqual(hook.scope, .user)
+        XCTAssertEqual(hook.statuses.first, .enabled)
+        XCTAssertEqual(hook.metadata["event"], "PostToolUse")
+        XCTAssertEqual(hook.metadata["command"], "npx hook-runner")
+        XCTAssertTrue(hook.risks.contains(.network))
+    }
+
     func testScansCursorLegacyRulesAndClaudeWorkspaceFiles() throws {
         let root = try fixtureURL("MixedProject")
 
@@ -251,9 +310,10 @@ final class CapabilityScannerTests: XCTestCase {
         let claudeCommand = result.capabilities.first { $0.name == "review" && $0.type == .command }
         XCTAssertEqual(claudeCommand?.source.kind, "claude-command")
 
-        let claudeSettings = result.capabilities.first { $0.name == "Claude Code settings" && $0.type == .hook }
-        XCTAssertEqual(claudeSettings?.source.kind, "claude-settings")
-        XCTAssertTrue(claudeSettings?.risks.contains(.exec) == true)
+        let claudeHook = result.capabilities.first { $0.name == "PostToolUse (Write)" && $0.type == .hook }
+        XCTAssertEqual(claudeHook?.source.kind, "claude-settings-hook")
+        XCTAssertEqual(claudeHook?.metadata["command"], "swift test")
+        XCTAssertTrue(claudeHook?.risks.contains(.exec) == true)
     }
 
     func testClaudeCodeSeesNativeAndSharedAgentsSkills() throws {
@@ -522,7 +582,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "bootstrap" && $0.source.kind == "codex-command" })
         XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
         XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
-        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "Claude Code settings" && $0.source.kind == "claude-settings" })
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "PostToolUse (Write)" && $0.source.kind == "claude-settings-hook" })
         XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
     }
 

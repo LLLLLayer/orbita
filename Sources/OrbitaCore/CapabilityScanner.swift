@@ -101,10 +101,29 @@ public final class CapabilityScanner {
 
         emitProgress("scan.codex.start", path: root.appendingPathComponent(".codex").path, options: options)
         scanCodexWorkspace(at: root, into: &capabilities, issues: &issues)
+        if options.includeUserScope {
+            scanCodexHooksConfig(
+                at: options.codexConfigURL.deletingLastPathComponent().appendingPathComponent("hooks.json"),
+                scope: .user,
+                stateConfigURL: options.codexConfigURL,
+                into: &capabilities,
+                issues: &issues
+            )
+        }
         emitProgress("scan.codex.finish", path: root.appendingPathComponent(".codex").path, count: capabilities.count, options: options)
 
         emitProgress("scan.claude.start", path: root.appendingPathComponent(".claude").path, options: options)
         scanClaudeWorkspace(at: root, options: options, into: &capabilities, issues: &issues)
+        if options.includeUserScope {
+            for settingsURL in options.claudeSettingsURLs {
+                scanClaudeSettings(
+                    at: settingsURL,
+                    scope: .user,
+                    into: &capabilities,
+                    issues: &issues
+                )
+            }
+        }
         emitProgress("scan.claude.finish", path: root.appendingPathComponent(".claude").path, count: capabilities.count, options: options)
 
         emitProgress("scan.cursor.start", path: root.appendingPathComponent(".cursor").path, options: options)
@@ -198,6 +217,13 @@ public final class CapabilityScanner {
             into: &capabilities,
             issues: &issues
         )
+        scanCodexHooksConfig(
+            at: root.appendingPathComponent(".codex/hooks.json"),
+            scope: .project,
+            stateConfigURL: root.appendingPathComponent(".codex/config.toml"),
+            into: &capabilities,
+            issues: &issues
+        )
     }
 
     private func scanClaudeWorkspace(at root: URL, options: ScanOptions, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
@@ -210,6 +236,7 @@ public final class CapabilityScanner {
         )
         scanClaudeSettings(
             at: root.appendingPathComponent(".claude/settings.json"),
+            scope: .project,
             into: &capabilities,
             issues: &issues
         )
@@ -224,8 +251,25 @@ public final class CapabilityScanner {
         )
     }
 
-    private func scanClaudeSettings(at url: URL, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
+    private func scanClaudeSettings(
+        at url: URL,
+        scope: CapabilityScope,
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
         guard fileManager.fileExists(atPath: url.path) else { return }
+        let hookCount = scanHooksConfig(
+            at: url,
+            scope: scope,
+            sourceKind: "claude-settings-hook",
+            manager: "claude-code",
+            into: &capabilities,
+            issues: &issues
+        )
+        if hookCount > 0 {
+            return
+        }
+
         let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let lowercased = text.lowercased()
         var risks: Set<RiskLevel> = [.info, .read]
@@ -239,13 +283,208 @@ public final class CapabilityScanner {
             id: stableID(type: .hook, path: url.path),
             name: "Claude Code settings",
             type: .hook,
-            scope: .project,
+            scope: scope,
             statuses: risks.contains(.exec) || risks.contains(.secret) ? [.discovered, .risky] : [.discovered],
             risks: risks.sorted { $0.rawValue < $1.rawValue },
             source: CapabilitySource(kind: "claude-settings", path: url.path),
             summary: "Claude Code project settings",
             metadata: fileMetadata(for: url)
         ))
+    }
+
+    private func scanCodexHooksConfig(
+        at url: URL,
+        scope: CapabilityScope,
+        stateConfigURL: URL,
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
+        _ = scanHooksConfig(
+            at: url,
+            scope: scope,
+            sourceKind: "codex-hook",
+            manager: "codex",
+            into: &capabilities,
+            issues: &issues,
+            stateConfigURL: stateConfigURL
+        )
+    }
+
+    @discardableResult
+    private func scanHooksConfig(
+        at url: URL,
+        scope: CapabilityScope,
+        sourceKind: String,
+        manager: String,
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue],
+        stateConfigURL: URL? = nil,
+        inheritedEnabled: Bool? = nil,
+        pluginID: String? = nil,
+        metadata baseMetadata: [String: String] = [:]
+    ) -> Int {
+        guard fileManager.fileExists(atPath: url.path) else { return 0 }
+        guard let object = jsonObject(at: url) else {
+            issues.append(ScanIssue(severity: .warning, path: url.path, message: "Hook config is not a JSON object"))
+            return 0
+        }
+        let hooksObject = object["hooks"] as? [String: Any] ?? object
+        let hookStates = stateConfigURL.map(codexHookStates) ?? [:]
+        var scannedCount = 0
+
+        for event in hooksObject.keys.sorted() {
+            guard let entries = hooksObject[event] as? [Any] else { continue }
+            for (entryIndex, entryValue) in entries.enumerated() {
+                guard let entry = entryValue as? [String: Any] else { continue }
+                let matcher = entry["matcher"] as? String
+                let hooks = hookObjects(in: entry)
+                for (hookIndex, hook) in hooks.enumerated() {
+                    let pathKey = "\(url.path)#\(event):\(entryIndex):\(hookIndex)"
+                    let stateKey = codexHookStateKey(
+                        path: url.path,
+                        event: event,
+                        entryIndex: entryIndex,
+                        hookIndex: hookIndex
+                    )
+                    let enabled = hookStates[stateKey] ?? inheritedEnabled
+                    let risks = riskHints(forHook: hook)
+                    var metadata = baseMetadata
+                    metadata["manager"] = manager
+                    metadata["event"] = event
+                    metadata["matcher"] = matcher ?? ""
+                    metadata["hookType"] = hook["type"] as? String ?? ""
+                    metadata["command"] = hook["command"] as? String ?? ""
+                    metadata["url"] = hook["url"] as? String ?? ""
+                    metadata["timeout"] = stringValue(hook["timeout"])
+                    metadata["entryIndex"] = String(entryIndex)
+                    metadata["hookIndex"] = String(hookIndex)
+                    metadata["stateKey"] = stateKey
+
+                    capabilities.append(Capability(
+                        id: stableID(type: .hook, path: pathKey),
+                        name: hookDisplayName(event: event, matcher: matcher),
+                        type: .hook,
+                        scope: scope,
+                        statuses: hookStatuses(enabled: enabled, risks: risks),
+                        risks: risks,
+                        source: CapabilitySource(kind: sourceKind, path: url.path, packageName: baseMetadata["pluginName"]),
+                        pluginID: pluginID,
+                        summary: hookSummary(for: hook),
+                        metadata: fileMetadata(for: url, merging: metadata.filter { !$0.value.isEmpty })
+                    ))
+                    scannedCount += 1
+                }
+            }
+        }
+        return scannedCount
+    }
+
+    private func hookObjects(in entry: [String: Any]) -> [[String: Any]] {
+        if let hooks = entry["hooks"] as? [[String: Any]] {
+            return hooks
+        }
+        if entry["command"] != nil || entry["url"] != nil || entry["prompt"] != nil {
+            return [entry]
+        }
+        return []
+    }
+
+    private func hookDisplayName(event: String, matcher: String?) -> String {
+        guard let matcher, !matcher.isEmpty else {
+            return "\(event) hook"
+        }
+        return "\(event) (\(matcher))"
+    }
+
+    private func hookSummary(for hook: [String: Any]) -> String? {
+        if let command = hook["command"] as? String {
+            return command
+        }
+        if let url = hook["url"] as? String {
+            return url
+        }
+        if let prompt = hook["prompt"] as? String {
+            return prompt
+        }
+        return nil
+    }
+
+    private func hookStatuses(enabled: Bool?, risks: [RiskLevel]) -> [CapabilityStatus] {
+        var statuses = statusList(enabled: enabled)
+        if risks.contains(.secret) || risks.contains(.network) {
+            statuses.append(.risky)
+        }
+        return statuses
+    }
+
+    private func riskHints(forHook hook: [String: Any]) -> [RiskLevel] {
+        var risks: Set<RiskLevel> = [.info, .read]
+        let command = (hook["command"] as? String ?? "").lowercased()
+        let url = (hook["url"] as? String ?? "").lowercased()
+        let hookType = (hook["type"] as? String ?? "").lowercased()
+
+        if !command.isEmpty || hookType == "command" {
+            risks.insert(.exec)
+        }
+        if hook["env"] is [String: Any]
+            || command.contains("token")
+            || command.contains("secret")
+            || command.contains("key=") {
+            risks.insert(.secret)
+        }
+        if url.hasPrefix("http")
+            || command.contains("http://")
+            || command.contains("https://")
+            || command.contains("curl ")
+            || command.contains("npx ")
+            || command.contains("npm ")
+            || command.contains("pnpm ") {
+            risks.insert(.network)
+        }
+        return risks.sorted { $0.rawValue < $1.rawValue }
+    }
+
+    private func codexHookStates(at url: URL) -> [String: Bool] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var states: [String: Bool] = [:]
+        var currentKey: String?
+
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[hooks.state.\""), line.hasSuffix("\"]") {
+                currentKey = String(line.dropFirst("[hooks.state.\"".count).dropLast(2))
+                continue
+            }
+            if line.hasPrefix("["), !line.hasPrefix("[hooks.state.\"") {
+                currentKey = nil
+                continue
+            }
+            guard let currentKey, line.hasPrefix("enabled"), let enabled = tomlBoolValue(from: line) else {
+                continue
+            }
+            states[currentKey] = enabled
+        }
+        return states
+    }
+
+    private func codexHookStateKey(path: String, event: String, entryIndex: Int, hookIndex: Int) -> String {
+        "\(path):\(codexHookEventStateName(event)):\(entryIndex):\(hookIndex)"
+    }
+
+    private func codexHookEventStateName(_ event: String) -> String {
+        var result = ""
+        for character in event {
+            if character.isUppercase, !result.isEmpty {
+                result.append("_")
+            }
+            result.append(character.lowercased())
+        }
+        return result.replacingOccurrences(of: "-", with: "_")
+    }
+
+    private func stringValue(_ value: Any?) -> String {
+        guard let value else { return "" }
+        return String(describing: value)
     }
 
     private func scanCodexMarkdownFiles(
@@ -1131,6 +1370,21 @@ public final class CapabilityScanner {
                 summary: metadata["description"],
                 metadata: fileMetadata(for: manifest.manifestURL, merging: metadata)
             ))
+
+            let pluginRoot = manifest.manifestURL.deletingLastPathComponent().deletingLastPathComponent()
+            scanPluginHooks(
+                pluginRoot: pluginRoot,
+                scope: scope,
+                sourceKind: "codex-plugin-hook",
+                manager: "codex",
+                enabled: enabled,
+                pluginSelector: manifest.selector,
+                pluginName: manifest.pluginName,
+                marketplace: manifest.marketplace,
+                installedVersion: manifest.version,
+                into: &capabilities,
+                issues: &issues
+            )
         }
     }
 
@@ -1352,6 +1606,20 @@ public final class CapabilityScanner {
                     summary: "Claude Code plugin",
                     metadata: metadata
                 ))
+
+                scanPluginHooks(
+                    pluginRoot: URL(fileURLWithPath: installPath),
+                    scope: scope,
+                    sourceKind: "claude-plugin-hook",
+                    manager: "claude-code",
+                    enabled: enabled,
+                    pluginSelector: selector,
+                    pluginName: pluginName,
+                    marketplace: marketplace,
+                    installedVersion: install["version"] as? String ?? "",
+                    into: &capabilities,
+                    issues: &issues
+                )
             }
         }
 
@@ -1367,6 +1635,47 @@ public final class CapabilityScanner {
             return [:]
         }
         return enabledPlugins.compactMapValues { $0 as? Bool }
+    }
+
+    private func scanPluginHooks(
+        pluginRoot: URL,
+        scope: CapabilityScope,
+        sourceKind: String,
+        manager: String,
+        enabled: Bool?,
+        pluginSelector: String,
+        pluginName: String,
+        marketplace: String,
+        installedVersion: String,
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
+        let hookURLs = [
+            pluginRoot.appendingPathComponent("hooks/hooks.json"),
+            pluginRoot.appendingPathComponent("hooks.json")
+        ]
+        var scannedPaths = Set<String>()
+        for hookURL in hookURLs {
+            let standardizedPath = hookURL.standardizedFileURL.resolvingSymlinksInPath().path
+            guard !scannedPaths.contains(standardizedPath) else { continue }
+            scannedPaths.insert(standardizedPath)
+            _ = scanHooksConfig(
+                at: hookURL,
+                scope: scope,
+                sourceKind: sourceKind,
+                manager: manager,
+                into: &capabilities,
+                issues: &issues,
+                inheritedEnabled: enabled,
+                pluginID: pluginSelector,
+                metadata: [
+                    "pluginSelector": pluginSelector,
+                    "pluginName": pluginName,
+                    "marketplace": marketplace,
+                    "installedVersion": installedVersion
+                ]
+            )
+        }
     }
 
     private func capabilityScope(forClaudeScope value: String) -> CapabilityScope {

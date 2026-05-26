@@ -29,6 +29,7 @@ public final class AgentViewResolver {
                 return true
             case .hook:
                 return capability.source.kind == "codex-hook"
+                    || capability.source.kind == "codex-plugin-hook"
             case .command:
                 return capability.source.kind == "codex-command"
             case .rule, .unknown:
@@ -44,6 +45,8 @@ public final class AgentViewResolver {
                 return capability.source.kind == "claude-command"
             case .hook:
                 return capability.source.kind == "claude-settings"
+                    || capability.source.kind == "claude-settings-hook"
+                    || capability.source.kind == "claude-plugin-hook"
             case .rule, .unknown:
                 return false
             }

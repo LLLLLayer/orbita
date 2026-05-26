@@ -102,9 +102,7 @@ struct ContentView: View {
             AddAgentSheet { agent in
                 var agents = customAgents
                 agents.append(agent)
-                if let data = try? JSONEncoder().encode(agents),
-                   let json = String(data: data, encoding: .utf8) {
-                    customAgentsJSON = json
+                if saveCustomAgents(agents) {
                     selectedAgent = agent
                 }
                 addingAgentPresented = false
@@ -190,7 +188,11 @@ struct ContentView: View {
                             addingAgentPresented = true
                         },
                         onMoveAgent: moveAgent,
+                        onPinAgent: pinAgent,
+                        onDeleteAgent: deleteAgent,
                         onMoveCategory: moveCategory,
+                        onPinCategory: pinCategory,
+                        onHideCategory: hideCategory,
                         onHideCategories: {
                             hidingCategoriesPresented = true
                         },
@@ -358,6 +360,13 @@ struct ContentView: View {
         filteredCapabilities.sorted(by: currentSortOption.comparator)
     }
 
+    private var displayGroupingCapabilities: [Capability] {
+        if selectedGroup == .plugin {
+            return visibleCapabilities.sorted(by: currentSortOption.comparator)
+        }
+        return sortedCapabilities
+    }
+
     private var visibleCapabilities: [Capability] {
         guard let graph = store.graph else { return [] }
         guard let selectedAgent else { return graph.capabilities }
@@ -365,7 +374,9 @@ struct ContentView: View {
     }
 
     private var capabilityDisplaySections: [CapabilityCollectionSection] {
-        let items = CapabilityDisplayGrouper().items(for: sortedCapabilities, preservesInputOrder: true)
+        let items = CapabilityDisplayGrouper()
+            .items(for: displayGroupingCapabilities, preservesInputOrder: true)
+            .filter(displayItemMatchesSelectedGroup)
         let grouped = Dictionary(grouping: items, by: CapabilitySectionKind.init(item:))
         return CapabilitySectionKind.allCases.compactMap { kind in
             guard let sectionItems = grouped[kind], !sectionItems.isEmpty else {
@@ -377,6 +388,22 @@ struct ContentView: View {
                 subtitle: "\(sectionItems.count) items",
                 items: sectionItems.sorted(by: currentSortOption.itemComparator)
             )
+        }
+    }
+
+    private func displayItemMatchesSelectedGroup(_ item: CapabilityDisplayItem) -> Bool {
+        switch selectedGroup {
+        case .all:
+            return true
+        case .plugin:
+            switch item {
+            case let .capability(capability):
+                return capability.type == .plugin
+            case let .group(group):
+                return group.kind == .plugin
+            }
+        default:
+            return selectedGroup.matches(item.inspectionCapability)
         }
     }
 
@@ -412,6 +439,16 @@ struct ContentView: View {
         return agents
     }
 
+    @discardableResult
+    private func saveCustomAgents(_ agents: [AgentSelection]) -> Bool {
+        if let data = try? JSONEncoder().encode(agents),
+           let json = String(data: data, encoding: .utf8) {
+            customAgentsJSON = json
+            return true
+        }
+        return false
+    }
+
     private var agentOrderIDs: [String] {
         guard let data = agentOrderJSON.data(using: .utf8),
               let ids = try? JSONDecoder().decode([String].self, from: data)
@@ -422,10 +459,42 @@ struct ContentView: View {
     }
 
     private func saveAgentOrder(_ orderedAgents: [AgentSelection]) {
-        let ids = orderedAgents.map(\.id)
+        saveAgentOrderIDs(orderedAgents.map(\.id))
+    }
+
+    private func saveAgentOrderIDs(_ ids: [String]) {
         if let data = try? JSONEncoder().encode(ids),
            let json = String(data: data, encoding: .utf8) {
             agentOrderJSON = json
+        }
+    }
+
+    private func pinAgent(id agentID: String) {
+        var orderedAgents = agentOptions
+        guard let sourceIndex = orderedAgents.firstIndex(where: { $0.id == agentID }),
+              sourceIndex != orderedAgents.startIndex else {
+            return
+        }
+
+        let agent = orderedAgents.remove(at: sourceIndex)
+        orderedAgents.insert(agent, at: orderedAgents.startIndex)
+        saveAgentOrder(orderedAgents)
+    }
+
+    private func deleteAgent(id agentID: String) {
+        guard !agentID.hasPrefix("built-in:") else {
+            return
+        }
+        let remainingAgents = customAgents.filter { $0.id != agentID }
+        guard remainingAgents.count != customAgents.count else {
+            return
+        }
+
+        if saveCustomAgents(remainingAgents) {
+            if selectedAgent?.id == agentID {
+                selectedAgent = nil
+            }
+            saveAgentOrderIDs(agentOrderIDs.filter { $0 != agentID })
         }
     }
 
@@ -502,6 +571,27 @@ struct ContentView: View {
            let json = String(data: data, encoding: .utf8) {
             categoryOrderJSON = json
         }
+    }
+
+    private func pinCategory(id categoryID: String) {
+        var orderedCategories = orderedCategoryOptions
+        guard let sourceIndex = orderedCategories.firstIndex(where: { $0.rawValue == categoryID }),
+              sourceIndex != orderedCategories.startIndex else {
+            return
+        }
+
+        let category = orderedCategories.remove(at: sourceIndex)
+        orderedCategories.insert(category, at: orderedCategories.startIndex)
+        saveCategoryOrder(orderedCategories)
+    }
+
+    private func hideCategory(id categoryID: String) {
+        guard categoryID != CapabilityCategory.all.rawValue else {
+            return
+        }
+        var hiddenIDs = hiddenCategoryIDs
+        hiddenIDs.insert(categoryID)
+        saveHiddenCategories(hiddenIDs)
     }
 
     private func moveCategory(id sourceID: String, to targetID: String) {

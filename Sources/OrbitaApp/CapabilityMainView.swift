@@ -20,7 +20,11 @@ struct CapabilityMainView: View {
     @Binding var expandedGroupIDs: Set<String>
     let onAddAgent: () -> Void
     let onMoveAgent: (_ sourceID: String, _ targetID: String) -> Void
+    let onPinAgent: (_ agentID: String) -> Void
+    let onDeleteAgent: (_ agentID: String) -> Void
     let onMoveCategory: (_ sourceID: String, _ targetID: String) -> Void
+    let onPinCategory: (_ categoryID: String) -> Void
+    let onHideCategory: (_ categoryID: String) -> Void
     let onHideCategories: () -> Void
     let onOpenProject: () -> Void
     let onRefresh: () -> Void
@@ -56,7 +60,11 @@ struct CapabilityMainView: View {
                                 selectedGroup: $selectedGroup,
                                 onAddAgent: onAddAgent,
                                 onMoveAgent: onMoveAgent,
+                                onPinAgent: onPinAgent,
+                                onDeleteAgent: onDeleteAgent,
                                 onMoveCategory: onMoveCategory,
+                                onPinCategory: onPinCategory,
+                                onHideCategory: onHideCategory,
                                 onHideCategories: onHideCategories
                             )
 
@@ -386,7 +394,11 @@ struct CapabilityFilterBar: View {
     @Binding var selectedGroup: CapabilityCategory
     let onAddAgent: () -> Void
     let onMoveAgent: (_ sourceID: String, _ targetID: String) -> Void
+    let onPinAgent: (_ agentID: String) -> Void
+    let onDeleteAgent: (_ agentID: String) -> Void
     let onMoveCategory: (_ sourceID: String, _ targetID: String) -> Void
+    let onPinCategory: (_ categoryID: String) -> Void
+    let onHideCategory: (_ categoryID: String) -> Void
     let onHideCategories: () -> Void
     @State private var draggedAgentID: String?
     @State private var draggedCategoryID: String?
@@ -417,6 +429,26 @@ struct CapabilityFilterBar: View {
                             selectedAgent = agent
                         }
                     }
+                    .contextMenu {
+                        Button {
+                            withAnimation(.snappy(duration: 0.18)) {
+                                onPinAgent(agent.id)
+                            }
+                        } label: {
+                            Label("Pin to Top", systemImage: "pin")
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            withAnimation(.snappy(duration: 0.18)) {
+                                onDeleteAgent(agent.id)
+                            }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .disabled(agent.id.hasPrefix("built-in:"))
+                    }
                 }
             }
 
@@ -436,6 +468,26 @@ struct CapabilityFilterBar: View {
                             withAnimation(.snappy(duration: 0.18)) {
                                 selectedGroup = category
                             }
+                        }
+                        .contextMenu {
+                            Button {
+                                withAnimation(.snappy(duration: 0.18)) {
+                                    onPinCategory(category.rawValue)
+                                }
+                            } label: {
+                                Label("Pin to Top", systemImage: "pin")
+                            }
+
+                            Divider()
+
+                            Button {
+                                withAnimation(.snappy(duration: 0.18)) {
+                                    onHideCategory(category.rawValue)
+                                }
+                            } label: {
+                                Label("Hide", systemImage: "eye.slash")
+                            }
+                            .disabled(category == .all)
                         }
                     }
                 }
