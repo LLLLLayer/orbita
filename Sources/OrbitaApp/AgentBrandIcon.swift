@@ -37,16 +37,32 @@ private enum AgentBrandIconStore {
         if let cached = cache[assetName] {
             return cached
         }
-        guard let url = Bundle.module.url(
-            forResource: assetName,
-            withExtension: "svg",
-            subdirectory: "AgentIcons"
-        ),
+        guard let url = resourceURL(for: assetName),
               let image = NSImage(contentsOf: url)?.copy() as? NSImage else {
             return nil
         }
         image.isTemplate = templateAssets.contains(assetName)
         cache[assetName] = image
         return image
+    }
+
+    private static func resourceURL(for assetName: String) -> URL? {
+        #if SWIFT_PACKAGE
+        if let url = Bundle.module.url(
+            forResource: assetName,
+            withExtension: "svg",
+            subdirectory: "AgentIcons"
+        ) {
+            return url
+        }
+        #endif
+
+        if let url = Bundle.main.url(forResource: assetName, withExtension: "svg", subdirectory: "AgentIcons") {
+            return url
+        }
+        if let url = Bundle.main.url(forResource: assetName, withExtension: "svg", subdirectory: "Resources/AgentIcons") {
+            return url
+        }
+        return Bundle.main.url(forResource: assetName, withExtension: "svg")
     }
 }

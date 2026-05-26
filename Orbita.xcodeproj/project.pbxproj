@@ -39,6 +39,11 @@
 		200000000000000000001016 /* OrbitaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000016 /* OrbitaTheme.swift */; };
 		200000000000000000001017 /* UserDirectoryAccessPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000017 /* UserDirectoryAccessPreflight.swift */; };
 		200000000000000000001018 /* MarkdownPreviewPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000018 /* MarkdownPreviewPage.swift */; };
+		200000000000000000001019 /* AgentBrandIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000019 /* AgentBrandIcon.swift */; };
+		200000000000000000001020 /* claude.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000020 /* claude.svg */; };
+		200000000000000000001021 /* codex.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000021 /* codex.svg */; };
+		200000000000000000001022 /* cursor.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000022 /* cursor.svg */; };
+		200000000000000000001023 /* trae.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000023 /* trae.svg */; };
 		300000000000000000001001 /* libOrbitaCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 300000000000000000000002 /* libOrbitaCore.a */; };
 		500000000000000000001001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002002 /* Sparkle */; };
 		500000000000000000001002 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002004 /* Textual */; };
@@ -87,6 +92,11 @@
 		200000000000000000000016 /* OrbitaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitaTheme.swift; sourceTree = "<group>"; };
 		200000000000000000000017 /* UserDirectoryAccessPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDirectoryAccessPreflight.swift; sourceTree = "<group>"; };
 		200000000000000000000018 /* MarkdownPreviewPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewPage.swift; sourceTree = "<group>"; };
+		200000000000000000000019 /* AgentBrandIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBrandIcon.swift; sourceTree = "<group>"; };
+		200000000000000000000020 /* claude.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = claude.svg; sourceTree = "<group>"; };
+		200000000000000000000021 /* codex.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = codex.svg; sourceTree = "<group>"; };
+		200000000000000000000022 /* cursor.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = cursor.svg; sourceTree = "<group>"; };
+		200000000000000000000023 /* trae.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = trae.svg; sourceTree = "<group>"; };
 		300000000000000000000001 /* Orbita.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Orbita.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000002 /* libOrbitaCore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libOrbitaCore.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -137,6 +147,7 @@
 		300000000000000000000007 /* OrbitaApp */ = {
 			isa = PBXGroup;
 			children = (
+				200000000000000000000019 /* AgentBrandIcon.swift */,
 				200000000000000000000001 /* AgentSelection.swift */,
 				200000000000000000000002 /* AppTelemetry.swift */,
 				200000000000000000000003 /* CapabilityCollectionView.swift */,
@@ -154,9 +165,29 @@
 				200000000000000000000016 /* OrbitaTheme.swift */,
 				200000000000000000000014 /* OrbitaWindowChrome.swift */,
 				200000000000000000000015 /* ProjectCapabilityStore.swift */,
+				200000000000000000000030 /* Resources */,
 				200000000000000000000017 /* UserDirectoryAccessPreflight.swift */,
 			);
 			path = OrbitaApp;
+			sourceTree = "<group>";
+		};
+		200000000000000000000030 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000031 /* AgentIcons */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		200000000000000000000031 /* AgentIcons */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000020 /* claude.svg */,
+				200000000000000000000021 /* codex.svg */,
+				200000000000000000000022 /* cursor.svg */,
+				200000000000000000000023 /* trae.svg */,
+			);
+			path = AgentIcons;
 			sourceTree = "<group>";
 		};
 		300000000000000000000008 /* OrbitaCore */ = {
@@ -220,6 +251,7 @@
 			buildConfigurationList = 300000000000000000006002 /* Build configuration list for PBXNativeTarget "Orbita" */;
 			buildPhases = (
 				300000000000000000004001 /* Sources */,
+				300000000000000000004003 /* Resources */,
 				300000000000000000003001 /* Frameworks */,
 			);
 			buildRules = (
@@ -277,11 +309,26 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		300000000000000000004003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				200000000000000000001020 /* claude.svg in Resources */,
+				200000000000000000001021 /* codex.svg in Resources */,
+				200000000000000000001022 /* cursor.svg in Resources */,
+				200000000000000000001023 /* trae.svg in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		300000000000000000004001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				200000000000000000001019 /* AgentBrandIcon.swift in Sources */,
 				200000000000000000001001 /* AgentSelection.swift in Sources */,
 				200000000000000000001002 /* AppTelemetry.swift in Sources */,
 				200000000000000000001003 /* CapabilityCollectionView.swift in Sources */,
