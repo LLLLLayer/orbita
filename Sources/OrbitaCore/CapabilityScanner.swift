@@ -183,7 +183,7 @@ public final class CapabilityScanner {
         )
         emitProgress("scan.agents.finish", path: root.appendingPathComponent(".agents").path, count: capabilities.count, options: options)
 
-        scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues, codexConfigPath: options.codexConfigURL.path, codexSkillStates: codexSkillStateOverrides)
+        scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues, projectRoot: root, codexConfigPath: options.codexConfigURL.path, codexSkillStates: codexSkillStateOverrides)
         scanUserSkillRoots(
             projectRoot: root,
             options: options,
@@ -1325,7 +1325,7 @@ public final class CapabilityScanner {
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             let isDirectory = values?.isDirectory ?? false
             let isSymbolicLink = values?.isSymbolicLink ?? false
-            if isDirectory && shouldSkipSkillDirectory(url, scanRoot: root, options: options) {
+            if isDirectory && shouldSkipSkillDirectory(url, scanRoot: root, projectRoot: projectRoot, options: options) {
                 enumerator.skipDescendants()
                 continue
             }
@@ -1417,8 +1417,15 @@ public final class CapabilityScanner {
         ))
     }
 
-    private func shouldSkipSkillDirectory(_ url: URL, scanRoot: URL, options: ScanOptions) -> Bool {
+    private func shouldSkipSkillDirectory(_ url: URL, scanRoot: URL, projectRoot: URL? = nil, options: ScanOptions) -> Bool {
         if options.ignoredDirectoryNames.contains(url.lastPathComponent) {
+            return true
+        }
+
+        if let projectRoot,
+           url.lastPathComponent == "plugins",
+           url.standardizedFileURL.path == projectRoot.appendingPathComponent("plugins").standardizedFileURL.path,
+           isMarketplaceRoot(projectRoot) {
             return true
         }
 
@@ -1946,6 +1953,20 @@ public final class CapabilityScanner {
         return current.lastPathComponent == name ? current : nil
     }
 
+    private func isMarketplaceRoot(_ root: URL) -> Bool {
+        let candidates = [
+            root.appendingPathComponent(".claude-plugin/marketplace.json"),
+            root.appendingPathComponent(".codex-plugin/marketplace.json")
+        ]
+        for candidate in candidates {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory), !isDirectory.boolValue {
+                return true
+            }
+        }
+        return false
+    }
+
     private func scanNativePluginRegistries(
         projectRoot: URL,
         options: ScanOptions,
@@ -1954,14 +1975,16 @@ public final class CapabilityScanner {
     ) {
         let projectCodexConfig = projectRoot.appendingPathComponent(".codex/config.toml")
         let projectCodexStates = codexPluginStates(at: projectCodexConfig)
-        scanCodexPluginManifests(
-            at: projectRoot.appendingPathComponent("plugins"),
-            scope: .project,
-            configPath: projectCodexConfig.path,
-            states: projectCodexStates,
-            into: &capabilities,
-            issues: &issues
-        )
+        if !isMarketplaceRoot(projectRoot) {
+            scanCodexPluginManifests(
+                at: projectRoot.appendingPathComponent("plugins"),
+                scope: .project,
+                configPath: projectCodexConfig.path,
+                states: projectCodexStates,
+                into: &capabilities,
+                issues: &issues
+            )
+        }
 
         guard options.includeUserScope else { return }
 

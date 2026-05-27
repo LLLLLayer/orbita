@@ -2630,6 +2630,56 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(plugin.metadata["enableCommand"]?.contains("[plugins.\"project-helper@project\"]") == true)
     }
 
+    func testMarketplaceRootSkipsProjectPluginsDirectory() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let marketplaceManifest = projectRoot.appendingPathComponent(".claude-plugin/marketplace.json")
+        let marketplacePlugin = projectRoot.appendingPathComponent("plugins/sample/.claude-plugin/plugin.json")
+        let marketplaceSkill = projectRoot.appendingPathComponent("plugins/sample/skills/marketplace-skill/SKILL.md")
+        let localSkill = projectRoot.appendingPathComponent(".codex/skills/local-skill/SKILL.md")
+        try FileManager.default.createDirectory(at: marketplaceManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: marketplacePlugin.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: marketplaceSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "name": "sample-marketplace",
+          "plugins": [
+            { "name": "sample", "source": "./plugins/sample" }
+          ]
+        }
+        """.write(to: marketplaceManifest, atomically: true, encoding: .utf8)
+        try """
+        {
+          "name": "sample",
+          "version": "0.1.0",
+          "description": "Marketplace plugin source"
+        }
+        """.write(to: marketplacePlugin, atomically: true, encoding: .utf8)
+        try skillText(name: "marketplace-skill", body: "marketplace plugin source skill")
+            .write(to: marketplaceSkill, atomically: true, encoding: .utf8)
+        try skillText(name: "local-skill", body: "skill that lives in the marketplace repo itself")
+            .write(to: localSkill, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+        }
+
+        let result = try scanProjectOnly(projectRoot)
+
+        XCTAssertFalse(
+            result.capabilities.contains { $0.source.kind == "codex-plugin" && $0.source.path.contains("/plugins/sample") },
+            "Marketplace plugin sources under <repo>/plugins must not be reported as project-scope plugins"
+        )
+        XCTAssertFalse(
+            result.capabilities.contains { $0.type == .skill && $0.source.path.contains("/plugins/sample/skills/") },
+            "Skills inside marketplace plugin sources must not be reported as project skills"
+        )
+        XCTAssertTrue(
+            result.capabilities.contains { $0.type == .skill && $0.name == "local-skill" },
+            "Skills inside the marketplace repo's own .codex/skills must still be scanned"
+        )
+    }
+
     func testScansClaudeInstalledPluginsWithProjectScopeAndLifecycleCommands() throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
