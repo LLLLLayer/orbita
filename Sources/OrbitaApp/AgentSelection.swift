@@ -249,7 +249,7 @@ enum CapabilityCategory: String, CaseIterable, Identifiable {
         case .plugin:
             return capability.type == .plugin
         case .skill:
-            return capability.type == .skill
+            return capability.type == .skill && capability.pluginID == nil
         case .command:
             return capability.type == .command
         case .mcp:

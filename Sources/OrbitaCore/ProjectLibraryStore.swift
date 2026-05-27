@@ -59,6 +59,15 @@ public struct ProjectLibrary: Codable, Sendable {
         projects.insert(contentsOf: moved, at: insertionIndex)
     }
 
+    public mutating func moveProjectToTop(projectPath: String) {
+        let normalized = normalizedPath(URL(fileURLWithPath: projectPath))
+        guard let index = projects.firstIndex(where: { $0.path == normalized }), index > 0 else {
+            return
+        }
+        let project = projects.remove(at: index)
+        projects.insert(project, at: 0)
+    }
+
     private func normalizedPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }

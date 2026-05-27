@@ -352,6 +352,9 @@ struct ContentView: View {
                         selectEnvironment()
                     }
                 },
+                onPinProject: { project in
+                    store.pinProject(project)
+                },
                 onMoveProjects: { source, destination in
                     store.moveProjects(from: source, to: destination)
                 },

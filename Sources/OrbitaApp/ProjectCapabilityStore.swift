@@ -308,6 +308,16 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
+    func pinProject(_ project: ProjectRecord) {
+        library.moveProjectToTop(projectPath: project.path)
+        projects = library.projects
+        do {
+            try projectLibraryStore.save(library)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func moveProjects(from source: IndexSet, to destination: Int) {
         library.moveProjects(fromOffsets: source, toOffset: destination)
         projects = library.projects

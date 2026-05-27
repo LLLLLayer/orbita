@@ -18,6 +18,7 @@ struct OrbitaSidebarView: View {
     let onSelectThisMac: () -> Void
     let onSelectProject: (ProjectRecord) -> Void
     let onRemoveProject: (ProjectRecord) -> Void
+    let onPinProject: (ProjectRecord) -> Void
     let onMoveProjects: (IndexSet, Int) -> Void
     let onOpenSettings: () -> Void
 
@@ -99,7 +100,11 @@ struct OrbitaSidebarView: View {
                                             project: project,
                                             isSelected: selection == project.path,
                                             isEditing: true,
+                                            canPin: project.path != projects.first?.path,
                                             onSelect: {},
+                                            onPin: {
+                                                onPinProject(project)
+                                            },
                                             onRemove: {
                                                 onRemoveProject(project)
                                             }
@@ -122,9 +127,13 @@ struct OrbitaSidebarView: View {
                                             project: project,
                                             isSelected: selection == project.path,
                                             isEditing: false,
+                                            canPin: project.path != projects.first?.path,
                                             onSelect: {
                                                 selection = project.path
                                                 onSelectProject(project)
+                                            },
+                                            onPin: {
+                                                onPinProject(project)
                                             },
                                             onRemove: {
                                                 onRemoveProject(project)
@@ -247,7 +256,9 @@ private struct ProjectSidebarRow: View {
     let project: ProjectRecord
     let isSelected: Bool
     let isEditing: Bool
+    let canPin: Bool
     let onSelect: () -> Void
+    let onPin: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -270,7 +281,14 @@ private struct ProjectSidebarRow: View {
             .disabled(isEditing)
         }
         .contextMenu {
-            Button("Remove from Orbita", role: .destructive, action: onRemove)
+            Button(action: onPin) {
+                Label("Pin to Top", systemImage: "pin")
+            }
+            .disabled(!canPin)
+            Divider()
+            Button(role: .destructive, action: onRemove) {
+                Label("Delete", systemImage: "trash")
+            }
         }
         .animation(.snappy(duration: 0.16), value: isEditing)
     }

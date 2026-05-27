@@ -100,6 +100,9 @@ final class CapabilityScannerTests: XCTestCase {
         loaded.moveProjects(fromOffsets: IndexSet(integer: 0), toOffset: 2)
         XCTAssertEqual(loaded.projects.map(\.name), [projectB.lastPathComponent, projectA.lastPathComponent])
 
+        loaded.moveProjectToTop(projectPath: projectA.path)
+        XCTAssertEqual(loaded.projects.map(\.name), [projectA.lastPathComponent, projectB.lastPathComponent])
+
         loaded.remove(projectPath: projectB.path)
         try store.save(loaded)
         let reloaded = try store.load()
@@ -2211,11 +2214,14 @@ final class CapabilityScannerTests: XCTestCase {
             .appendingPathComponent("unicorn-marketplace/plugin-install-2ZrgBl/im-knowledge/1.4.9/.claude-plugin/plugin.json")
         let latestManifest = cacheRoot
             .appendingPathComponent("unicorn-marketplace/plugin-install-2zD3G5/im-knowledge/1.4.10/.claude-plugin/plugin.json")
+        let oldSkill = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/plugin-install-2ZrgBl/im-knowledge/1.4.9/skills/im-legacy-api/SKILL.md")
         let latestSkill = cacheRoot
             .appendingPathComponent("unicorn-marketplace/plugin-install-2zD3G5/im-knowledge/1.4.10/skills/im-foundation-api/SKILL.md")
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: oldManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: latestManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: oldSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: latestSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer {
@@ -2241,6 +2247,8 @@ final class CapabilityScannerTests: XCTestCase {
           "description": "IM knowledge"
         }
         """.write(to: latestManifest, atomically: true, encoding: .utf8)
+        try skillText(name: "im-legacy-api", body: "Legacy APIs.")
+            .write(to: oldSkill, atomically: true, encoding: .utf8)
         try skillText(name: "im-foundation-api", body: "Foundation APIs.")
             .write(to: latestSkill, atomically: true, encoding: .utf8)
 
@@ -2275,6 +2283,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(skill.source.packageName, "im-knowledge")
         XCTAssertEqual(skill.metadata["pluginSelector"], "im-knowledge@unicorn-marketplace")
         XCTAssertEqual(skill.metadata["installedVersion"], "1.4.10")
+        XCTAssertFalse(result.capabilities.contains { $0.name == "im-legacy-api" })
         let graph = CapabilityResolver().resolve(scanResult: result)
         XCTAssertFalse(graph.capabilities.contains { capability in
             capability.type == .plugin
@@ -2282,6 +2291,67 @@ final class CapabilityScannerTests: XCTestCase {
                     || capability.id.contains("plugin-install")
                     || capability.source.packageName?.contains("plugin-install") == true)
         })
+    }
+
+    func testScansCanonicalCodexPluginCacheSkillsWhenInstallTempHasSameVersion() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let registryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCanonicalCodexPlugins-\(UUID().uuidString)")
+        let cacheRoot = registryRoot.appendingPathComponent(".codex/plugins/cache")
+        let config = registryRoot.appendingPathComponent(".codex/config.toml")
+        let canonicalManifest = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/im-knowledge/1.4.10/.claude-plugin/plugin.json")
+        let tempManifest = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/plugin-install-2zD3G5/im-knowledge/1.4.10/.claude-plugin/plugin.json")
+        let canonicalSkill = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/im-knowledge/1.4.10/skills/im-current-api/SKILL.md")
+        let tempSkill = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/plugin-install-2zD3G5/im-knowledge/1.4.10/skills/im-temp-api/SKILL.md")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: canonicalManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: canonicalSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: registryRoot)
+        }
+
+        try """
+        [plugins."im-knowledge@unicorn-marketplace"]
+        enabled = true
+        """.write(to: config, atomically: true, encoding: .utf8)
+        let manifest = """
+        {
+          "name": "im-knowledge",
+          "version": "1.4.10",
+          "description": "IM knowledge"
+        }
+        """
+        try manifest.write(to: canonicalManifest, atomically: true, encoding: .utf8)
+        try manifest.write(to: tempManifest, atomically: true, encoding: .utf8)
+        try skillText(name: "im-current-api", body: "Current APIs.")
+            .write(to: canonicalSkill, atomically: true, encoding: .utf8)
+        try skillText(name: "im-temp-api", body: "Temp APIs.")
+            .write(to: tempSkill, atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                userSkillRoots: [cacheRoot],
+                codexConfigURL: config,
+                codexPluginCacheRoot: cacheRoot,
+                claudeInstalledPluginsURL: registryRoot.appendingPathComponent("missing-claude.json"),
+                claudeSettingsURLs: []
+            )
+        )
+
+        let plugin = try XCTUnwrap(result.capabilities.first { $0.id == "plugin:codex-cache:unicorn-marketplace:im-knowledge" })
+        XCTAssertTrue(plugin.source.path.hasSuffix("/unicorn-marketplace/im-knowledge"))
+        XCTAssertTrue(result.capabilities.contains { $0.name == "im-current-api" && $0.type == .skill })
+        XCTAssertFalse(result.capabilities.contains { $0.name == "im-temp-api" })
     }
 
     func testScansProjectCodexPluginWhenUserScopeIsDisabled() throws {
@@ -2406,7 +2476,9 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(plugin.statuses, [.enabled])
         XCTAssertEqual(plugin.metadata["manager"], "claude-code")
         XCTAssertTrue(plugin.metadata["disableCommand"]?.contains("claude plugin disable 'project-tool@test-marketplace'") == true)
+        XCTAssertTrue(plugin.metadata["disableCommand"]?.contains("--scope 'project'") == true)
         XCTAssertTrue(plugin.metadata["deleteCommand"]?.contains("claude plugin remove 'project-tool@test-marketplace'") == true)
+        XCTAssertTrue(plugin.metadata["deleteCommand"]?.contains("--scope 'project' -y") == true)
         XCTAssertFalse(result.capabilities.contains { $0.name == "Other Project" })
 
         let hook = try XCTUnwrap(result.capabilities.first { $0.source.kind == "claude-plugin-hook" })
@@ -2414,7 +2486,9 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(hook.pluginID, plugin.id)
         XCTAssertEqual(hook.metadata["pluginSelector"], "project-tool@test-marketplace")
         XCTAssertTrue(hook.metadata["disableCommand"]?.contains("claude plugin disable 'project-tool@test-marketplace'") == true)
+        XCTAssertTrue(hook.metadata["disableCommand"]?.contains("--scope 'project'") == true)
         XCTAssertTrue(hook.metadata["deleteCommand"]?.contains("claude plugin remove 'project-tool@test-marketplace'") == true)
+        XCTAssertTrue(hook.metadata["deleteCommand"]?.contains("--scope 'project' -y") == true)
 
         let items = CapabilityDisplayGrouper().items(for: [plugin, hook], preservesInputOrder: true)
         XCTAssertEqual(items.count, 1)
@@ -2423,6 +2497,75 @@ final class CapabilityScannerTests: XCTestCase {
         }
         XCTAssertEqual(group.kind, .plugin)
         XCTAssertEqual(group.representative?.id, plugin.id)
+    }
+
+    func testEnvironmentScanSkipsProjectScopedClaudePlugins() throws {
+        let environmentRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaEnvironment-\(UUID().uuidString)")
+            .appendingPathComponent(".orbita/this-mac")
+        let registryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudeEnvironment-\(UUID().uuidString)")
+        let projectRoot = registryRoot.appendingPathComponent("Project")
+        let installed = registryRoot.appendingPathComponent("installed_plugins.json")
+        let settings = registryRoot.appendingPathComponent("settings.json")
+        let localInstallPath = registryRoot.appendingPathComponent("cache/test-marketplace/local-tool/1.0.0")
+        let userInstallPath = registryRoot.appendingPathComponent("cache/test-marketplace/user-tool/1.0.0")
+        try FileManager.default.createDirectory(at: environmentRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localInstallPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: userInstallPath, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: environmentRoot.deletingLastPathComponent().deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: registryRoot)
+        }
+
+        try """
+        {
+          "version": 2,
+          "plugins": {
+            "local-tool@test-marketplace": [
+              {
+                "scope": "local",
+                "projectPath": "\(projectRoot.path)",
+                "installPath": "\(localInstallPath.path)",
+                "version": "1.0.0"
+              }
+            ],
+            "user-tool@test-marketplace": [
+              {
+                "scope": "user",
+                "installPath": "\(userInstallPath.path)",
+                "version": "1.0.0"
+              }
+            ]
+          }
+        }
+        """.write(to: installed, atomically: true, encoding: .utf8)
+        try """
+        {
+          "enabledPlugins": {
+            "local-tool@test-marketplace": true,
+            "user-tool@test-marketplace": true
+          }
+        }
+        """.write(to: settings, atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: environmentRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                codexConfigURL: registryRoot.appendingPathComponent("missing-config.toml"),
+                codexPluginCacheRoot: registryRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: installed,
+                claudeSettingsURLs: [settings]
+            )
+        )
+
+        XCTAssertFalse(result.capabilities.contains { $0.metadata["pluginSelector"] == "local-tool@test-marketplace" })
+        let userPlugin = try XCTUnwrap(result.capabilities.first { $0.metadata["pluginSelector"] == "user-tool@test-marketplace" })
+        XCTAssertEqual(userPlugin.scope, .user)
+        XCTAssertTrue(userPlugin.metadata["deleteCommand"]?.contains("--scope 'user' -y") == true)
     }
 
     func testScansClaudePluginSkillsAndCommandsAsPluginChildren() throws {

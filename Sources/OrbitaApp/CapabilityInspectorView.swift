@@ -441,7 +441,10 @@ struct CapabilityInspectorView: View {
                     configPath: capability.metadata["configPath"] ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.codex/config.toml"
                 )
             } else {
-                result = ShellCommandRunner.run(action.command, workingDirectory: FileManager.default.currentDirectoryPath)
+                result = ShellCommandRunner.run(
+                    action.command,
+                    workingDirectory: action.workingDirectory(for: capability) ?? FileManager.default.currentDirectoryPath
+                )
             }
             await MainActor.run {
                 nativeActionResult = NativePluginActionResult(action: action, result: result)
@@ -1261,6 +1264,16 @@ private struct NativePluginAction: Identifiable {
             actions.append(NativePluginAction(id: "delete", title: "Delete", systemImage: "trash", command: command, manager: manager, kind: .delete))
         }
         return actions
+    }
+
+    func workingDirectory(for capability: Capability) -> String? {
+        guard manager == "claude-code",
+              ["local", "project"].contains(capability.metadata["managerScope"]),
+              let projectPath = capability.metadata["projectPath"],
+              !projectPath.isEmpty else {
+            return nil
+        }
+        return projectPath
     }
 
     static func codexSkillConfigAction(for capability: Capability) -> NativePluginAction? {

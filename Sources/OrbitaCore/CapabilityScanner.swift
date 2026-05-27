@@ -1258,6 +1258,27 @@ public final class CapabilityScanner {
             let lock = sourceKind == "agents-skill"
                 ? skillsLockForUserAgentsRoot(standardizedRoot, fallback: globalSkillsLock)
                 : nil
+            if standardizedRoot.path == options.codexPluginCacheRoot.standardizedFileURL.resolvingSymlinksInPath().path {
+                let manifests = latestCodexPluginManifests(at: standardizedRoot, scope: .user, issues: &issues)
+                for manifest in manifests {
+                    scanSkillFiles(
+                        at: codexPluginVersionRoot(for: manifest).appendingPathComponent("skills"),
+                        options: options,
+                        into: &capabilities,
+                        issues: &issues,
+                        scope: .user,
+                        sourceKind: sourceKind,
+                        projectRoot: projectRoot,
+                        skillsLock: nil,
+                        skillsCanonicalRoot: nil,
+                        codexConfigPath: options.codexConfigURL.path,
+                        codexPluginStates: codexStates,
+                        codexSkillStates: codexSkillStates,
+                        claudeSkillStates: claudeSkillStates
+                    )
+                }
+                continue
+            }
             scanSkillFiles(
                 at: standardizedRoot,
                 options: options,
@@ -1779,33 +1800,8 @@ public final class CapabilityScanner {
             return
         }
 
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-            options: []
-        ) else {
-            issues.append(ScanIssue(severity: .warning, path: root.path, message: "Unable to enumerate Codex plugin cache"))
-            return
-        }
-
-        var latestBySelector: [String: CodexPluginManifest] = [:]
-        for case let url as URL in enumerator {
-            guard url.lastPathComponent == "plugin.json",
-                  [".codex-plugin", ".claude-plugin"].contains(url.deletingLastPathComponent().lastPathComponent),
-                  let manifest = codexPluginManifest(at: url, cacheRoot: root, scope: scope) else {
-                continue
-            }
-
-            if let existing = latestBySelector[manifest.selector] {
-                if isNewerPluginManifest(manifest, than: existing) {
-                    latestBySelector[manifest.selector] = manifest
-                }
-            } else {
-                latestBySelector[manifest.selector] = manifest
-            }
-        }
-
-        for manifest in latestBySelector.values.sorted(by: { $0.selector < $1.selector }) {
+        let manifests = latestCodexPluginManifests(at: root, scope: scope, issues: &issues)
+        for manifest in manifests {
             let enabled = states[manifest.selector]
             var metadata = manifest.metadata
             metadata["manager"] = "codex"
@@ -1841,9 +1837,8 @@ public final class CapabilityScanner {
                 metadata: fileMetadata(for: manifest.manifestURL, merging: metadata)
             ))
 
-            let pluginRoot = manifest.manifestURL.deletingLastPathComponent().deletingLastPathComponent()
             scanPluginHooks(
-                pluginRoot: pluginRoot,
+                pluginRoot: codexPluginVersionRoot(for: manifest),
                 scope: scope,
                 sourceKind: "codex-plugin-hook",
                 manager: "codex",
@@ -1857,6 +1852,49 @@ public final class CapabilityScanner {
                 issues: &issues
             )
         }
+    }
+
+    private func latestCodexPluginManifests(
+        at root: URL,
+        scope: CapabilityScope,
+        issues: inout [ScanIssue]
+    ) -> [CodexPluginManifest] {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return []
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: []
+        ) else {
+            issues.append(ScanIssue(severity: .warning, path: root.path, message: "Unable to enumerate Codex plugin cache"))
+            return []
+        }
+
+        var latestBySelector: [String: CodexPluginManifest] = [:]
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent == "plugin.json",
+                  [".codex-plugin", ".claude-plugin"].contains(url.deletingLastPathComponent().lastPathComponent),
+                  let manifest = codexPluginManifest(at: url, cacheRoot: root, scope: scope) else {
+                continue
+            }
+
+            if let existing = latestBySelector[manifest.selector] {
+                if isNewerPluginManifest(manifest, than: existing) {
+                    latestBySelector[manifest.selector] = manifest
+                }
+            } else {
+                latestBySelector[manifest.selector] = manifest
+            }
+        }
+
+        return latestBySelector.values.sorted(by: { $0.selector < $1.selector })
+    }
+
+    private func codexPluginVersionRoot(for manifest: CodexPluginManifest) -> URL {
+        manifest.manifestURL.deletingLastPathComponent().deletingLastPathComponent()
     }
 
     private func codexPluginManifest(at url: URL, cacheRoot: URL, scope: CapabilityScope) -> CodexPluginManifest? {
@@ -1918,6 +1956,11 @@ public final class CapabilityScanner {
         let versionComparison = candidate.version.compare(existing.version, options: [.caseInsensitive, .numeric])
         if versionComparison != .orderedSame {
             return versionComparison == .orderedDescending
+        }
+        let candidateIsPluginInstall = candidate.pluginRoot.pathComponents.contains { $0.hasPrefix("plugin-install-") }
+        let existingIsPluginInstall = existing.pluginRoot.pathComponents.contains { $0.hasPrefix("plugin-install-") }
+        if candidateIsPluginInstall != existingIsPluginInstall {
+            return !candidateIsPluginInstall
         }
         return candidate.manifestURL.path > existing.manifestURL.path
     }
@@ -2038,7 +2081,7 @@ public final class CapabilityScanner {
                 result[key] = value
             }
         }
-        let isEnvironmentScan = projectRoot.pathComponents.suffix(2).joined(separator: "/") == ".orbita/this-mac"
+        let isEnvironmentScan = isInternalEnvironmentRoot(projectRoot)
 
         for (selector, value) in plugins.sorted(by: { $0.key < $1.key }) {
             guard let installs = value as? [[String: Any]] else { continue }
@@ -2046,6 +2089,9 @@ public final class CapabilityScanner {
                 let scopeValue = install["scope"] as? String ?? "user"
                 let scope = capabilityScope(forClaudeScope: scopeValue)
                 let projectPath = install["projectPath"] as? String
+                if isEnvironmentScan, scope == .project {
+                    continue
+                }
                 if !isEnvironmentScan, scope != .user, projectPath != projectRoot.path {
                     continue
                 }
