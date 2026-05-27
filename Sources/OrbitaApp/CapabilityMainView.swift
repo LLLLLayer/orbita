@@ -42,8 +42,7 @@ struct CapabilityMainView: View {
                         VStack(alignment: .leading, spacing: 18) {
                             HeaderSurface(
                                 projectName: projectName,
-                                selectedGroup: selectedGroup,
-                                toolCount: displayedToolCount,
+                                capabilities: headerCapabilities,
                                 isScanning: isScanning,
                                 lastRefreshLabel: lastRefreshLabel,
                                 onRefresh: onRefresh
@@ -149,42 +148,48 @@ struct CapabilityMainView: View {
         max(360, height - 360)
     }
 
-    private var displayedToolCount: Int {
-        displaySections.reduce(0) { sectionTotal, section in
-            sectionTotal + section.subsections.reduce(0) { subsectionTotal, subsection in
-                subsectionTotal + subsection.items.count
-            }
-        }
+    private var headerCapabilities: [Capability] {
+        guard let graph else { return [] }
+        guard let selectedAgent else { return graph.capabilities }
+        return selectedAgent.visibleCapabilities(in: graph)
     }
 }
 
 private struct HeaderSurface: View {
     let projectName: String
-    let selectedGroup: CapabilityCategory
-    let toolCount: Int
+    let capabilities: [Capability]
     let isScanning: Bool
     let lastRefreshLabel: String
     let onRefresh: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(projectName)
-                    .font(.title2.weight(.semibold))
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(projectName)
+                        .font(.title2.weight(.semibold))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 16)
+
+                HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
             }
 
-            Spacer(minLength: 16)
+            HStack(spacing: 18) {
+                SummaryStat(title: "Total", value: capabilities.count, systemImage: "square.grid.2x2")
+                SummaryStat(title: "Plugins", value: count(.plugin), systemImage: "shippingbox")
+                SummaryStat(title: "Skills", value: count(.skill), systemImage: "wand.and.stars")
+                SummaryStat(title: "Commands", value: count(.command), systemImage: "terminal")
+            }
 
-            HeaderToolCount(value: toolCount, title: toolCountTitle)
-            HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
         }
         .padding(18)
         .orbitaCard(cornerRadius: 22, shadowRadius: 12, shadowY: 7)
     }
 
-    private var toolCountTitle: String {
-        selectedGroup == .all ? "Tools" : selectedGroup.title
+    private func count(_ category: CapabilityCategory) -> Int {
+        capabilities.filter { category.matches($0) }.count
     }
 }
 
@@ -271,26 +276,25 @@ private struct ProjectLoadingView: View {
     }
 }
 
-private struct HeaderToolCount: View {
-    let value: Int
+private struct SummaryStat: View {
     let title: String
+    let value: Int
+    let systemImage: String
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 14, weight: .medium))
+            Image(systemName: systemImage)
                 .foregroundStyle(.secondary)
-                .frame(width: 16, height: 16)
-            Text("\(value)")
-                .font(.headline.monospacedDigit())
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(value)")
+                    .font(.headline.monospacedDigit())
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .lineLimit(1)
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-        .orbitaControlSurface(cornerRadius: 10)
+        .frame(minWidth: 92, alignment: .leading)
     }
 }
 
