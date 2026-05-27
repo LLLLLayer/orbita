@@ -34,7 +34,7 @@ struct CapabilityMainView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let graph {
+            if graph != nil {
                 GeometryReader { proxy in
                     let contentPadding = horizontalContentPadding(for: proxy.size.width)
                     let contentWidth = max(1, proxy.size.width - contentPadding * 2)
@@ -42,7 +42,8 @@ struct CapabilityMainView: View {
                         VStack(alignment: .leading, spacing: 18) {
                             HeaderSurface(
                                 projectName: projectName,
-                                graph: graph,
+                                selectedGroup: selectedGroup,
+                                toolCount: displayedToolCount,
                                 isScanning: isScanning,
                                 lastRefreshLabel: lastRefreshLabel,
                                 onRefresh: onRefresh
@@ -66,14 +67,6 @@ struct CapabilityMainView: View {
                                 onHideCategory: onHideCategory,
                                 onHideCategories: onHideCategories
                             )
-
-                            if selectedAgent == nil {
-                                SourceOverviewStrip(
-                                    capabilities: graph.capabilities,
-                                    overview: AgentOverviewBuilder().overview(graph: graph)
-                                )
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
 
                             if displaySections.isEmpty {
                                 EmptyCapabilitiesState()
@@ -155,47 +148,43 @@ struct CapabilityMainView: View {
     private func emptyStateHeight(for height: CGFloat) -> CGFloat {
         max(360, height - 360)
     }
+
+    private var displayedToolCount: Int {
+        displaySections.reduce(0) { sectionTotal, section in
+            sectionTotal + section.subsections.reduce(0) { subsectionTotal, subsection in
+                subsectionTotal + subsection.items.count
+            }
+        }
+    }
 }
 
 private struct HeaderSurface: View {
     let projectName: String
-    let graph: CapabilityGraph
+    let selectedGroup: CapabilityCategory
+    let toolCount: Int
     let isScanning: Bool
     let lastRefreshLabel: String
     let onRefresh: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(projectName)
-                        .font(.title2.weight(.semibold))
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 16)
-
-                HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(projectName)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
             }
 
-            HStack(spacing: 18) {
-                SummaryStat(title: "Total", value: graph.capabilities.count, systemImage: "square.grid.2x2")
-                SummaryStat(title: "Plugins", value: count(.plugin), systemImage: "shippingbox")
-                SummaryStat(title: "Drift", value: statusCount(.drifted), systemImage: "arrow.triangle.branch")
-                SummaryStat(title: "Review", value: statusCount(.risky), systemImage: "exclamationmark.triangle")
-            }
+            Spacer(minLength: 16)
 
+            HeaderToolCount(value: toolCount, title: toolCountTitle)
+            HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
         }
         .padding(18)
         .orbitaCard(cornerRadius: 22, shadowRadius: 12, shadowY: 7)
     }
 
-    private func count(_ type: CapabilityType) -> Int {
-        graph.capabilities.filter { $0.type == type }.count
-    }
-
-    private func statusCount(_ status: CapabilityStatus) -> Int {
-        graph.capabilities.filter { $0.statuses.contains(status) }.count
+    private var toolCountTitle: String {
+        selectedGroup == .all ? "Tools" : selectedGroup.title
     }
 }
 
@@ -282,39 +271,25 @@ private struct ProjectLoadingView: View {
     }
 }
 
-private struct SummaryStat: View {
-    let title: String
+private struct HeaderToolCount: View {
     let value: Int
-    let systemImage: String
+    let title: String
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(value)")
-                    .font(.headline.monospacedDigit())
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(minWidth: 92, alignment: .leading)
-    }
-}
-
-private struct HeaderIconButton: View {
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
+            Image(systemName: "square.grid.2x2")
                 .font(.system(size: 14, weight: .medium))
-                .frame(width: 30, height: 30)
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
+            Text("\(value)")
+                .font(.headline.monospacedDigit())
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
         .orbitaControlSurface(cornerRadius: 10)
     }
 }
@@ -592,105 +567,6 @@ private struct FilterChip: View {
         }
         .scaleEffect(isSelected ? 1.02 : 1)
         .animation(.snappy(duration: 0.16), value: isSelected)
-    }
-}
-
-private struct SourceOverviewStrip: View {
-    let capabilities: [Capability]
-    let overview: AgentCapabilityOverview
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(sourceSummaries, id: \.kind) { summary in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: summary.kind.systemImage)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 18, height: 22)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(summary.kind.title)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
-                            Text(primaryDetail(for: summary))
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            Text(secondaryDetail(for: summary))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .frame(width: 258, alignment: .topLeading)
-                    .frame(height: 72, alignment: .topLeading)
-                    .orbitaControlSurface(cornerRadius: 10)
-                }
-            }
-        }
-    }
-
-    private var sourceSummaries: [SourceSummary] {
-        let grouped = Dictionary(grouping: capabilities, by: CapabilitySourceClassifier.sourceKind(for:))
-        let agentSummaries = Dictionary(uniqueKeysWithValues: overview.agentSummaries.map { ($0.agent, $0) })
-        return CapabilitySourceClassifier.SourceKind.headerKinds
-            .map { kind in
-                let sourceCapabilities = grouped[kind] ?? []
-                return SourceSummary(
-                    kind: kind,
-                    count: sourceCapabilities.count,
-                    enabledCount: sourceCapabilities.filter { $0.statuses.contains(.enabled) }.count,
-                    disabledCount: sourceCapabilities.filter { $0.statuses.contains(.disabled) }.count,
-                    driftedCount: sourceCapabilities.filter { $0.statuses.contains(.drifted) }.count,
-                    agentSummary: agentSummary(for: kind, in: agentSummaries)
-                )
-            }
-    }
-
-    private func primaryDetail(for summary: SourceSummary) -> String {
-        guard let agentSummary = summary.agentSummary else {
-            return "\(summary.count) indexed · \(summary.enabledCount) enabled"
-        }
-        return "\(agentSummary.visibleCount) visible · \(agentSummary.hiddenCount) hidden"
-    }
-
-    private func secondaryDetail(for summary: SourceSummary) -> String {
-        if let agentSummary = summary.agentSummary {
-            let drift = agentSummary.driftedCount == 0 ? "no drift" : "\(agentSummary.driftedCount) drift"
-            let risk = agentSummary.riskyCount == 0 ? "ready" : "\(agentSummary.riskyCount) review"
-            return "\(risk) · \(drift) · native \(summary.kind.title) loading"
-        }
-        let disabled = summary.disabledCount == 0 ? "no disabled entries" : "\(summary.disabledCount) disabled"
-        let drift = summary.driftedCount == 0 ? "sync ready" : "\(summary.driftedCount) drift"
-        return "\(disabled) · \(drift) · shared across agents"
-    }
-
-    private func agentSummary(
-        for kind: CapabilitySourceClassifier.SourceKind,
-        in summaries: [AgentID: AgentCapabilitySummary]
-    ) -> AgentCapabilitySummary? {
-        switch kind {
-        case .codex:
-            return summaries[.codex]
-        case .claude:
-            return summaries[.claudeCode]
-        default:
-            return nil
-        }
-    }
-
-    private struct SourceSummary {
-        let kind: CapabilitySourceClassifier.SourceKind
-        let count: Int
-        let enabledCount: Int
-        let disabledCount: Int
-        let driftedCount: Int
-        let agentSummary: AgentCapabilitySummary?
     }
 }
 
