@@ -18,6 +18,8 @@ struct CapabilityMainView: View {
     let categoryOptions: [CapabilityCategory]
     let displaySections: [CapabilityCollectionSection]
     let graphForAgentVisibility: CapabilityGraph?
+    @Binding var hideMacScope: Bool
+    let showHideMacScopeToggle: Bool
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let onAddAgent: () -> Void
@@ -45,6 +47,8 @@ struct CapabilityMainView: View {
                                 capabilities: headerCapabilities,
                                 isScanning: isScanning,
                                 lastRefreshLabel: lastRefreshLabel,
+                                hideMacScope: $hideMacScope,
+                                showHideMacScopeToggle: showHideMacScopeToggle,
                                 onRefresh: onRefresh
                             )
 
@@ -160,6 +164,8 @@ private struct HeaderSurface: View {
     let capabilities: [Capability]
     let isScanning: Bool
     let lastRefreshLabel: String
+    @Binding var hideMacScope: Bool
+    let showHideMacScopeToggle: Bool
     let onRefresh: () -> Void
 
     var body: some View {
@@ -172,6 +178,10 @@ private struct HeaderSurface: View {
                 }
 
                 Spacer(minLength: 16)
+
+                if showHideMacScopeToggle {
+                    HeaderMacScopeToggle(isHiding: $hideMacScope)
+                }
 
                 HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
             }
@@ -325,6 +335,30 @@ private struct HeaderRefreshButton: View {
         .buttonStyle(.plain)
         .orbitaControlSurface(cornerRadius: 10)
         .help("Refresh")
+    }
+}
+
+private struct HeaderMacScopeToggle: View {
+    @Binding var isHiding: Bool
+
+    var body: some View {
+        Button {
+            isHiding.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "laptopcomputer")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(isHiding ? "Show This Mac" : "Hide This Mac")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isHiding ? OrbitaTheme.prominentControlForeground : Color.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+        }
+        .buttonStyle(.plain)
+        .orbitaControlSurface(selected: isHiding, cornerRadius: 10)
+        .help(isHiding ? "Show capabilities that come from This Mac" : "Hide capabilities that come from This Mac")
     }
 }
 

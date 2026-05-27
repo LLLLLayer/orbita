@@ -13,6 +13,7 @@ struct ContentView: View {
     @AppStorage("scanRefreshPolicy") private var scanRefreshPolicy = ScanRefreshPolicy.oneHour.rawValue
     @AppStorage("orbitaLanguageCode") private var orbitaLanguageCode = OrbitaLanguage.english.rawValue
     @AppStorage("capabilitySortOption") private var capabilitySortOption = CapabilitySortOption.nameAscending.rawValue
+    @AppStorage("hideMacScopeInProject") private var hideMacScopeInProject = false
     @State private var selectedProject: String? = ProjectCapabilityStore.environmentSelectionID
     @State private var selectedAgent: AgentSelection?
     @State private var selectedGroup = CapabilityCategory.all
@@ -213,7 +214,7 @@ struct ContentView: View {
                     CapabilityMainView(
                         projectName: store.projectName,
                         hasActiveContext: store.hasActiveContext,
-                        graph: store.graph,
+                        graph: displayGraph,
                         isScanning: store.isScanning,
                         scanMessage: store.scanMessage,
                         scanProgress: store.scanProgress,
@@ -225,6 +226,8 @@ struct ContentView: View {
                         categoryOptions: categoryOptions,
                         displaySections: capabilityDisplaySections,
                         graphForAgentVisibility: store.graph,
+                        hideMacScope: $hideMacScopeInProject,
+                        showHideMacScopeToggle: store.hasProject,
                         selectedCapability: $selectedCapability,
                         expandedGroupIDs: $expandedGroupIDs,
                         onAddAgent: {
@@ -447,9 +450,17 @@ struct ContentView: View {
     }
 
     private var visibleCapabilities: [Capability] {
-        guard let graph = store.graph else { return [] }
+        guard let graph = displayGraph else { return [] }
         guard let selectedAgent else { return graph.capabilities }
         return selectedAgent.visibleCapabilities(in: graph)
+    }
+
+    private var displayGraph: CapabilityGraph? {
+        guard let graph = store.graph else { return nil }
+        guard hideMacScopeInProject, store.hasProject else { return graph }
+        var filtered = graph
+        filtered.capabilities = graph.capabilities.filter { $0.scope != .user && $0.scope != .installed }
+        return filtered
     }
 
     private var capabilityDisplaySections: [CapabilityCollectionSection] {
