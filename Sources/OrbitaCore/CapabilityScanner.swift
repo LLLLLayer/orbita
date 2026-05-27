@@ -80,6 +80,11 @@ public struct ScanProgressEvent: Sendable, Hashable {
 public final class CapabilityScanner {
     private let fileManager: FileManager
 
+    private struct ClaudeSkillOverrideState {
+        var enabled: Bool
+        var settingsPath: String
+    }
+
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
@@ -92,6 +97,9 @@ public final class CapabilityScanner {
         var capabilities: [Capability] = []
         var issues: [ScanIssue] = []
         let codexSkillStates = codexSkillStates(at: options.codexConfigURL)
+        let claudeStateURLs = claudeSettingsStateURLs(projectRoot: root, options: options)
+        let claudeSkillStates = claudeSkillOverrideStates(at: claudeStateURLs)
+        let claudeDisabledMCPServerSettingsPaths = claudeDisabledMcpjsonServerSettingsPaths(at: claudeStateURLs)
         let projectSkillsLock = SkillsLockReader.read(at: root.appendingPathComponent("skills-lock.json"))
         let globalSkillsLock = SkillsLockReader.read(at: options.skillsGlobalLockURL)
 
@@ -113,7 +121,7 @@ public final class CapabilityScanner {
         emitProgress("scan.codex.finish", path: root.appendingPathComponent(".codex").path, count: capabilities.count, options: options)
 
         emitProgress("scan.claude.start", path: root.appendingPathComponent(".claude").path, options: options)
-        scanClaudeWorkspace(at: root, options: options, into: &capabilities, issues: &issues)
+        scanClaudeWorkspace(at: root, options: options, claudeSkillStates: claudeSkillStates, into: &capabilities, issues: &issues)
         if options.includeUserScope {
             for settingsURL in options.claudeSettingsURLs {
                 scanClaudeSettings(
@@ -131,7 +139,13 @@ public final class CapabilityScanner {
         emitProgress("scan.cursor.finish", path: root.appendingPathComponent(".cursor").path, count: capabilities.count, options: options)
 
         emitProgress("scan.mcp.start", path: root.appendingPathComponent(".mcp.json").path, options: options)
-        scanMCPConfig(at: root.appendingPathComponent(".mcp.json"), scope: .project, into: &capabilities, issues: &issues)
+        scanMCPConfig(
+            at: root.appendingPathComponent(".mcp.json"),
+            scope: .project,
+            disabledMcpjsonServerSettingsPaths: claudeDisabledMCPServerSettingsPaths,
+            into: &capabilities,
+            issues: &issues
+        )
         emitProgress("scan.mcp.finish", path: root.appendingPathComponent(".mcp.json").path, count: capabilities.count, options: options)
 
         emitProgress("scan.agents.start", path: root.appendingPathComponent(".agents").path, options: options)
@@ -151,6 +165,7 @@ public final class CapabilityScanner {
             options: options,
             globalSkillsLock: globalSkillsLock,
             codexSkillStates: codexSkillStates,
+            claudeSkillStates: claudeSkillStates,
             into: &capabilities,
             issues: &issues
         )
@@ -226,7 +241,13 @@ public final class CapabilityScanner {
         )
     }
 
-    private func scanClaudeWorkspace(at root: URL, options: ScanOptions, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
+    private func scanClaudeWorkspace(
+        at root: URL,
+        options: ScanOptions,
+        claudeSkillStates: [String: ClaudeSkillOverrideState],
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
         scanCodexMarkdownFiles(
             at: root.appendingPathComponent(".claude/commands"),
             type: .command,
@@ -240,6 +261,12 @@ public final class CapabilityScanner {
             into: &capabilities,
             issues: &issues
         )
+        scanClaudeSettings(
+            at: root.appendingPathComponent(".claude/settings.local.json"),
+            scope: .project,
+            into: &capabilities,
+            issues: &issues
+        )
         scanSkillFiles(
             at: root.appendingPathComponent(".claude/skills"),
             options: options,
@@ -247,7 +274,8 @@ public final class CapabilityScanner {
             issues: &issues,
             scope: .project,
             sourceKind: "claude-skill",
-            projectRoot: root
+            projectRoot: root,
+            claudeSkillStates: claudeSkillStates
         )
     }
 
@@ -360,6 +388,10 @@ public final class CapabilityScanner {
                     metadata["hookIndex"] = String(hookIndex)
                     metadata["stateKey"] = stateKey
                     metadata["filter"] = hook["if"] as? String ?? ""
+                    if sourceKind == "claude-settings-hook" {
+                        metadata["claudeHookSettingsPath"] = url.path
+                        metadata["claudeHookDeleteCommand"] = "Remove \(event) hook \(entryIndex):\(hookIndex) from \(url.path)"
+                    }
                     descriptor.metadata.forEach { metadata[$0.key] = $0.value }
 
                     capabilities.append(Capability(
@@ -850,6 +882,7 @@ public final class CapabilityScanner {
     private func scanMCPConfig(
         at url: URL,
         scope: CapabilityScope,
+        disabledMcpjsonServerSettingsPaths: [String: String] = [:],
         into capabilities: inout [Capability],
         issues: inout [ScanIssue]
     ) {
@@ -869,6 +902,19 @@ public final class CapabilityScanner {
                 for (serverName, value) in servers {
                     let server = value as? [String: Any] ?? [:]
                     let risks = riskHints(forMCPServer: server)
+                    let disabledSettingsPath = disabledMcpjsonServerSettingsPaths[serverName]
+                    let isDisabledForClaude = disabledSettingsPath != nil
+                    var metadata = compactMetadata(server)
+                    metadata["mcpServerName"] = serverName
+                    metadata["mcpConfigPath"] = url.path
+                    if scope == .project {
+                        let claudeSettingsPath = disabledSettingsPath ?? url.deletingLastPathComponent().appendingPathComponent(".claude/settings.json").path
+                        metadata["claudeMCPSettingsPath"] = claudeSettingsPath
+                        metadata["claudeMCPEnabled"] = String(!isDisabledForClaude)
+                        metadata["claudeMCPDisableCommand"] = "Add \(serverName) to disabledMcpjsonServers in \(claudeSettingsPath)"
+                        metadata["claudeMCPEnableCommand"] = "Remove \(serverName) from disabledMcpjsonServers in \(claudeSettingsPath)"
+                        metadata["claudeMCPDeleteCommand"] = "Remove \(serverName) from \(url.path)"
+                    }
                     capabilities.append(Capability(
                         id: stableID(type: .mcpServer, path: "\(url.path)#\(serverName)"),
                         name: serverName,
@@ -878,7 +924,7 @@ public final class CapabilityScanner {
                         risks: risks,
                         source: CapabilitySource(kind: "mcp-config", path: url.path),
                         summary: "MCP server",
-                        metadata: compactMetadata(server)
+                        metadata: metadata
                     ))
                 }
             }
@@ -1056,6 +1102,7 @@ public final class CapabilityScanner {
         codexConfigPath: String? = nil,
         codexPluginStates: [String: Bool] = [:],
         codexSkillStates: [String: Bool] = [:],
+        claudeSkillStates: [String: ClaudeSkillOverrideState] = [:],
         forcedPackageInfo: (packageName: String, pluginID: String)? = nil,
         inheritedEnabled: Bool? = nil,
         metadata baseMetadata: [String: String] = [:]
@@ -1107,6 +1154,7 @@ public final class CapabilityScanner {
                         codexConfigPath: codexConfigPath,
                         codexPluginStates: codexPluginStates,
                         codexSkillStates: codexSkillStates,
+                        claudeSkillStates: claudeSkillStates,
                         forcedPackageInfo: forcedPackageInfo,
                         inheritedEnabled: inheritedEnabled,
                         metadata: baseMetadata
@@ -1133,6 +1181,7 @@ public final class CapabilityScanner {
                 codexConfigPath: codexConfigPath,
                 codexPluginStates: codexPluginStates,
                 codexSkillStates: codexSkillStates,
+                claudeSkillStates: claudeSkillStates,
                 forcedPackageInfo: forcedPackageInfo,
                 inheritedEnabled: inheritedEnabled,
                 metadata: baseMetadata
@@ -1166,6 +1215,7 @@ public final class CapabilityScanner {
             codexConfigPath: nil,
             codexPluginStates: [:],
             codexSkillStates: [:],
+            claudeSkillStates: [:],
             forcedPackageInfo: packageInfo,
             inheritedEnabled: inheritedEnabled,
             metadata: baseMetadata
@@ -1196,6 +1246,7 @@ public final class CapabilityScanner {
         options: ScanOptions,
         globalSkillsLock: SkillsLockFile?,
         codexSkillStates: [String: Bool],
+        claudeSkillStates: [String: ClaudeSkillOverrideState],
         into capabilities: inout [Capability],
         issues: inout [ScanIssue]
     ) {
@@ -1219,7 +1270,8 @@ public final class CapabilityScanner {
                 skillsCanonicalRoot: sourceKind == "agents-skill" ? standardizedRoot : nil,
                 codexConfigPath: options.codexConfigURL.path,
                 codexPluginStates: codexStates,
-                codexSkillStates: codexSkillStates
+                codexSkillStates: codexSkillStates,
+                claudeSkillStates: claudeSkillStates
             )
         }
     }
@@ -1250,6 +1302,7 @@ public final class CapabilityScanner {
         codexConfigPath: String?,
         codexPluginStates: [String: Bool],
         codexSkillStates: [String: Bool],
+        claudeSkillStates: [String: ClaudeSkillOverrideState],
         forcedPackageInfo: (packageName: String, pluginID: String)? = nil,
         inheritedEnabled: Bool? = nil,
         metadata baseMetadata: [String: String] = [:]
@@ -1299,20 +1352,47 @@ public final class CapabilityScanner {
             metadata["deleteCommand"] = "codex plugin remove \(shellQuoted(selector))"
             metadata["lifecycleNote"] = "This skill is bundled inside the \(pluginDisplayName(codexCacheInfo.pluginName)) Codex plugin; enable, disable, update, and delete apply to the plugin package."
             statuses = statusList(enabled: codexPluginStates[selector])
+        } else if sourceKind == "claude-skill" {
+            let overrideState = claudeSkillStates[name]
+            let settingsPath = overrideState?.settingsPath ?? claudeSettingsPath(forSkill: url, scope: scope, projectRoot: projectRoot)
+            let enabled = overrideState?.enabled ?? true
+            metadata["claudeSkillName"] = name
+            metadata["claudeSettingsPath"] = settingsPath
+            metadata["claudeSkillEnabled"] = String(enabled)
+            metadata["claudeSkillDeletePath"] = url.deletingLastPathComponent().path
+            metadata["claudeSkillDisableCommand"] = "Set skillOverrides.\(name) = \"off\" in \(settingsPath)"
+            metadata["claudeSkillEnableCommand"] = "Remove skillOverrides.\(name) from \(settingsPath)"
+            metadata["claudeSkillDeleteCommand"] = "Remove \(url.deletingLastPathComponent().path)"
+            metadata["lifecycleNote"] = "Claude Code native skill lifecycle uses skillOverrides for enablement; delete removes this skill directory."
+            statuses = enabled ? [.enabled] : [.disabled]
         } else if forcedPackageInfo != nil {
             statuses = statusList(enabled: inheritedEnabled)
         } else {
             statuses = [.discovered]
         }
 
-        if let codexSkillEnabled = codexSkillState(for: url, states: codexSkillStates) {
-            let configPath = codexConfigPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/config.toml").path
-            metadata["codexSkillEnabled"] = String(codexSkillEnabled)
-            metadata["codexConfigPath"] = configPath
-            metadata["codexDisableCommand"] = "Add [[skills.config]] path = \(shellQuoted(url.path)) enabled = false to \(configPath)"
-            metadata["codexEnableCommand"] = "Remove the matching [[skills.config]] entry or set enabled = true in \(configPath)"
-            if codexSkillEnabled == false, sourceKind == "user-skill" {
-                statuses = [.disabled]
+        let usesPluginLifecycle = forcedPackageInfo != nil
+            || codexCacheInfo != nil
+            || sourceKind.contains("plugin-skill")
+            || (metadata["manager"] == "codex" && metadata["pluginSelector"] != nil)
+        if !usesPluginLifecycle {
+            if let configPath = codexConfigPath {
+                metadata["codexConfigPath"] = configPath
+                metadata["codexSkillConfigPath"] = url.path
+                metadata["codexDisableCommand"] = "Set [[skills.config]] path = \(shellQuoted(url.path)) enabled = false in \(configPath)"
+                metadata["codexEnableCommand"] = "Set [[skills.config]] path = \(shellQuoted(url.path)) enabled = true in \(configPath)"
+            }
+
+            if let codexSkillEnabled = codexSkillState(for: url, states: codexSkillStates) {
+                let configPath = codexConfigPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/config.toml").path
+                metadata["codexSkillEnabled"] = String(codexSkillEnabled)
+                metadata["codexConfigPath"] = configPath
+                metadata["codexSkillConfigPath"] = url.path
+                metadata["codexDisableCommand"] = "Set [[skills.config]] path = \(shellQuoted(url.path)) enabled = false in \(configPath)"
+                metadata["codexEnableCommand"] = "Set [[skills.config]] path = \(shellQuoted(url.path)) enabled = true in \(configPath)"
+                if codexSkillEnabled == false, sourceKind == "user-skill" {
+                    statuses = [.disabled]
+                }
             }
         }
 
@@ -1566,6 +1646,72 @@ public final class CapabilityScanner {
         return nil
     }
 
+    private func claudeSettingsStateURLs(projectRoot: URL, options: ScanOptions) -> [URL] {
+        var urls = options.includeUserScope ? options.claudeSettingsURLs : []
+        urls.append(projectRoot.appendingPathComponent(".claude/settings.json"))
+        urls.append(projectRoot.appendingPathComponent(".claude/settings.local.json"))
+        return uniqueURLs(urls)
+    }
+
+    private func claudeSkillOverrideStates(at urls: [URL]) -> [String: ClaudeSkillOverrideState] {
+        urls.reduce(into: [String: ClaudeSkillOverrideState]()) { result, url in
+            guard let object = jsonObject(at: url),
+                  let overrides = object["skillOverrides"] as? [String: Any] else {
+                return
+            }
+            for (name, value) in overrides {
+                if let string = value as? String {
+                    result[name] = ClaudeSkillOverrideState(enabled: string.lowercased() != "off", settingsPath: url.path)
+                } else if let bool = value as? Bool {
+                    result[name] = ClaudeSkillOverrideState(enabled: bool, settingsPath: url.path)
+                }
+            }
+        }
+    }
+
+    private func claudeDisabledMcpjsonServerSettingsPaths(at urls: [URL]) -> [String: String] {
+        urls.reduce(into: [String: String]()) { result, url in
+            guard let object = jsonObject(at: url),
+                  let servers = object["disabledMcpjsonServers"] as? [String] else {
+                return
+            }
+            for server in servers {
+                result[server] = url.path
+            }
+        }
+    }
+
+    private func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var result: [URL] = []
+        for url in urls {
+            let key = url.standardizedFileURL.path
+            if seen.insert(key).inserted {
+                result.append(url)
+            }
+        }
+        return result
+    }
+
+    private func claudeSettingsPath(forSkill url: URL, scope: CapabilityScope, projectRoot: URL) -> String {
+        if scope == .user,
+           let claudeRoot = ancestorDirectory(named: ".claude", from: url) {
+            return claudeRoot.appendingPathComponent("settings.json").path
+        }
+        return projectRoot.appendingPathComponent(".claude/settings.json").path
+    }
+
+    private func ancestorDirectory(named name: String, from url: URL) -> URL? {
+        var current = url.deletingLastPathComponent().standardizedFileURL
+        while current.path != current.deletingLastPathComponent().path {
+            if current.lastPathComponent == name {
+                return current
+            }
+            current = current.deletingLastPathComponent()
+        }
+        return current.lastPathComponent == name ? current : nil
+    }
+
     private func scanNativePluginRegistries(
         projectRoot: URL,
         options: ScanOptions,
@@ -1600,7 +1746,10 @@ public final class CapabilityScanner {
             projectRoot: projectRoot,
             options: options,
             installedPluginsURL: options.claudeInstalledPluginsURL,
-            settingsURLs: options.claudeSettingsURLs + [projectRoot.appendingPathComponent(".claude/settings.json")],
+            settingsURLs: options.claudeSettingsURLs + [
+                projectRoot.appendingPathComponent(".claude/settings.json"),
+                projectRoot.appendingPathComponent(".claude/settings.local.json")
+            ],
             into: &capabilities,
             issues: &issues
         )
@@ -1643,12 +1792,12 @@ public final class CapabilityScanner {
         for case let url as URL in enumerator {
             guard url.lastPathComponent == "plugin.json",
                   [".codex-plugin", ".claude-plugin"].contains(url.deletingLastPathComponent().lastPathComponent),
-                  let manifest = codexPluginManifest(at: url, cacheRoot: root) else {
+                  let manifest = codexPluginManifest(at: url, cacheRoot: root, scope: scope) else {
                 continue
             }
 
             if let existing = latestBySelector[manifest.selector] {
-                if pluginManifestSortKey(manifest) > pluginManifestSortKey(existing) {
+                if isNewerPluginManifest(manifest, than: existing) {
                     latestBySelector[manifest.selector] = manifest
                 }
             } else {
@@ -1710,7 +1859,7 @@ public final class CapabilityScanner {
         }
     }
 
-    private func codexPluginManifest(at url: URL, cacheRoot: URL) -> CodexPluginManifest? {
+    private func codexPluginManifest(at url: URL, cacheRoot: URL, scope: CapabilityScope) -> CodexPluginManifest? {
         guard let object = jsonObject(at: url) else { return nil }
         let rootPath = cacheRoot.standardizedFileURL.resolvingSymlinksInPath().path
         let urlPath = url.standardizedFileURL.resolvingSymlinksInPath().path
@@ -1722,11 +1871,16 @@ public final class CapabilityScanner {
         let marketplace: String
         let pluginName: String
         let version: String
-        if relativeComponents.count >= 5 {
+        if scope == .user, relativeComponents.count >= 5 {
             marketplace = relativeComponents[0]
-            pluginName = relativeComponents[1]
-            version = object["version"] as? String ?? relativeComponents[2]
-            pluginRoot = cacheRoot.appendingPathComponent(marketplace).appendingPathComponent(pluginName)
+            let pathPluginName = relativeComponents[relativeComponents.count - 4]
+            let pathVersion = relativeComponents[relativeComponents.count - 3]
+            pluginName = object["name"] as? String ?? pathPluginName
+            version = object["version"] as? String ?? pathVersion
+            pluginRoot = url
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
         } else if relativeComponents.count >= 3 {
             marketplace = "project"
             pluginName = object["name"] as? String ?? pluginRoot.lastPathComponent
@@ -1760,8 +1914,12 @@ public final class CapabilityScanner {
         )
     }
 
-    private func pluginManifestSortKey(_ manifest: CodexPluginManifest) -> String {
-        "\(manifest.version)|\(manifest.manifestURL.path)"
+    private func isNewerPluginManifest(_ candidate: CodexPluginManifest, than existing: CodexPluginManifest) -> Bool {
+        let versionComparison = candidate.version.compare(existing.version, options: [.caseInsensitive, .numeric])
+        if versionComparison != .orderedSame {
+            return versionComparison == .orderedDescending
+        }
+        return candidate.manifestURL.path > existing.manifestURL.path
     }
 
     private func codexPluginStates(at url: URL) -> [String: Bool] {
@@ -1912,7 +2070,8 @@ public final class CapabilityScanner {
                     "enableCommand": "claude plugin enable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
                     "disableCommand": "claude plugin disable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
                     "updateCommand": "claude plugin update \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
-                    "lifecycleNote": "Claude Code CLI exposes native plugin enable, disable, update, and list commands."
+                    "deleteCommand": "claude plugin remove \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue)) -y",
+                    "lifecycleNote": "Claude Code CLI exposes native plugin enable, disable, update, delete, and list commands."
                 ].filter { !$0.value.isEmpty }
                 if let gitCommitSha = install["gitCommitSha"] as? String {
                     metadata["gitCommitSha"] = gitCommitSha
@@ -1940,7 +2099,12 @@ public final class CapabilityScanner {
                     "installedVersion": install["version"] as? String ?? "",
                     "managerScope": scopeValue,
                     "projectPath": projectPath ?? "",
-                    "lifecycleNote": "This capability is bundled inside the \(pluginDisplayName(pluginName)) Claude Code plugin."
+                    "checkCommand": "(claude plugin update \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue)) --dry-run 2>/dev/null) || claude plugin list --json --available",
+                    "enableCommand": "claude plugin enable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
+                    "disableCommand": "claude plugin disable \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
+                    "updateCommand": "claude plugin update \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue))",
+                    "deleteCommand": "claude plugin remove \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue)) -y",
+                    "lifecycleNote": "This capability is bundled inside the \(pluginDisplayName(pluginName)) Claude Code plugin; lifecycle actions apply to the plugin package."
                 ].filter { !$0.value.isEmpty }
                 scanSkillFiles(
                     at: pluginRoot.appendingPathComponent("skills"),
@@ -1983,6 +2147,7 @@ public final class CapabilityScanner {
                     manager: "claude-code",
                     enabled: enabled,
                     pluginID: pluginID,
+                    scopeValue: scopeValue,
                     pluginSelector: selector,
                     pluginName: pluginName,
                     marketplace: marketplace,
@@ -2014,6 +2179,7 @@ public final class CapabilityScanner {
         manager: String,
         enabled: Bool?,
         pluginID: String,
+        scopeValue: String? = nil,
         pluginSelector: String,
         pluginName: String,
         marketplace: String,
@@ -2031,6 +2197,22 @@ public final class CapabilityScanner {
             let standardizedPath = hookURL.standardizedFileURL.resolvingSymlinksInPath().path
             guard !scannedPaths.contains(standardizedPath) else { continue }
             scannedPaths.insert(standardizedPath)
+            var metadata = [
+                "pluginSelector": pluginSelector,
+                "pluginName": pluginName,
+                "marketplace": marketplace,
+                "installedVersion": installedVersion
+            ]
+            if manager == "claude-code" {
+                let pluginScope = scopeValue ?? scope.rawValue
+                metadata["managerScope"] = pluginScope
+                metadata["checkCommand"] = "(claude plugin update \(shellQuoted(pluginSelector)) --scope \(shellQuoted(pluginScope)) --dry-run 2>/dev/null) || claude plugin list --json --available"
+                metadata["enableCommand"] = "claude plugin enable \(shellQuoted(pluginSelector)) --scope \(shellQuoted(pluginScope))"
+                metadata["disableCommand"] = "claude plugin disable \(shellQuoted(pluginSelector)) --scope \(shellQuoted(pluginScope))"
+                metadata["updateCommand"] = "claude plugin update \(shellQuoted(pluginSelector)) --scope \(shellQuoted(pluginScope))"
+                metadata["deleteCommand"] = "claude plugin remove \(shellQuoted(pluginSelector)) --scope \(shellQuoted(pluginScope)) -y"
+                metadata["lifecycleNote"] = "This capability is bundled inside the \(pluginDisplayName(pluginName)) Claude Code plugin; lifecycle actions apply to the plugin package."
+            }
             _ = scanHooksConfig(
                 at: hookURL,
                 scope: scope,
@@ -2040,12 +2222,7 @@ public final class CapabilityScanner {
                 issues: &issues,
                 inheritedEnabled: enabled,
                 pluginID: pluginID,
-                metadata: [
-                    "pluginSelector": pluginSelector,
-                    "pluginName": pluginName,
-                    "marketplace": marketplace,
-                    "installedVersion": installedVersion
-                ]
+                metadata: metadata
             )
         }
     }
@@ -2145,10 +2322,54 @@ public final class CapabilityScanner {
             return nil
         }
         let marketplace = components[cacheIndex + 1]
-        let pluginName = components[cacheIndex + 2]
-        let version = components[cacheIndex + 3]
+        if let manifest = nearestCodexPluginManifest(from: url, cacheIndex: cacheIndex, components: components) {
+            let pluginID = "plugin:codex-cache:\(normalized(marketplace)):\(normalized(manifest.pluginName))"
+            return (marketplace, manifest.pluginName, manifest.version, pluginID)
+        }
+
+        let suffix = Array(components[(cacheIndex + 1)...])
+        let pluginName: String
+        let version: String
+        if let skillsIndex = suffix.firstIndex(of: "skills"), skillsIndex >= 3 {
+            pluginName = suffix[skillsIndex - 2]
+            version = suffix[skillsIndex - 1]
+        } else if suffix.count >= 4, suffix[1].hasPrefix("plugin-install-") {
+            pluginName = suffix[2]
+            version = suffix[3]
+        } else {
+            pluginName = suffix[1]
+            version = suffix[2]
+        }
         let pluginID = "plugin:codex-cache:\(normalized(marketplace)):\(normalized(pluginName))"
         return (marketplace, pluginName, version, pluginID)
+    }
+
+    private func nearestCodexPluginManifest(
+        from url: URL,
+        cacheIndex: Int,
+        components: [String]
+    ) -> (pluginName: String, version: String)? {
+        let cacheRootPath = NSString.path(withComponents: Array(components[...cacheIndex]))
+        var directory = url
+        if directory.pathExtension == "md" || directory.lastPathComponent.contains(".") {
+            directory.deleteLastPathComponent()
+        }
+
+        while directory.path.hasPrefix(cacheRootPath + "/") {
+            for manifestDirectory in [".codex-plugin", ".claude-plugin"] {
+                let manifestURL = directory
+                    .appendingPathComponent(manifestDirectory)
+                    .appendingPathComponent("plugin.json")
+                guard let object = jsonObject(at: manifestURL) else { continue }
+                let pluginName = object["name"] as? String ?? directory.deletingLastPathComponent().lastPathComponent
+                let version = object["version"] as? String ?? directory.lastPathComponent
+                return (pluginName, version)
+            }
+            let parent = directory.deletingLastPathComponent()
+            guard parent.path != directory.path else { break }
+            directory = parent
+        }
+        return nil
     }
 
     private func codexPluginCacheIndex(in components: [String]) -> Int? {

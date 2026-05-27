@@ -672,7 +672,75 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(claudeHook?.source.kind, "claude-settings-hook")
         XCTAssertEqual(claudeHook?.metadata["command"], "swift test")
         XCTAssertEqual(claudeHook?.metadata["handlerHost"], "Swift")
+        XCTAssertTrue(claudeHook?.metadata["claudeHookDeleteCommand"]?.contains("PostToolUse hook") == true)
         XCTAssertTrue(claudeHook?.risks.contains(.exec) == true)
+    }
+
+    func testClaudeNativeSkillLifecycleUsesSkillOverrides() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudeSkill-\(UUID().uuidString)")
+        let skill = root.appendingPathComponent(".claude/skills/review-helper/SKILL.md")
+        let settings = root.appendingPathComponent(".claude/settings.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "review-helper", body: "Review helper")
+            .write(to: skill, atomically: true, encoding: .utf8)
+        try """
+        {
+          "skillOverrides": {
+            "review-helper": "off"
+          }
+        }
+        """.write(to: settings, atomically: true, encoding: .utf8)
+
+        let result = try scanProjectOnly(root)
+
+        let scannedSkill = try XCTUnwrap(result.capabilities.first { $0.name == "review-helper" && $0.source.kind == "claude-skill" })
+        XCTAssertEqual(scannedSkill.statuses, [.disabled])
+        XCTAssertEqual(scannedSkill.metadata["claudeSkillName"], "review-helper")
+        XCTAssertEqual(scannedSkill.metadata["claudeSettingsPath"], settings.path)
+        XCTAssertTrue(scannedSkill.metadata["claudeSkillDisableCommand"]?.contains("skillOverrides.review-helper") == true)
+        XCTAssertTrue(scannedSkill.metadata["claudeSkillDeleteCommand"]?.contains("/.claude/skills/review-helper") == true)
+    }
+
+    func testClaudeProjectMCPConfigExposesDisabledMcpjsonLifecycle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudeMCP-\(UUID().uuidString)")
+        let mcp = root.appendingPathComponent(".mcp.json")
+        let settings = root.appendingPathComponent(".claude/settings.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "mcpServers": {
+            "filesystem": {
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-filesystem"]
+            }
+          }
+        }
+        """.write(to: mcp, atomically: true, encoding: .utf8)
+        try """
+        {
+          "disabledMcpjsonServers": ["filesystem"]
+        }
+        """.write(to: settings, atomically: true, encoding: .utf8)
+
+        let result = try scanProjectOnly(root)
+
+        let server = try XCTUnwrap(result.capabilities.first { $0.name == "filesystem" && $0.source.kind == "mcp-config" })
+        XCTAssertEqual(server.statuses, [.discovered])
+        XCTAssertEqual(server.metadata["mcpServerName"], "filesystem")
+        XCTAssertEqual(server.metadata["claudeMCPEnabled"], "false")
+        XCTAssertEqual(server.metadata["claudeMCPSettingsPath"], settings.path)
+        XCTAssertTrue(server.metadata["claudeMCPEnableCommand"]?.contains("disabledMcpjsonServers") == true)
+        XCTAssertTrue(server.metadata["claudeMCPDeleteCommand"]?.contains(".mcp.json") == true)
+
+        let graph = CapabilityResolver().resolve(scanResult: result)
+        XCTAssertFalse(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.contains { $0.id == server.id })
+        XCTAssertTrue(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.contains { $0.id == server.id })
     }
 
     func testAgentViewsDoNotTreatAgentsSkillsAsNativeAgentSkills() throws {
@@ -800,6 +868,8 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(skill.metadata["checkCommand"]?.contains("codex plugin marketplace upgrade 'openai-curated'") == true)
         XCTAssertTrue(skill.metadata["updateCommand"]?.contains("codex plugin add 'superpowers@openai-curated'") == true)
         XCTAssertTrue(skill.metadata["deleteCommand"]?.contains("codex plugin remove 'superpowers@openai-curated'") == true)
+        XCTAssertNil(skill.metadata["codexDisableCommand"])
+        XCTAssertNil(skill.metadata["codexEnableCommand"])
     }
 
     func testBrokenAgentsSkillSymlinkIsReported() throws {
@@ -1094,6 +1164,41 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.contains { $0.id == capability.id })
     }
 
+    func testCodexSkillConfigCommandsAreAvailableWithoutExistingConfigEntry() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let homeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCodexSkillConfig-\(UUID().uuidString)")
+        let skillRoot = homeRoot.appendingPathComponent(".codex/skills")
+        let skill = skillRoot.appendingPathComponent("review-helper/SKILL.md")
+        let config = homeRoot.appendingPathComponent(".codex/config.toml")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: homeRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "review-helper", body: "Review this project.")
+            .write(to: skill, atomically: true, encoding: .utf8)
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                userSkillRoots: [skillRoot],
+                codexConfigURL: config
+            )
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+        let capability = try XCTUnwrap(graph.capabilities.first { $0.name == "review-helper" && $0.source.kind == "user-skill" })
+
+        XCTAssertEqual(capability.metadata["codexConfigPath"], config.path)
+        XCTAssertTrue(capability.metadata["codexSkillConfigPath"]?.hasSuffix("/.codex/skills/review-helper/SKILL.md") == true)
+        XCTAssertTrue(capability.metadata["codexDisableCommand"]?.contains("[[skills.config]]") == true)
+        XCTAssertTrue(capability.metadata["codexEnableCommand"]?.contains(config.path) == true)
+        XCTAssertNil(capability.metadata["codexSkillEnabled"])
+        XCTAssertTrue(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.contains { $0.id == capability.id })
+    }
+
     func testAdapterPreviewExplainsCodexGeneratedFilesAndUnsupportedCapabilities() throws {
         let root = try fixtureURL("MixedProject")
         let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
@@ -1313,6 +1418,67 @@ final class CapabilityScannerTests: XCTestCase {
                 && $0.description.contains("trae copy")
         })
         XCTAssertFalse(plan.operations.contains { $0.path == canonical.path })
+    }
+
+    func testDeleteCanonicalSkillInstallTargetAlsoRemovesLinkedSymlinks() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let canonical = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCodex-\(UUID().uuidString)")
+            .appendingPathComponent(".codex/skills/bytedcli")
+        let claudeSymlink = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaude-\(UUID().uuidString)")
+            .appendingPathComponent(".claude/skills/bytedcli")
+        let traeCopy = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaTrae-\(UUID().uuidString)")
+            .appendingPathComponent(".trae/skills/bytedcli")
+        let cursorOtherSymlink = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCursor-\(UUID().uuidString)")
+            .appendingPathComponent(".cursor/skills/bytedcli")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: canonical.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: claudeSymlink.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: traeCopy.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: cursorOtherSymlink.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+        }
+
+        let skill = Capability(
+            id: "skill:\(canonical.appendingPathComponent("SKILL.md").path)",
+            name: "bytedcli",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "agents-skill", path: canonical.appendingPathComponent("SKILL.md").path),
+            metadata: [
+                "skillsInstallTargets": [
+                    "codex=canonical:\(canonical.path)",
+                    "claude-code=symlink:\(claudeSymlink.path)",
+                    "trae=copy:\(traeCopy.path)",
+                    "cursor=symlink-other:\(cursorOtherSymlink.path)"
+                ].joined(separator: "\n")
+            ]
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let plan = try ApplyPlanBuilder().planDeleteSkillInstallTarget(
+            capabilityID: skill.id,
+            agentID: "codex",
+            graph: graph
+        )
+
+        XCTAssertEqual(plan.action, .delete)
+        XCTAssertTrue(plan.operations.contains {
+            $0.kind == .removePath
+                && $0.path == canonical.path
+                && $0.description.contains("codex canonical")
+        })
+        XCTAssertTrue(plan.operations.contains {
+            $0.kind == .removePath
+                && $0.path == claudeSymlink.path
+                && $0.description.contains("claude-code symlink")
+        })
+        XCTAssertFalse(plan.operations.contains { $0.path == traeCopy.path })
+        XCTAssertFalse(plan.operations.contains { $0.path == cursorOtherSymlink.path })
     }
 
     func testSyncSkillInstallTargetCreatesLightweightAgentSymlinkOnly() throws {
@@ -2034,6 +2200,90 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(group.representative?.id, plugin.id)
     }
 
+    func testScansNestedCodexPluginInstallCacheByManifestName() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let registryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaNestedCodexPlugins-\(UUID().uuidString)")
+        let cacheRoot = registryRoot.appendingPathComponent(".codex/plugins/cache")
+        let config = registryRoot.appendingPathComponent(".codex/config.toml")
+        let oldManifest = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/plugin-install-2ZrgBl/im-knowledge/1.4.9/.claude-plugin/plugin.json")
+        let latestManifest = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/plugin-install-2zD3G5/im-knowledge/1.4.10/.claude-plugin/plugin.json")
+        let latestSkill = cacheRoot
+            .appendingPathComponent("unicorn-marketplace/plugin-install-2zD3G5/im-knowledge/1.4.10/skills/im-foundation-api/SKILL.md")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: oldManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: latestManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: latestSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: registryRoot)
+        }
+
+        try """
+        [plugins."im-knowledge@unicorn-marketplace"]
+        enabled = true
+        """.write(to: config, atomically: true, encoding: .utf8)
+        try """
+        {
+          "name": "im-knowledge",
+          "version": "1.4.9",
+          "description": "IM knowledge"
+        }
+        """.write(to: oldManifest, atomically: true, encoding: .utf8)
+        try """
+        {
+          "name": "im-knowledge",
+          "version": "1.4.10",
+          "description": "IM knowledge"
+        }
+        """.write(to: latestManifest, atomically: true, encoding: .utf8)
+        try skillText(name: "im-foundation-api", body: "Foundation APIs.")
+            .write(to: latestSkill, atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                userSkillRoots: [cacheRoot],
+                codexConfigURL: config,
+                codexPluginCacheRoot: cacheRoot,
+                claudeInstalledPluginsURL: registryRoot.appendingPathComponent("missing-claude.json"),
+                claudeSettingsURLs: []
+            )
+        )
+
+        let plugins = result.capabilities.filter { $0.source.kind == "codex-plugin" }
+        XCTAssertEqual(
+            plugins.count,
+            1,
+            result.capabilities.map { "\($0.name):\($0.source.kind):\($0.source.path)" }.joined(separator: "\n")
+        )
+        let plugin = try XCTUnwrap(plugins.first)
+        XCTAssertEqual(plugin.id, "plugin:codex-cache:unicorn-marketplace:im-knowledge")
+        XCTAssertEqual(plugin.name, "Im Knowledge")
+        XCTAssertEqual(plugin.statuses, [.enabled])
+        XCTAssertEqual(plugin.source.packageName, "im-knowledge")
+        XCTAssertTrue(plugin.source.path.hasSuffix("/unicorn-marketplace/plugin-install-2zD3G5/im-knowledge"))
+        XCTAssertEqual(plugin.metadata["pluginSelector"], "im-knowledge@unicorn-marketplace")
+        XCTAssertEqual(plugin.metadata["installedVersion"], "1.4.10")
+
+        let skill = try XCTUnwrap(result.capabilities.first { $0.name == "im-foundation-api" && $0.type == .skill })
+        XCTAssertEqual(skill.pluginID, plugin.id)
+        XCTAssertEqual(skill.source.packageName, "im-knowledge")
+        XCTAssertEqual(skill.metadata["pluginSelector"], "im-knowledge@unicorn-marketplace")
+        XCTAssertEqual(skill.metadata["installedVersion"], "1.4.10")
+        let graph = CapabilityResolver().resolve(scanResult: result)
+        XCTAssertFalse(graph.capabilities.contains { capability in
+            capability.type == .plugin
+                && (capability.name.contains("Plugin Install")
+                    || capability.id.contains("plugin-install")
+                    || capability.source.packageName?.contains("plugin-install") == true)
+        })
+    }
+
     func testScansProjectCodexPluginWhenUserScopeIsDisabled() throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
@@ -2156,12 +2406,15 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(plugin.statuses, [.enabled])
         XCTAssertEqual(plugin.metadata["manager"], "claude-code")
         XCTAssertTrue(plugin.metadata["disableCommand"]?.contains("claude plugin disable 'project-tool@test-marketplace'") == true)
+        XCTAssertTrue(plugin.metadata["deleteCommand"]?.contains("claude plugin remove 'project-tool@test-marketplace'") == true)
         XCTAssertFalse(result.capabilities.contains { $0.name == "Other Project" })
 
         let hook = try XCTUnwrap(result.capabilities.first { $0.source.kind == "claude-plugin-hook" })
         XCTAssertEqual(hook.type, .hook)
         XCTAssertEqual(hook.pluginID, plugin.id)
         XCTAssertEqual(hook.metadata["pluginSelector"], "project-tool@test-marketplace")
+        XCTAssertTrue(hook.metadata["disableCommand"]?.contains("claude plugin disable 'project-tool@test-marketplace'") == true)
+        XCTAssertTrue(hook.metadata["deleteCommand"]?.contains("claude plugin remove 'project-tool@test-marketplace'") == true)
 
         let items = CapabilityDisplayGrouper().items(for: [plugin, hook], preservesInputOrder: true)
         XCTAssertEqual(items.count, 1)
@@ -2253,6 +2506,8 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(pluginCommand.statuses, [.enabled])
         XCTAssertEqual(pluginSkill.metadata["pluginSelector"], "superpowers@superpowers-marketplace")
         XCTAssertEqual(pluginCommand.metadata["manager"], "claude-code")
+        XCTAssertTrue(pluginSkill.metadata["deleteCommand"]?.contains("claude plugin remove 'superpowers@superpowers-marketplace'") == true)
+        XCTAssertTrue(pluginCommand.metadata["disableCommand"]?.contains("claude plugin disable 'superpowers@superpowers-marketplace'") == true)
 
         let items = CapabilityDisplayGrouper().items(for: [plugin, pluginSkill, pluginCommand], preservesInputOrder: true)
         XCTAssertEqual(items.count, 1)

@@ -466,7 +466,7 @@ final class ProjectCapabilityStore: ObservableObject {
     }
 
     private func isVirtualGroup(_ capability: Capability) -> Bool {
-        capability.source.kind == "virtual-plugin" || capability.source.kind == "virtual-mirror"
+        !groupedCapabilityIDs(for: capability).isEmpty
     }
 
     private func scopedCapabilityIDs(for capability: Capability, visibleTo agent: AgentSelection?, graph: CapabilityGraph) -> [String] {
@@ -485,33 +485,8 @@ final class ProjectCapabilityStore: ObservableObject {
     private func groupedCapabilityIDs(for capability: Capability) -> [String] {
         capability.metadata["childIDs"]?
             .split(separator: "\n")
-            .map(String.init) ?? []
-    }
-
-    func planMerge() -> ApplyPlan? {
-        guard let graph else { return nil }
-        do {
-            let plan = try ApplyPlanBuilder().planMerge(graph: graph)
-            OrbitaTelemetry.apply.notice("plan.merge operations=\(plan.operations.count, privacy: .public)")
-            return plan
-        } catch {
-            errorMessage = error.localizedDescription
-            OrbitaTelemetry.apply.error("plan.merge.failed error=\(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
-    func planClean() -> ApplyPlan? {
-        guard let graph else { return nil }
-        do {
-            let plan = try ApplyPlanBuilder().planClean(graph: graph)
-            OrbitaTelemetry.apply.notice("plan.clean operations=\(plan.operations.count, privacy: .public)")
-            return plan
-        } catch {
-            errorMessage = error.localizedDescription
-            OrbitaTelemetry.apply.error("plan.clean.failed error=\(error.localizedDescription, privacy: .public)")
-            return nil
-        }
+            .map(String.init)
+            .filter { !$0.isEmpty } ?? []
     }
 
     func planRollback() -> ApplyPlan? {

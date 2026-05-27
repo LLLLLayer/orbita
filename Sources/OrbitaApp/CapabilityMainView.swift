@@ -29,8 +29,6 @@ struct CapabilityMainView: View {
     let onHideCategories: () -> Void
     let onOpenProject: () -> Void
     let onRefresh: () -> Void
-    let onMerge: () -> Void
-    let onClean: () -> Void
     let onSyncCapability: (Capability) -> Void
 
     var body: some View {
@@ -46,9 +44,7 @@ struct CapabilityMainView: View {
                                 graph: graph,
                                 isScanning: isScanning,
                                 lastRefreshLabel: lastRefreshLabel,
-                                onRefresh: onRefresh,
-                                onMerge: onMerge,
-                                onClean: onClean
+                                onRefresh: onRefresh
                             )
 
                             if let errorMessage, !errorMessage.isEmpty {
@@ -166,8 +162,6 @@ private struct HeaderSurface: View {
     let isScanning: Bool
     let lastRefreshLabel: String
     let onRefresh: () -> Void
-    let onMerge: () -> Void
-    let onClean: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -180,8 +174,6 @@ private struct HeaderSurface: View {
 
                 Spacer(minLength: 16)
 
-                HeaderCommandButton("Merge", systemImage: "arrow.triangle.merge", action: onMerge)
-                HeaderCommandButton("Clean", systemImage: "sparkles", action: onClean)
                 HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
             }
 
@@ -308,30 +300,6 @@ private struct SummaryStat: View {
             }
         }
         .frame(minWidth: 92, alignment: .leading)
-    }
-}
-
-private struct HeaderCommandButton: View {
-    let title: String
-    let systemImage: String
-    let action: () -> Void
-
-    init(_ title: String, systemImage: String, action: @escaping () -> Void) {
-        self.title = title
-        self.systemImage = systemImage
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.medium))
-                .labelStyle(.titleAndIcon)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-        }
-        .buttonStyle(.plain)
-        .orbitaControlSurface(cornerRadius: 10)
     }
 }
 

@@ -32,6 +32,8 @@ struct ContentView: View {
     @State private var didPreflightUserDirectoryAccess = false
     @State private var isPreflightingUserDirectoryAccess = false
     @State private var userDirectoryAccessMessage: String?
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
 
     var body: some View {
         Group {
@@ -59,6 +61,13 @@ struct ContentView: View {
         )
         .background(OrbitaTheme.canvas)
         .background(OrbitaWindowChrome().frame(width: 0, height: 0))
+        .overlay(alignment: .top) {
+            if let toastMessage {
+                OrbitaToast(message: toastMessage)
+                    .padding(.top, 64)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .ignoresSafeArea(.container, edges: .top)
         .tint(OrbitaTheme.prominentControlFill)
         .environment(\.locale, Locale(identifier: orbitaLanguageCode))
@@ -106,18 +115,12 @@ struct ContentView: View {
             ScopedCapabilityActionSheet(
                 title: action.title,
                 message: action.message,
-                currentButtonTitle: action.currentButtonTitle,
-                allButtonTitle: action.allButtonTitle,
-                currentUnavailableReason: action.currentUnavailableReason,
+                primaryButtonTitle: action.primaryButtonTitle,
+                secondaryConfirmationMessage: action.secondaryConfirmationMessage,
                 isDestructive: action.kind == .delete,
-                onCurrent: {
-                    guard let currentPlan = action.currentPlan else { return }
+                onConfirm: {
                     pendingScopedAction = nil
-                    apply(currentPlan)
-                },
-                onAll: {
-                    pendingScopedAction = nil
-                    apply(action.allPlan)
+                    apply(action.plan)
                 },
                 onCancel: {
                     pendingScopedAction = nil
@@ -220,7 +223,7 @@ struct ContentView: View {
                         selectedCapability: $selectedCapability,
                         expandedGroupIDs: $expandedGroupIDs,
                         onAddAgent: {
-                            addingAgentPresented = true
+                            showComingSoonToast()
                         },
                         onMoveAgent: moveAgent,
                         onPinAgent: pinAgent,
@@ -236,12 +239,6 @@ struct ContentView: View {
                         },
                         onRefresh: {
                             store.reload(force: true)
-                        },
-                        onMerge: {
-                            pendingPlan = store.planMerge()
-                        },
-                        onClean: {
-                            pendingPlan = store.planClean()
                         },
                         onSyncCapability: { capability in
                             pendingSyncCapability = capability
@@ -385,6 +382,20 @@ struct ContentView: View {
         selectedProject = store.selectionID
     }
 
+    private func showComingSoonToast() {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.snappy(duration: 0.18)) {
+            toastMessage = "敬请期待"
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            guard toastToken == token else { return }
+            withAnimation(.snappy(duration: 0.18)) {
+                toastMessage = nil
+            }
+        }
+    }
+
     private var canEnterApp: Bool {
         fullDiskAccess.status.isGranted || didPreflightUserDirectoryAccess
     }
@@ -446,13 +457,63 @@ struct ContentView: View {
             guard let sectionItems = grouped[kind], !sectionItems.isEmpty else {
                 return nil
             }
+            let sortedSectionItems = sectionItems.sorted(by: currentSortOption.itemComparator)
+            if selectedGroup == .all {
+                return CapabilityCollectionSection(
+                    id: kind.rawValue,
+                    title: kind.title,
+                    subtitle: "\(sectionItems.count) items",
+                    subsections: allTabSubsections(for: sortedSectionItems)
+                )
+            }
             return CapabilityCollectionSection(
                 id: kind.rawValue,
                 title: kind.title,
                 subtitle: "\(sectionItems.count) items",
-                items: sectionItems.sorted(by: currentSortOption.itemComparator)
+                items: sortedSectionItems
             )
         }
+    }
+
+    private func allTabSubsections(for items: [CapabilityDisplayItem]) -> [CapabilityCollectionSubsection] {
+        let grouped = Dictionary(grouping: items, by: allTabSubsectionKind(for:))
+        return allTabSubsectionOrder.compactMap { kind in
+            guard let sectionItems = grouped[kind], !sectionItems.isEmpty else {
+                return nil
+            }
+            return CapabilityCollectionSubsection(
+                id: kind.id,
+                title: kind.title,
+                subtitle: "\(sectionItems.count) items",
+                items: sectionItems
+            )
+        }
+    }
+
+    private var allTabSubsectionOrder: [AllTabSubsectionKind] {
+        orderedCategoryOptions
+            .filter { $0 != .all }
+            .map(AllTabSubsectionKind.category) + [.other]
+    }
+
+    private func allTabSubsectionKind(for item: CapabilityDisplayItem) -> AllTabSubsectionKind {
+        switch item {
+        case let .group(group):
+            return groupSubsectionKind(for: group)
+        case let .capability(capability):
+            return AllTabSubsectionKind(capabilityType: capability.type)
+        }
+    }
+
+    private func groupSubsectionKind(for group: CapabilityGroup) -> AllTabSubsectionKind {
+        if group.kind == .plugin {
+            return .category(.plugin)
+        }
+        let kinds = Set(group.capabilities.map { AllTabSubsectionKind(capabilityType: $0.type) })
+        guard kinds.count == 1, let kind = kinds.first else {
+            return .category(.plugin)
+        }
+        return kind
     }
 
     private func displayItemMatchesSelectedGroup(_ item: CapabilityDisplayItem) -> Bool {
@@ -464,14 +525,14 @@ struct ContentView: View {
             case let .capability(capability):
                 return capability.type == .plugin
             case let .group(group):
-                return group.kind == .plugin
+                return groupSubsectionKind(for: group) == .category(.plugin)
             }
         default:
             switch item {
             case let .capability(capability):
                 return selectedGroup.matches(capability)
             case let .group(group):
-                return group.capabilities.contains { selectedGroup.matches($0) }
+                return groupSubsectionKind(for: group) == .category(selectedGroup)
             }
         }
     }
@@ -778,62 +839,120 @@ struct ContentView: View {
     }
 
     private func scopedCapabilityAction(kind: PendingScopedCapabilityAction.Kind, capability: Capability) -> PendingScopedCapabilityAction? {
-        let allPlan: ApplyPlan?
-        let currentPlan: ApplyPlan?
+        let plan: ApplyPlan?
         switch kind {
         case .delete:
-            allPlan = store.planDelete(capability)
-            currentPlan = selectedAgent.flatMap { store.planDelete(capability, visibleTo: $0) }
+            plan = selectedAgent.flatMap { store.planDelete(capability, visibleTo: $0) }
+                ?? store.planDelete(capability)
         case .disable:
-            allPlan = store.planDisable(capability)
-            currentPlan = selectedAgent.flatMap { store.planDisable(capability, visibleTo: $0) }
+            plan = selectedAgent.flatMap { store.planDisable(capability, visibleTo: $0) }
+                ?? store.planDisable(capability)
         }
 
-        guard let allPlan else {
+        guard let plan else {
             return nil
-        }
-
-        let scopedPlan: ApplyPlan?
-        if let currentPlan,
-           !plansHaveSameEffect(currentPlan, allPlan) {
-            scopedPlan = currentPlan
-        } else {
-            scopedPlan = nil
         }
 
         return PendingScopedCapabilityAction(
             kind: kind,
             name: capability.name,
-            allPlan: allPlan,
-            currentPlan: scopedPlan,
-            currentAgentName: selectedAgent?.displayName
+            plan: plan,
+            currentAgentName: selectedAgent?.displayName,
+            linkedSymlinkAgentNames: kind == .delete
+                ? linkedSymlinkAgentNamesToSelectedCanonical(for: capability)
+                : []
         )
     }
 
-    private func affectedCapabilityIDs(in plan: ApplyPlan) -> Set<String> {
-        Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
+    private func linkedSymlinkAgentNamesToSelectedCanonical(for capability: Capability) -> [String] {
+        guard let selectedAgentID = selectedAgent?.skillsInstallAgentID,
+              let graph = store.graph
+        else {
+            return []
+        }
+
+        let targetIDs = capabilityTargetIDs(for: capability)
+        let targetCapabilities = graph.capabilities.filter { targetIDs.contains($0.id) }
+        let names = targetCapabilities.flatMap { capability in
+            let targets = skillInstallTargets(in: capability)
+            guard targets.first(where: { $0.agentID == selectedAgentID })?.relationship == "canonical" else {
+                return [String]()
+            }
+            return targets
+                .filter { $0.agentID != selectedAgentID && $0.relationship == "symlink" }
+                .map { agentDisplayName(forSkillInstallAgentID: $0.agentID) }
+        }
+        return uniquePreservingOrder(names)
     }
 
-    private func plansHaveSameEffect(_ lhs: ApplyPlan, _ rhs: ApplyPlan) -> Bool {
-        affectedCapabilityIDs(in: lhs) == affectedCapabilityIDs(in: rhs)
-            && operationEffectSignature(lhs) == operationEffectSignature(rhs)
+    private func skillInstallTargets(in capability: Capability) -> [SkillInstallTargetSummary] {
+        guard capability.type == .skill,
+              let value = capability.metadata["skillsInstallTargets"]
+        else {
+            return []
+        }
+
+        return value.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let assignment = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard assignment.count == 2 else {
+                return nil
+            }
+            let relationshipAndPath = assignment[1].split(separator: ":", maxSplits: 1).map(String.init)
+            guard relationshipAndPath.count == 2, !relationshipAndPath[1].isEmpty else {
+                return nil
+            }
+            return SkillInstallTargetSummary(
+                agentID: assignment[0],
+                relationship: relationshipAndPath[0]
+            )
+        }
     }
 
-    private func operationEffectSignature(_ plan: ApplyPlan) -> Set<String> {
-        Set(plan.operations
-            .filter { $0.kind != .appendLog }
-            .map { operation in
-                [
-                    operation.kind.rawValue,
-                    operation.path,
-                    operation.target ?? "",
-                    operation.content ?? ""
-                ].joined(separator: "\u{1F}")
-            })
+    private func agentDisplayName(forSkillInstallAgentID agentID: String) -> String {
+        if let agent = agentOptions.first(where: { $0.skillsInstallAgentID == agentID }) {
+            return agent.displayName
+        }
+        if let agent = SkillsAgentCatalog.agents.first(where: { $0.id == agentID }) {
+            return agent.displayName
+        }
+        return agentID
+    }
+
+    private func uniquePreservingOrder(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values where seen.insert(value).inserted {
+            result.append(value)
+        }
+        return result
     }
 
     private var currentSortOption: CapabilitySortOption {
         CapabilitySortOption(rawValue: capabilitySortOption) ?? .nameAscending
+    }
+}
+
+private struct OrbitaToast: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "clock")
+                .font(.system(size: 13, weight: .semibold))
+            Text(message)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 14)
+        .frame(height: 36)
+        .background(.regularMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .strokeBorder(OrbitaTheme.border)
+        }
+        .shadow(color: OrbitaTheme.cardShadow, radius: 12, x: 0, y: 6)
+        .accessibilityLabel(message)
     }
 }
 
@@ -860,6 +979,53 @@ private enum CapabilitySectionKind: String, CaseIterable {
     }
 }
 
+private enum AllTabSubsectionKind: Hashable {
+    case category(CapabilityCategory)
+    case other
+
+    init(capabilityType: CapabilityType) {
+        switch capabilityType {
+        case .plugin:
+            self = .category(.plugin)
+        case .skill:
+            self = .category(.skill)
+        case .command:
+            self = .category(.command)
+        case .mcpServer:
+            self = .category(.mcp)
+        case .hook:
+            self = .category(.hook)
+        case .instruction, .rule:
+            self = .category(.instruction)
+        case .unknown:
+            self = .other
+        }
+    }
+
+    var id: String {
+        switch self {
+        case let .category(category):
+            return category.rawValue
+        case .other:
+            return "other"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case let .category(category):
+            return category.title
+        case .other:
+            return "Other"
+        }
+    }
+}
+
+private struct SkillInstallTargetSummary {
+    var agentID: String
+    var relationship: String
+}
+
 private struct PendingScopedCapabilityAction: Identifiable {
     enum Kind {
         case delete
@@ -868,12 +1034,12 @@ private struct PendingScopedCapabilityAction: Identifiable {
 
     let kind: Kind
     let name: String
-    let allPlan: ApplyPlan
-    let currentPlan: ApplyPlan?
+    let plan: ApplyPlan
     let currentAgentName: String?
+    let linkedSymlinkAgentNames: [String]
 
     var id: String {
-        "\(kind):\(allPlan.id):\(currentPlan?.id ?? "all")"
+        "\(kind):\(plan.id)"
     }
 
     var title: String {
@@ -885,45 +1051,20 @@ private struct PendingScopedCapabilityAction: Identifiable {
         }
     }
 
-    var role: ButtonRole? {
+    var primaryButtonTitle: String {
         switch kind {
         case .delete:
-            return .destructive
+            return "Delete Current"
         case .disable:
+            return "Disable Current"
+        }
+    }
+
+    var secondaryConfirmationMessage: String? {
+        guard kind == .delete, !linkedSymlinkAgentNames.isEmpty else {
             return nil
         }
-    }
-
-    var currentUnavailableReason: String? {
-        guard currentPlan == nil else {
-            return nil
-        }
-        let agentName = currentAgentName ?? "an individual Agent"
-        switch kind {
-        case .delete:
-            return "This capability is already the root copy for \(agentName), or no single Agent scope is selected. Use all copies to remove the canonical source."
-        case .disable:
-            return "This capability is already the root copy for \(agentName), or no single Agent scope is selected. Use all copies to disable the canonical source."
-        }
-    }
-
-    var currentButtonTitle: String {
-        let agentName = currentAgentName ?? "Current Agent"
-        switch kind {
-        case .delete:
-            return "Delete Only \(agentName)"
-        case .disable:
-            return "Disable Only \(agentName)"
-        }
-    }
-
-    var allButtonTitle: String {
-        switch kind {
-        case .delete:
-            return "Delete All Copies"
-        case .disable:
-            return "Disable All Copies"
-        }
+        return "This will also delete linked symlinks for \(linkedAgentList). Confirm delete?"
     }
 
     var message: String {
@@ -936,28 +1077,28 @@ private struct PendingScopedCapabilityAction: Identifiable {
     }
 
     private var deleteMessage: String {
-        let count = affectedCount(in: allPlan)
-        if currentPlan != nil, count > 1 {
-            return "Choose whether to permanently remove only the current agent-visible source or all \(count) mirrored sources."
+        let agentText = currentAgentName.map { " for \($0)" } ?? ""
+        if !linkedSymlinkAgentNames.isEmpty {
+            return "This will permanently delete the current capability source\(agentText). \(linkedAgentList) are symlinks to this source and will be deleted together to avoid broken links."
         }
+        let count = affectedCount(in: plan)
         if count > 1 {
-            return "This will permanently remove \(count) mirrored capability sources."
+            return "This will permanently delete the current selection\(agentText), including \(count) grouped capability sources."
         }
-        return "This will permanently remove the selected capability source."
+        return "This will permanently delete the current capability source\(agentText)."
     }
 
     private var disableMessage: String {
         let scopedText: String
-        let count = affectedCount(in: allPlan)
-        if currentPlan != nil, count > 1 {
-            scopedText = "Choose whether to disable only the current agent-visible source or all \(count) mirrored sources."
-        } else if count > 1 {
-            scopedText = "This will disable all \(count) mirrored sources."
+        let count = affectedCount(in: plan)
+        let agentText = currentAgentName.map { " for \($0)" } ?? ""
+        if count > 1 {
+            scopedText = "This will disable the current selection\(agentText), including \(count) grouped capability sources."
         } else {
-            scopedText = "This will disable the selected capability source."
+            scopedText = "This will disable the current capability source\(agentText)."
         }
 
-        let operations = allPlan.operations
+        let operations = plan.operations
         let hasCache = operations.contains { $0.kind == .cachePath }
         let hasSymlinkRemoval = operations.contains { operation in
             operation.kind == .removePath && operation.description.localizedCaseInsensitiveContains("symbolic link")
@@ -976,6 +1117,10 @@ private struct PendingScopedCapabilityAction: Identifiable {
 
     private func affectedCount(in plan: ApplyPlan) -> Int {
         plan.affectedCapabilityIDs?.count ?? 1
+    }
+
+    private var linkedAgentList: String {
+        linkedSymlinkAgentNames.joined(separator: ", ")
     }
 }
 

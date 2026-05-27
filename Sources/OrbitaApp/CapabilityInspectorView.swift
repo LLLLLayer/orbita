@@ -15,6 +15,7 @@ struct CapabilityInspectorView: View {
 
     @State private var runningNativeActionID: String?
     @State private var nativeActionResult: NativePluginActionResult?
+    @State private var pendingNativeDeleteAction: NativePluginDeleteRequest?
     @AppStorage("nativePluginVersionChecksJSON") private var nativePluginVersionChecksJSON = "{}"
 
     var body: some View {
@@ -36,7 +37,8 @@ struct CapabilityInspectorView: View {
     private func inspectorContent(for capability: Capability) -> some View {
         let nativeActions = nativePluginActions(for: capability)
         let nativePrimaryAction = nativeActions.first(where: \.isEnablementToggle)
-        let nativeSecondaryActions = nativeActions.filter { !$0.isEnablementToggle }
+        let nativeDeleteAction = nativeActions.first(where: { $0.kind == .delete })
+        let nativeSecondaryActions = nativeActions.filter { !$0.isEnablementToggle && $0.kind != .delete }
 
         return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
@@ -45,13 +47,19 @@ struct CapabilityInspectorView: View {
                         InspectorActionStrip(
                             capability: capability,
                             nativePrimaryAction: nativePrimaryAction,
+                            nativeDeleteAction: nativeDeleteAction,
                             runningNativeActionID: runningNativeActionID,
+                            allowsFallbackEnablement: allowsFallbackEnablement(for: capability),
+                            allowsFallbackDelete: allowsFallbackDelete(for: capability, nativeDeleteAction: nativeDeleteAction),
                             onEnable: onEnable,
                             onDisable: onDisable,
                             onDelete: onDelete,
                             onClose: onClose,
                             onNativeAction: { action in
                                 runNativePluginAction(action, capability: capability)
+                            },
+                            onNativeDelete: { action in
+                                pendingNativeDeleteAction = NativePluginDeleteRequest(action: action, capability: capability)
                             }
                         )
 
@@ -131,6 +139,29 @@ struct CapabilityInspectorView: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+        .confirmationDialog(
+            "Delete \(pendingNativeDeleteAction?.capability.name ?? "Capability")?",
+            isPresented: Binding(
+                get: { pendingNativeDeleteAction != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingNativeDeleteAction = nil
+                    }
+                }
+            )
+        ) {
+            if let request = pendingNativeDeleteAction {
+                Button("Delete", role: .destructive) {
+                    runNativePluginAction(request.action, capability: request.capability)
+                    pendingNativeDeleteAction = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let request = pendingNativeDeleteAction {
+                Text(request.action.command)
+            }
+        }
     }
 
     private func sourcePath(for capability: Capability) -> String {
@@ -249,7 +280,75 @@ struct CapabilityInspectorView: View {
     }
 
     private func nativePluginActions(for capability: Capability) -> [NativePluginAction] {
-        NativePluginAction.actions(for: capability)
+        var actions = NativePluginAction.actions(for: capability)
+        if selectedAgent?.skillsInstallAgentID == "codex",
+           let action = NativePluginAction.codexSkillConfigAction(for: capability) {
+            actions.insert(action, at: 0)
+        }
+        if selectedAgent?.skillsInstallAgentID == "claude-code" {
+            if let action = NativePluginAction.claudeSkillOverrideAction(for: capability) {
+                actions.insert(action, at: 0)
+            }
+            if let action = NativePluginAction.claudeSkillDeleteAction(for: capability) {
+                actions.append(action)
+            }
+            if let action = NativePluginAction.claudeMCPConfigAction(for: capability) {
+                actions.insert(action, at: 0)
+            }
+            if let action = NativePluginAction.claudeMCPDeleteAction(for: capability) {
+                actions.append(action)
+            }
+            if let action = NativePluginAction.claudeHookDeleteAction(for: capability) {
+                actions.append(action)
+            }
+        }
+        return actions
+    }
+
+    private func allowsFallbackEnablement(for capability: Capability) -> Bool {
+        guard selectedAgent?.skillsInstallAgentID == "claude-code" else {
+            return true
+        }
+        if capability.type == .mcpServer, capability.source.kind == "mcp-config" {
+            return false
+        }
+        switch capability.source.kind {
+        case "claude-plugin",
+             "claude-plugin-skill",
+             "claude-plugin-command",
+             "claude-plugin-hook",
+             "claude-skill",
+             "claude-command",
+             "claude-settings",
+             "claude-settings-hook":
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func allowsFallbackDelete(for capability: Capability, nativeDeleteAction: NativePluginAction?) -> Bool {
+        guard selectedAgent?.skillsInstallAgentID == "claude-code" else {
+            return true
+        }
+        if nativeDeleteAction != nil {
+            return false
+        }
+        if capability.type == .mcpServer, capability.source.kind == "mcp-config" {
+            return false
+        }
+        switch capability.source.kind {
+        case "claude-plugin",
+             "claude-plugin-skill",
+             "claude-plugin-command",
+             "claude-plugin-hook",
+             "claude-skill",
+             "claude-settings",
+             "claude-settings-hook":
+            return false
+        default:
+            return true
+        }
     }
 
     private func nativePluginVersionCheck(for capability: Capability) -> NativePluginVersionCheck? {
@@ -297,7 +396,45 @@ struct CapabilityInspectorView: View {
             let result: CommandRunResult
             let codexEnableUsesConfig = action.kind == .enable
                 && (capability.metadata["enableMode"] == "config" || action.command.hasPrefix("Set [plugins."))
-            if action.manager == "codex", action.kind == .disable || codexEnableUsesConfig {
+            if action.manager == NativePluginAction.codexSkillManager {
+                result = CodexSkillConfigUpdater.setEnabled(
+                    action.kind == .enable,
+                    skillPath: capability.metadata["codexSkillConfigPath"] ?? capability.source.path,
+                    configPath: capability.metadata["codexConfigPath"] ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.codex/config.toml"
+                )
+            } else if action.manager == NativePluginAction.claudeSkillManager {
+                if action.kind == .delete {
+                    result = ClaudeSkillLifecycleUpdater.deleteSkill(
+                        at: capability.metadata["claudeSkillDeletePath"] ?? URL(fileURLWithPath: capability.source.path).deletingLastPathComponent().path
+                    )
+                } else {
+                    result = ClaudeSkillLifecycleUpdater.setEnabled(
+                        action.kind == .enable,
+                        skillName: capability.metadata["claudeSkillName"] ?? capability.name,
+                        settingsPath: capability.metadata["claudeSettingsPath"] ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.claude/settings.json"
+                    )
+                }
+            } else if action.manager == NativePluginAction.claudeMCPManager {
+                if action.kind == .delete {
+                    result = ClaudeMCPJsonLifecycleUpdater.deleteServer(
+                        capability.metadata["mcpServerName"] ?? capability.name,
+                        configPath: capability.metadata["mcpConfigPath"] ?? capability.source.path
+                    )
+                } else {
+                    result = ClaudeMCPJsonLifecycleUpdater.setEnabled(
+                        action.kind == .enable,
+                        serverName: capability.metadata["mcpServerName"] ?? capability.name,
+                        settingsPath: capability.metadata["claudeMCPSettingsPath"] ?? URL(fileURLWithPath: capability.source.path).deletingLastPathComponent().appendingPathComponent(".claude/settings.json").path
+                    )
+                }
+            } else if action.manager == NativePluginAction.claudeHookManager {
+                result = ClaudeHookLifecycleUpdater.deleteHook(
+                    event: capability.metadata["event"] ?? "",
+                    entryIndex: Int(capability.metadata["entryIndex"] ?? "") ?? 0,
+                    hookIndex: Int(capability.metadata["hookIndex"] ?? "") ?? 0,
+                    settingsPath: capability.metadata["claudeHookSettingsPath"] ?? capability.source.path
+                )
+            } else if action.manager == "codex", action.kind == .disable || codexEnableUsesConfig {
                 result = CodexPluginConfigUpdater.setEnabled(
                     action.kind == .enable,
                     selector: capability.metadata["pluginSelector"] ?? capability.name,
@@ -349,12 +486,16 @@ private struct EmptyInspectorSelectionView: View {
 private struct InspectorActionStrip: View {
     let capability: Capability
     let nativePrimaryAction: NativePluginAction?
+    let nativeDeleteAction: NativePluginAction?
     let runningNativeActionID: String?
+    let allowsFallbackEnablement: Bool
+    let allowsFallbackDelete: Bool
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
     let onDelete: (Capability) -> Void
     let onClose: () -> Void
     let onNativeAction: (NativePluginAction) -> Void
+    let onNativeDelete: (NativePluginAction) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -368,7 +509,7 @@ private struct InspectorActionStrip: View {
                 ) {
                     onNativeAction(nativePrimaryAction)
                 }
-            } else if capability.source.kind != "virtual-plugin", capability.statuses.contains(.disabled) {
+            } else if allowsFallbackEnablement, capability.statuses.contains(.disabled) {
                 InspectorToolbarButton(
                     systemImage: "checkmark.circle",
                     tint: .green,
@@ -377,7 +518,7 @@ private struct InspectorActionStrip: View {
                 ) {
                     onEnable(capability)
                 }
-            } else if capability.source.kind != "virtual-plugin" {
+            } else if allowsFallbackEnablement {
                 InspectorToolbarButton(
                     systemImage: "minus.circle",
                     tint: .secondary,
@@ -390,13 +531,25 @@ private struct InspectorActionStrip: View {
 
             Spacer(minLength: 10)
 
-            InspectorToolbarButton(
-                systemImage: "trash",
-                tint: .red,
-                help: "Delete",
-                isDestructive: true
-            ) {
-                onDelete(capability)
+            if let nativeDeleteAction {
+                InspectorToolbarButton(
+                    systemImage: runningNativeActionID == nativeDeleteAction.id ? "hourglass" : "trash",
+                    tint: .red,
+                    help: nativeDeleteAction.command,
+                    isDestructive: true,
+                    isDisabled: runningNativeActionID != nil
+                ) {
+                    onNativeDelete(nativeDeleteAction)
+                }
+            } else if allowsFallbackDelete {
+                InspectorToolbarButton(
+                    systemImage: "trash",
+                    tint: .red,
+                    help: "Delete",
+                    isDestructive: true
+                ) {
+                    onDelete(capability)
+                }
             }
 
             InspectorToolbarButton(
@@ -620,6 +773,12 @@ private struct NativePluginActionResult: Identifiable {
     let result: CommandRunResult
 }
 
+private struct NativePluginDeleteRequest: Identifiable {
+    var id: String { "\(capability.id):\(action.id):\(action.command)" }
+    let action: NativePluginAction
+    let capability: Capability
+}
+
 private struct NativePluginActionResultView: View {
     let capability: Capability
     let actionResult: NativePluginActionResult
@@ -731,6 +890,12 @@ private struct NativePluginResultSummary {
             self.title = "Disabled"
             self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) is disabled. Restart the host app if it does not pick up the change immediately.")
             self.systemImage = "minus.circle"
+            self.tone = .success
+            self.versionCheck = nil
+        case .delete:
+            self.title = "Deleted"
+            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) was deleted. Restart the host app if it does not pick up the change immediately.")
+            self.systemImage = "trash"
             self.tone = .success
             self.versionCheck = nil
         }
@@ -1048,10 +1213,16 @@ private struct NativePluginResultSummary {
 }
 
 private struct NativePluginAction: Identifiable {
+    static let codexSkillManager = "codex-skill"
+    static let claudeSkillManager = "claude-code-skill"
+    static let claudeMCPManager = "claude-code-mcpjson-server"
+    static let claudeHookManager = "claude-code-hook"
+
     enum Kind: Equatable {
         case install
         case enable
         case disable
+        case delete
         case check
         case update
     }
@@ -1085,7 +1256,122 @@ private struct NativePluginAction: Identifiable {
         if let command = capability.metadata["updateCommand"] {
             actions.append(NativePluginAction(id: "update", title: "Update", systemImage: "arrow.down.circle", command: command, manager: manager, kind: .update))
         }
+        if ["codex", "claude-code"].contains(manager),
+           let command = capability.metadata["deleteCommand"] {
+            actions.append(NativePluginAction(id: "delete", title: "Delete", systemImage: "trash", command: command, manager: manager, kind: .delete))
+        }
         return actions
+    }
+
+    static func codexSkillConfigAction(for capability: Capability) -> NativePluginAction? {
+        guard capability.type == .skill,
+              capability.metadata["codexConfigPath"] != nil,
+              capability.metadata["codexSkillConfigPath"] != nil,
+              !capability.source.kind.contains("plugin-skill"),
+              !(capability.metadata["manager"] == "codex" && capability.metadata["pluginSelector"] != nil)
+        else {
+            return nil
+        }
+
+        let isDisabledForCodex = capability.metadata["codexSkillEnabled"] == "false"
+        let commandKey = isDisabledForCodex ? "codexEnableCommand" : "codexDisableCommand"
+        guard let command = capability.metadata[commandKey] else { return nil }
+        return NativePluginAction(
+            id: isDisabledForCodex ? "codex-skill-enable" : "codex-skill-disable",
+            title: isDisabledForCodex ? "Enable" : "Disable",
+            systemImage: isDisabledForCodex ? "checkmark.circle" : "minus.circle",
+            command: command,
+            manager: Self.codexSkillManager,
+            kind: isDisabledForCodex ? .enable : .disable
+        )
+    }
+
+    static func claudeSkillOverrideAction(for capability: Capability) -> NativePluginAction? {
+        guard capability.type == .skill,
+              capability.source.kind == "claude-skill",
+              capability.metadata["claudeSkillName"] != nil else {
+            return nil
+        }
+
+        let isDisabled = capability.statuses.contains(.disabled) || capability.metadata["claudeSkillEnabled"] == "false"
+        let commandKey = isDisabled ? "claudeSkillEnableCommand" : "claudeSkillDisableCommand"
+        guard let command = capability.metadata[commandKey] else { return nil }
+        return NativePluginAction(
+            id: isDisabled ? "claude-skill-enable" : "claude-skill-disable",
+            title: isDisabled ? "Enable" : "Disable",
+            systemImage: isDisabled ? "checkmark.circle" : "minus.circle",
+            command: command,
+            manager: Self.claudeSkillManager,
+            kind: isDisabled ? .enable : .disable
+        )
+    }
+
+    static func claudeSkillDeleteAction(for capability: Capability) -> NativePluginAction? {
+        guard capability.type == .skill,
+              capability.source.kind == "claude-skill",
+              let command = capability.metadata["claudeSkillDeleteCommand"] else {
+            return nil
+        }
+        return NativePluginAction(
+            id: "claude-skill-delete",
+            title: "Delete",
+            systemImage: "trash",
+            command: command,
+            manager: Self.claudeSkillManager,
+            kind: .delete
+        )
+    }
+
+    static func claudeMCPConfigAction(for capability: Capability) -> NativePluginAction? {
+        guard capability.type == .mcpServer,
+              capability.source.kind == "mcp-config",
+              capability.metadata["mcpServerName"] != nil else {
+            return nil
+        }
+
+        let isDisabled = capability.statuses.contains(.disabled) || capability.metadata["claudeMCPEnabled"] == "false"
+        let commandKey = isDisabled ? "claudeMCPEnableCommand" : "claudeMCPDisableCommand"
+        guard let command = capability.metadata[commandKey] else { return nil }
+        return NativePluginAction(
+            id: isDisabled ? "claude-mcp-enable" : "claude-mcp-disable",
+            title: isDisabled ? "Enable" : "Disable",
+            systemImage: isDisabled ? "checkmark.circle" : "minus.circle",
+            command: command,
+            manager: Self.claudeMCPManager,
+            kind: isDisabled ? .enable : .disable
+        )
+    }
+
+    static func claudeMCPDeleteAction(for capability: Capability) -> NativePluginAction? {
+        guard capability.type == .mcpServer,
+              capability.source.kind == "mcp-config",
+              let command = capability.metadata["claudeMCPDeleteCommand"] else {
+            return nil
+        }
+        return NativePluginAction(
+            id: "claude-mcp-delete",
+            title: "Delete",
+            systemImage: "trash",
+            command: command,
+            manager: Self.claudeMCPManager,
+            kind: .delete
+        )
+    }
+
+    static func claudeHookDeleteAction(for capability: Capability) -> NativePluginAction? {
+        guard capability.type == .hook,
+              capability.source.kind == "claude-settings-hook",
+              let command = capability.metadata["claudeHookDeleteCommand"] else {
+            return nil
+        }
+        return NativePluginAction(
+            id: "claude-hook-delete",
+            title: "Delete",
+            systemImage: "trash",
+            command: command,
+            manager: Self.claudeHookManager,
+            kind: .delete
+        )
     }
 }
 
@@ -1147,6 +1433,320 @@ private enum CodexPluginConfigUpdater {
         } catch {
             return CommandRunResult(command: "Codex config update", exitCode: 1, output: error.localizedDescription)
         }
+    }
+}
+
+private enum CodexSkillConfigUpdater {
+    private struct SkillConfigBlock {
+        var end: Int
+        var path: String?
+        var pathLineIndex: Int?
+        var enabledLineIndex: Int?
+    }
+
+    static func setEnabled(_ enabled: Bool, skillPath: String, configPath: String) -> CommandRunResult {
+        let url = URL(fileURLWithPath: configPath)
+        let enabledLine = "enabled = \(enabled ? "true" : "false")"
+        do {
+            let original = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            var lines = original.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            if original.isEmpty {
+                lines = []
+            }
+
+            let targetPaths = normalizedPathCandidates(for: skillPath)
+            if let block = skillConfigBlocks(in: lines).first(where: { block in
+                guard let path = block.path else { return false }
+                return !targetPaths.isDisjoint(with: normalizedPathCandidates(for: path))
+            }) {
+                if let enabledLineIndex = block.enabledLineIndex {
+                    lines[enabledLineIndex] = "\(indentation(of: lines[enabledLineIndex]))\(enabledLine)"
+                } else {
+                    let insertIndex = block.pathLineIndex.map { $0 + 1 } ?? block.end
+                    let indent = block.pathLineIndex.map { indentation(of: lines[$0]) } ?? ""
+                    lines.insert("\(indent)\(enabledLine)", at: insertIndex)
+                }
+            } else {
+                if !lines.isEmpty, lines.last?.isEmpty == false {
+                    lines.append("")
+                }
+                lines.append("[[skills.config]]")
+                lines.append("path = \(tomlString(skillPath))")
+                lines.append(enabledLine)
+            }
+
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            return CommandRunResult(command: "Codex skill config update", exitCode: 0, output: "\(skillPath) \(enabled ? "enabled" : "disabled") for Codex in \(configPath)")
+        } catch {
+            return CommandRunResult(command: "Codex skill config update", exitCode: 1, output: error.localizedDescription)
+        }
+    }
+
+    private static func skillConfigBlocks(in lines: [String]) -> [SkillConfigBlock] {
+        var blocks: [SkillConfigBlock] = []
+        var currentStart: Int?
+        var currentPath: String?
+        var currentPathLineIndex: Int?
+        var currentEnabledLineIndex: Int?
+
+        func flush(end: Int) {
+            guard currentStart != nil else { return }
+            blocks.append(SkillConfigBlock(
+                end: end,
+                path: currentPath,
+                pathLineIndex: currentPathLineIndex,
+                enabledLineIndex: currentEnabledLineIndex
+            ))
+        }
+
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "[[skills.config]]" {
+                flush(end: index)
+                currentStart = index
+                currentPath = nil
+                currentPathLineIndex = nil
+                currentEnabledLineIndex = nil
+                continue
+            }
+            if trimmed.hasPrefix("[") {
+                flush(end: index)
+                currentStart = nil
+                currentPath = nil
+                currentPathLineIndex = nil
+                currentEnabledLineIndex = nil
+                continue
+            }
+            guard currentStart != nil else { continue }
+
+            if let value = tomlValue(from: trimmed, key: "path") {
+                currentPath = value
+                currentPathLineIndex = index
+            } else if tomlValue(from: trimmed, key: "enabled") != nil {
+                currentEnabledLineIndex = index
+            }
+        }
+
+        flush(end: lines.count)
+        return blocks
+    }
+
+    private static func tomlValue(from line: String, key: String) -> String? {
+        guard let splitIndex = line.firstIndex(of: "=") else { return nil }
+        let lhs = line[..<splitIndex].trimmingCharacters(in: .whitespaces)
+        guard lhs == key else { return nil }
+        let rawValue = line[line.index(after: splitIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawValue.isEmpty else { return nil }
+        if rawValue.count >= 2,
+           rawValue.first == "\"",
+           rawValue.last == "\"" {
+            let body = rawValue.dropFirst().dropLast()
+            return body
+                .replacingOccurrences(of: "\\\"", with: "\"")
+                .replacingOccurrences(of: "\\\\", with: "\\")
+        }
+        if rawValue.count >= 2,
+           rawValue.first == "'",
+           rawValue.last == "'" {
+            return String(rawValue.dropFirst().dropLast())
+        }
+        return rawValue
+    }
+
+    private static func normalizedPathCandidates(for path: String) -> Set<String> {
+        let url = URL(fileURLWithPath: path)
+        return [
+            path,
+            url.standardizedFileURL.path,
+            url.standardizedFileURL.resolvingSymlinksInPath().path
+        ]
+    }
+
+    private static func indentation(of line: String) -> String {
+        String(line.prefix { character in
+            character == " " || character == "\t"
+        })
+    }
+
+    private static func tomlString(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+}
+
+private enum ClaudeSkillLifecycleUpdater {
+    static func setEnabled(_ enabled: Bool, skillName: String, settingsPath: String) -> CommandRunResult {
+        let command = "Claude skillOverrides update"
+        do {
+            let url = URL(fileURLWithPath: settingsPath)
+            var object = try JSONFileEditor.object(at: url)
+            var overrides = object["skillOverrides"] as? [String: Any] ?? [:]
+            if enabled {
+                overrides.removeValue(forKey: skillName)
+            } else {
+                overrides[skillName] = "off"
+            }
+            if overrides.isEmpty {
+                object.removeValue(forKey: "skillOverrides")
+            } else {
+                object["skillOverrides"] = overrides
+            }
+            try JSONFileEditor.write(object, to: url)
+            return CommandRunResult(command: command, exitCode: 0, output: "\(skillName) \(enabled ? "enabled" : "disabled") for Claude Code in \(settingsPath)")
+        } catch {
+            return CommandRunResult(command: command, exitCode: 1, output: error.localizedDescription)
+        }
+    }
+
+    static func deleteSkill(at path: String) -> CommandRunResult {
+        let command = "Claude skill delete"
+        do {
+            let url = URL(fileURLWithPath: path)
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            return CommandRunResult(command: command, exitCode: 0, output: "Removed \(path)")
+        } catch {
+            return CommandRunResult(command: command, exitCode: 1, output: error.localizedDescription)
+        }
+    }
+}
+
+private enum ClaudeMCPJsonLifecycleUpdater {
+    static func setEnabled(_ enabled: Bool, serverName: String, settingsPath: String) -> CommandRunResult {
+        let command = "Claude disabledMcpjsonServers update"
+        do {
+            let url = URL(fileURLWithPath: settingsPath)
+            var object = try JSONFileEditor.object(at: url)
+            var servers = (object["disabledMcpjsonServers"] as? [Any])?.compactMap { $0 as? String } ?? []
+            if enabled {
+                servers.removeAll { $0 == serverName }
+            } else if !servers.contains(serverName) {
+                servers.append(serverName)
+            }
+            if servers.isEmpty {
+                object.removeValue(forKey: "disabledMcpjsonServers")
+            } else {
+                object["disabledMcpjsonServers"] = servers
+            }
+            try JSONFileEditor.write(object, to: url)
+            return CommandRunResult(command: command, exitCode: 0, output: "\(serverName) \(enabled ? "enabled" : "disabled") for Claude Code in \(settingsPath)")
+        } catch {
+            return CommandRunResult(command: command, exitCode: 1, output: error.localizedDescription)
+        }
+    }
+
+    static func deleteServer(_ serverName: String, configPath: String) -> CommandRunResult {
+        let command = "Claude .mcp.json delete"
+        do {
+            let url = URL(fileURLWithPath: configPath)
+            var object = try JSONFileEditor.object(at: url)
+            var removed = false
+            for key in ["mcpServers", "servers"] {
+                guard var servers = object[key] as? [String: Any],
+                      servers.removeValue(forKey: serverName) != nil else {
+                    continue
+                }
+                removed = true
+                object[key] = servers
+            }
+            guard removed else {
+                return CommandRunResult(command: command, exitCode: 1, output: "\(serverName) was not found in \(configPath)")
+            }
+            try JSONFileEditor.write(object, to: url)
+            return CommandRunResult(command: command, exitCode: 0, output: "Removed \(serverName) from \(configPath)")
+        } catch {
+            return CommandRunResult(command: command, exitCode: 1, output: error.localizedDescription)
+        }
+    }
+}
+
+private enum ClaudeHookLifecycleUpdater {
+    static func deleteHook(event: String, entryIndex: Int, hookIndex: Int, settingsPath: String) -> CommandRunResult {
+        let command = "Claude hook delete"
+        do {
+            guard !event.isEmpty else {
+                return CommandRunResult(command: command, exitCode: 1, output: "Hook event is missing.")
+            }
+
+            let url = URL(fileURLWithPath: settingsPath)
+            var object = try JSONFileEditor.object(at: url)
+            let hasNestedHooks = object["hooks"] is [String: Any]
+            var hooksObject = (object["hooks"] as? [String: Any]) ?? object
+            guard var entries = hooksObject[event] as? [Any],
+                  entries.indices.contains(entryIndex),
+                  var entry = entries[entryIndex] as? [String: Any] else {
+                return CommandRunResult(command: command, exitCode: 1, output: "\(event) hook entry \(entryIndex) was not found in \(settingsPath)")
+            }
+
+            if var hookArray = entry["hooks"] as? [Any] {
+                guard hookArray.indices.contains(hookIndex) else {
+                    return CommandRunResult(command: command, exitCode: 1, output: "\(event) hook \(entryIndex):\(hookIndex) was not found in \(settingsPath)")
+                }
+                hookArray.remove(at: hookIndex)
+                if hookArray.isEmpty {
+                    entries.remove(at: entryIndex)
+                } else {
+                    entry["hooks"] = hookArray
+                    entries[entryIndex] = entry
+                }
+            } else {
+                guard hookIndex == 0 else {
+                    return CommandRunResult(command: command, exitCode: 1, output: "\(event) hook \(entryIndex):\(hookIndex) was not found in \(settingsPath)")
+                }
+                entries.remove(at: entryIndex)
+            }
+
+            if entries.isEmpty {
+                hooksObject.removeValue(forKey: event)
+            } else {
+                hooksObject[event] = entries
+            }
+
+            if hasNestedHooks {
+                if hooksObject.isEmpty {
+                    object.removeValue(forKey: "hooks")
+                } else {
+                    object["hooks"] = hooksObject
+                }
+            } else {
+                object = hooksObject
+            }
+
+            try JSONFileEditor.write(object, to: url)
+            return CommandRunResult(command: command, exitCode: 0, output: "Removed \(event) hook \(entryIndex):\(hookIndex) from \(settingsPath)")
+        } catch {
+            return CommandRunResult(command: command, exitCode: 1, output: error.localizedDescription)
+        }
+    }
+}
+
+private enum JSONFileEditor {
+    static func object(at url: URL) throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return [:]
+        }
+        let data = try Data(contentsOf: url)
+        if data.isEmpty {
+            return [:]
+        }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(domain: "Orbita.JSONFileEditor", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.path) is not a JSON object"])
+        }
+        return object
+    }
+
+    static func write(_ object: [String: Any], to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        var text = String(decoding: data, as: UTF8.self)
+        if !text.hasSuffix("\n") {
+            text.append("\n")
+        }
+        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 }
 

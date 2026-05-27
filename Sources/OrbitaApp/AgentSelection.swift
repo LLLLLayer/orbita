@@ -83,12 +83,52 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         }
     }
 
-    func includesCapability(_ capability: Capability, in graph: CapabilityGraph) -> Bool {
-        if let agentID = skillsInstallAgentID,
-           capability.installedThroughSkillsCLI(for: agentID) {
-            return true
+    func visibleCapabilityIDs(in graph: CapabilityGraph) -> Set<String> {
+        var ids: Set<String>
+        switch behavior {
+        case .agentsSource:
+            ids = sourceCapabilityIDs(.agents, in: graph)
+        case .codexSource:
+            ids = sourceCapabilityIDs(.codex, in: graph)
+        case .claudeSource:
+            ids = sourceCapabilityIDs(.claude, in: graph)
+        case .cursorSource:
+            ids = sourceCapabilityIDs(.cursor, in: graph)
+        case .codexLike:
+            ids = Set(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.map(\.id))
+        case .claudeLike:
+            ids = Set(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.map(\.id))
+        case .skillsAgent:
+            guard let skillsAgentID else {
+                ids = []
+                break
+            }
+            ids = Set(graph.capabilities.compactMap { capability in
+                !capability.statuses.contains(.broken)
+                    && !capability.statuses.contains(.disabled)
+                    && capability.installedThroughSkillsCLI(for: skillsAgentID)
+                    ? capability.id
+                    : nil
+            })
+        case .generic:
+            ids = Set(graph.capabilities.compactMap { capability in
+                !capability.statuses.contains(.broken)
+                    && !capability.statuses.contains(.disabled)
+                    ? capability.id
+                    : nil
+            })
         }
-        return visibleCapabilities(in: graph).contains { $0.id == capability.id }
+
+        if let agentID = skillsInstallAgentID {
+            ids.formUnion(graph.capabilities.compactMap { capability in
+                capability.installedThroughSkillsCLI(for: agentID) ? capability.id : nil
+            })
+        }
+        return ids
+    }
+
+    func includesCapability(_ capability: Capability, in graph: CapabilityGraph) -> Bool {
+        visibleCapabilityIDs(in: graph).contains(capability.id)
     }
 
     private func sourceCapabilities(
@@ -102,6 +142,15 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
                     || skillsAgentID.map { capability.installedThroughSkillsCLI(for: $0) } == true
             }
             .sorted { $0.id < $1.id }
+    }
+
+    private func sourceCapabilityIDs(
+        _ sourceKind: CapabilitySourceClassifier.SourceKind,
+        in graph: CapabilityGraph
+    ) -> Set<String> {
+        Set(graph.capabilities.compactMap { capability in
+            CapabilitySourceClassifier.sourceKind(for: capability) == sourceKind ? capability.id : nil
+        })
     }
 
     var systemImage: String {

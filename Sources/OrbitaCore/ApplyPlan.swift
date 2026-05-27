@@ -540,13 +540,36 @@ public final class ApplyPlanBuilder {
         agentID: String,
         graph: CapabilityGraph
     ) throws -> ApplyPlan {
-        let targets = capabilities.compactMap { capability -> (capability: Capability, target: SkillInstallTarget)? in
-            guard let target = skillInstallTarget(for: capability, agentID: agentID),
-                  target.isAgentSpecific
-            else {
-                return nil
+        let targets = capabilities.flatMap { capability -> [(capability: Capability, target: SkillInstallTarget, description: String)] in
+            let installTargets = skillInstallTargets(for: capability)
+            guard let selectedTarget = installTargets.first(where: { $0.agentID == agentID }) else {
+                return []
             }
-            return (capability, target)
+            if selectedTarget.isAgentSpecific {
+                return [(
+                    capability,
+                    selectedTarget,
+                    "Remove \(agentID) \(selectedTarget.relationship) skill install target for \(capability.name)"
+                )]
+            }
+            guard selectedTarget.isCanonical else {
+                return []
+            }
+            var removals = [(
+                capability,
+                selectedTarget,
+                "Remove \(agentID) canonical skill install target for \(capability.name)"
+            )]
+            removals.append(contentsOf: installTargets
+                .filter { $0.agentID != agentID && $0.isSymlinkToCanonical }
+                .map { linkedTarget in
+                    (
+                        capability,
+                        linkedTarget,
+                        "Remove \(linkedTarget.agentID) symlink skill install target linked to \(agentID) canonical source for \(capability.name)"
+                    )
+                })
+            return removals
         }
         guard !targets.isEmpty else {
             throw OrbitaError.invalidApplyPlan("No agent-specific skill install target for \(agentID)")
@@ -560,7 +583,7 @@ public final class ApplyPlanBuilder {
                     kind: .removePath,
                     path: entry.target.path,
                     risk: .write,
-                    description: "Remove \(agentID) \(entry.target.relationship) skill install target for \(entry.capability.name)"
+                    description: entry.description
                 )
             }
         operations.append(ApplyOperation(
@@ -1038,6 +1061,10 @@ public final class ApplyPlanBuilder {
         var relationship: String
         var path: String
 
+        var isCanonical: Bool {
+            relationship == "canonical"
+        }
+
         var isAgentSpecific: Bool {
             switch relationship {
             case "copy", "symlink", "symlink-other", "broken-symlink":
@@ -1046,19 +1073,23 @@ public final class ApplyPlanBuilder {
                 return false
             }
         }
+
+        var isSymlinkToCanonical: Bool {
+            relationship == "symlink"
+        }
     }
 
-    private func skillInstallTarget(for capability: Capability, agentID: String) -> SkillInstallTarget? {
+    private func skillInstallTargets(for capability: Capability) -> [SkillInstallTarget] {
         guard capability.type == .skill,
               let value = capability.metadata["skillsInstallTargets"]
         else {
-            return nil
+            return []
         }
 
-        for line in value.split(separator: "\n") {
+        return value.split(separator: "\n").compactMap { line -> SkillInstallTarget? in
             let assignment = line.split(separator: "=", maxSplits: 1).map(String.init)
-            guard assignment.count == 2, assignment[0] == agentID else {
-                continue
+            guard assignment.count == 2 else {
+                return nil
             }
             let relationshipAndPath = assignment[1].split(separator: ":", maxSplits: 1).map(String.init)
             guard relationshipAndPath.count == 2, !relationshipAndPath[1].isEmpty else {
@@ -1070,7 +1101,10 @@ public final class ApplyPlanBuilder {
                 path: relationshipAndPath[1]
             )
         }
-        return nil
+    }
+
+    private func skillInstallTarget(for capability: Capability, agentID: String) -> SkillInstallTarget? {
+        skillInstallTargets(for: capability).first { $0.agentID == agentID }
     }
 
     private func skillSyncSourceDirectory(for capability: Capability) throws -> URL {

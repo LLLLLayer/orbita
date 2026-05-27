@@ -472,29 +472,29 @@ private struct SyncAgentRow: View {
 struct ScopedCapabilityActionSheet: View {
     let title: String
     let message: String
-    let currentButtonTitle: String
-    let allButtonTitle: String
-    let currentUnavailableReason: String?
+    let primaryButtonTitle: String
+    let secondaryConfirmationMessage: String?
     let isDestructive: Bool
-    let onCurrent: () -> Void
-    let onAll: () -> Void
+    let onConfirm: () -> Void
     let onCancel: () -> Void
+
+    @State private var isShowingSecondaryConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             CategorySheetHeader(
-                title: title,
-                subtitle: isDestructive ? "Review delete scope" : "Review capability scope",
-                systemImage: isDestructive ? "trash" : "minus.circle"
+                title: headerTitle,
+                subtitle: "Review current capability",
+                systemImage: headerSystemImage
             )
 
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: isDestructive ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                Image(systemName: messageSystemImage)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isDestructive ? Color.red : .secondary)
+                    .foregroundStyle(messageColor)
                     .frame(width: 24, height: 24)
 
-                Text(message)
+                Text(displayedMessage)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -510,24 +510,11 @@ struct ScopedCapabilityActionSheet: View {
 
                 Spacer(minLength: 0)
 
-                HStack(spacing: 6) {
-                    ScopedActionButton(
-                        title: currentButtonTitle,
-                        systemImage: "person.crop.circle",
-                        isDisabled: currentUnavailableReason != nil,
-                        action: onCurrent
-                    )
-
-                    if let currentUnavailableReason {
-                        HelpBadge(help: currentUnavailableReason)
-                    }
-                }
-
                 ScopedActionButton(
-                    title: allButtonTitle,
-                    systemImage: isDestructive ? "trash" : "rectangle.stack.badge.minus",
-                    isDestructive: isDestructive,
-                    action: onAll
+                    title: actionButtonTitle,
+                    systemImage: actionButtonSystemImage,
+                    isDestructive: isDestructive && !showsContinueButton,
+                    action: confirmOrContinue
                 )
                 .keyboardShortcut(.defaultAction)
             }
@@ -536,6 +523,55 @@ struct ScopedCapabilityActionSheet: View {
         .frame(width: 560)
         .background(OrbitaTheme.canvas)
         .presentationBackground(OrbitaTheme.canvas)
+    }
+
+    private var headerTitle: String {
+        isShowingSecondaryConfirmation ? "Confirm Linked Delete" : title
+    }
+
+    private var headerSystemImage: String {
+        if isShowingSecondaryConfirmation {
+            return "exclamationmark.triangle"
+        }
+        return isDestructive ? "trash" : "minus.circle"
+    }
+
+    private var displayedMessage: String {
+        isShowingSecondaryConfirmation ? (secondaryConfirmationMessage ?? message) : message
+    }
+
+    private var messageSystemImage: String {
+        if isShowingSecondaryConfirmation {
+            return "exclamationmark.triangle.fill"
+        }
+        return isDestructive ? "exclamationmark.triangle.fill" : "info.circle.fill"
+    }
+
+    private var messageColor: Color {
+        isDestructive ? .red : .secondary
+    }
+
+    private var showsContinueButton: Bool {
+        secondaryConfirmationMessage != nil && !isShowingSecondaryConfirmation
+    }
+
+    private var actionButtonTitle: String {
+        showsContinueButton ? "Continue" : primaryButtonTitle
+    }
+
+    private var actionButtonSystemImage: String {
+        if showsContinueButton {
+            return "arrow.right.circle"
+        }
+        return isDestructive ? "trash" : "minus.circle"
+    }
+
+    private func confirmOrContinue() {
+        if showsContinueButton {
+            isShowingSecondaryConfirmation = true
+            return
+        }
+        onConfirm()
     }
 }
 

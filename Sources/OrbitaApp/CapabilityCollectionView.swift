@@ -1,6 +1,8 @@
 import SwiftUI
 import OrbitaCore
 
+private typealias AgentVisibilityIndex = [String: Set<String>]
+
 struct CapabilityCollectionView: View {
     let sections: [CapabilityCollectionSection]
     let graph: CapabilityGraph?
@@ -18,6 +20,7 @@ struct CapabilityCollectionView: View {
     private let itemSpacing: CGFloat = 18
 
     var body: some View {
+        let agentVisibilityIndex = makeAgentVisibilityIndex()
         VStack(alignment: .leading, spacing: 24) {
             ForEach(sectionRows) { section in
                 VStack(alignment: .leading, spacing: 12) {
@@ -32,7 +35,7 @@ struct CapabilityCollectionView: View {
                     }
 
                     if !collapsedSectionIDs.contains(section.id) {
-                        sectionContent(section)
+                        sectionContent(section, agentVisibilityIndex: agentVisibilityIndex)
                             .clipped()
                             .transition(.opacity)
                     }
@@ -50,25 +53,44 @@ struct CapabilityCollectionView: View {
         .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08), value: contentSignature)
     }
 
-    private func sectionContent(_ section: CapabilityDisplaySectionRows) -> some View {
+    private func sectionContent(
+        _ section: CapabilityDisplaySectionRows,
+        agentVisibilityIndex: AgentVisibilityIndex
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(section.rows) { row in
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                    ForEach(row.items) { item in
-                        tile(for: item)
+            ForEach(section.subsections) { subsection in
+                VStack(alignment: .leading, spacing: 10) {
+                    if let title = subsection.title {
+                        HStack(spacing: 6) {
+                            Text(title)
+                                .font(.subheadline.weight(.semibold))
+                            if let subtitle = subsection.subtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-                ForEach(expandedGroups(for: row)) { group in
-                    ExpandedCapabilityGroupShelf(
-                        group: group,
-                        graph: graph,
-                        agentOptions: agentOptions,
-                        selectedCapability: $selectedCapability,
-                        columns: columns,
-                        onSyncCapability: onSyncCapability
-                    )
+                    ForEach(subsection.rows) { row in
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                            ForEach(row.items) { item in
+                                tile(for: item, agentVisibilityIndex: agentVisibilityIndex)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        ForEach(expandedGroups(for: row)) { group in
+                            ExpandedCapabilityGroupShelf(
+                                group: group,
+                                agentOptions: agentOptions,
+                                agentVisibilityIndex: agentVisibilityIndex,
+                                selectedCapability: $selectedCapability,
+                                columns: columns,
+                                onSyncCapability: onSyncCapability
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -101,26 +123,24 @@ struct CapabilityCollectionView: View {
     }
 
     @ViewBuilder
-    private func tile(for item: CapabilityDisplayItem) -> some View {
+    private func tile(for item: CapabilityDisplayItem, agentVisibilityIndex: AgentVisibilityIndex) -> some View {
         switch item {
         case let .capability(capability):
             CapabilityTile(
                 capability: capability,
-                visibleAgents: visibleAgents(for: item),
+                visibleAgents: visibleAgents(for: item, in: agentVisibilityIndex),
                 isSelected: selectedCapability?.id == capability.id,
                 onSync: {
                     onSyncCapability(capability)
                 }
             ) {
-                withAnimation(.snappy(duration: 0.18)) {
-                    selectedCapability = capability
-                }
+                selectedCapability = capability
             }
         case let .group(group):
             let inspectionCapability = group.inspectionCapability
             CapabilityGroupTile(
                 group: group,
-                visibleAgents: visibleAgents(for: item),
+                visibleAgents: visibleAgents(for: item, in: agentVisibilityIndex),
                 isExpanded: expandedGroupIDs.contains(group.id),
                 isSelected: selectedCapability?.id == inspectionCapability.id,
                 onSync: {
@@ -155,11 +175,21 @@ struct CapabilityCollectionView: View {
         }
     }
 
-    private func visibleAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
-        guard let graph else { return [] }
+    private func visibleAgents(for item: CapabilityDisplayItem, in agentVisibilityIndex: AgentVisibilityIndex) -> [AgentSelection] {
+        let capabilityIDs = Set(item.capabilities.map(\.id))
         return agentOptions.filter { agent in
-            item.capabilities.contains { agent.includesCapability($0, in: graph) }
+            guard let visibleIDs = agentVisibilityIndex[agent.id] else {
+                return false
+            }
+            return !capabilityIDs.isDisjoint(with: visibleIDs)
         }
+    }
+
+    private func makeAgentVisibilityIndex() -> AgentVisibilityIndex {
+        guard let graph else { return [:] }
+        return Dictionary(uniqueKeysWithValues: agentOptions.map { agent in
+            (agent.id, agent.visibleCapabilityIDs(in: graph))
+        })
     }
 
     private var columns: [GridItem] {
@@ -180,7 +210,14 @@ struct CapabilityCollectionView: View {
                 id: section.id,
                 title: section.title,
                 subtitle: section.subtitle,
-                rows: displayRows(for: section.items)
+                subsections: section.subsections.map { subsection in
+                    CapabilityDisplaySubsectionRows(
+                        id: subsection.id,
+                        title: subsection.title,
+                        subtitle: subsection.subtitle,
+                        rows: displayRows(for: subsection.items)
+                    )
+                }
             )
         }
     }
@@ -202,7 +239,12 @@ struct CapabilityCollectionView: View {
     private var contentSignature: String {
         sections
             .map { section in
-                "\(section.id):\(section.items.count)"
+                let subsectionSignature = section.subsections
+                    .map { subsection in
+                        "\(subsection.id):\(subsection.items.count)"
+                    }
+                    .joined(separator: ",")
+                return "\(section.id):\(subsectionSignature)"
             }
             .joined(separator: "|")
     }
@@ -212,6 +254,34 @@ struct CapabilityCollectionSection: Identifiable, Hashable {
     let id: String
     let title: String
     let subtitle: String
+    let subsections: [CapabilityCollectionSubsection]
+
+    init(id: String, title: String, subtitle: String, items: [CapabilityDisplayItem]) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.subsections = [
+            CapabilityCollectionSubsection(
+                id: "\(id)-all",
+                title: nil,
+                subtitle: nil,
+                items: items
+            )
+        ]
+    }
+
+    init(id: String, title: String, subtitle: String, subsections: [CapabilityCollectionSubsection]) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.subsections = subsections
+    }
+}
+
+struct CapabilityCollectionSubsection: Identifiable, Hashable {
+    let id: String
+    let title: String?
+    let subtitle: String?
     let items: [CapabilityDisplayItem]
 }
 
@@ -219,6 +289,13 @@ private struct CapabilityDisplaySectionRows: Identifiable {
     let id: String
     let title: String
     let subtitle: String
+    let subsections: [CapabilityDisplaySubsectionRows]
+}
+
+private struct CapabilityDisplaySubsectionRows: Identifiable {
+    let id: String
+    let title: String?
+    let subtitle: String?
     let rows: [CapabilityDisplayRow]
 }
 
@@ -242,8 +319,8 @@ private struct CapabilityDisplayRow: Identifiable {
 
 private struct ExpandedCapabilityGroupShelf: View {
     let group: CapabilityGroup
-    let graph: CapabilityGraph?
     let agentOptions: [AgentSelection]
+    let agentVisibilityIndex: AgentVisibilityIndex
     @Binding var selectedCapability: Capability?
     let columns: [GridItem]
     let onSyncCapability: (Capability) -> Void
@@ -298,9 +375,7 @@ private struct ExpandedCapabilityGroupShelf: View {
                     onSyncCapability(capability)
                 }
             ) {
-                withAnimation(.snappy(duration: 0.18)) {
-                    selectedCapability = capability
-                }
+                selectedCapability = capability
             }
         case let .group(group):
             let inspectionCapability = group.inspectionCapability
@@ -314,17 +389,18 @@ private struct ExpandedCapabilityGroupShelf: View {
                     onSyncCapability(inspectionCapability)
                 }
             ) {
-                withAnimation(.snappy(duration: 0.18)) {
-                    selectedCapability = inspectionCapability
-                }
+                selectedCapability = inspectionCapability
             }
         }
     }
 
     private func visibleAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
-        guard let graph else { return [] }
+        let capabilityIDs = Set(item.capabilities.map(\.id))
         return agentOptions.filter { agent in
-            item.capabilities.contains { agent.includesCapability($0, in: graph) }
+            guard let visibleIDs = agentVisibilityIndex[agent.id] else {
+                return false
+            }
+            return !capabilityIDs.isDisjoint(with: visibleIDs)
         }
     }
 
@@ -403,12 +479,12 @@ private enum CapabilityTypeSection: String, CaseIterable, Hashable {
     }
 
     static let displayOrder: [CapabilityTypeSection] = [
+        .plugins,
         .skills,
-        .hooks,
         .commands,
         .mcp,
+        .hooks,
         .instructions,
-        .plugins,
         .other
     ]
 

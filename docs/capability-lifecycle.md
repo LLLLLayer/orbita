@@ -72,14 +72,15 @@ Project dimension:
 - Project-level Codex commands, hooks, plugin config, and other Codex-native project settings remain under `<repo>/.codex`.
 - Project-level Codex skills use `<repo>/.agents/skills`. Codex scans `.agents/skills` from the current working directory up to the repository root, so root-level `<repo>/.agents/skills` is visible to Codex sessions launched anywhere inside that repo.
 - Codex does not consume every file in `.agents`; Orbita's `<repo>/.agents/manifest.json`, `<repo>/.agents/lock.json`, adapters, and logs are Orbita management metadata.
-- Codex can disable any individual `SKILL.md` path with `[[skills.config]] path = ".../SKILL.md" enabled = false` in `~/.codex/config.toml`. This is Codex-specific visibility, not deletion and not necessarily a disable for Claude Code or other agents.
+- Codex can disable non-plugin `SKILL.md` paths with `[[skills.config]] path = ".../SKILL.md" enabled = false` in `~/.codex/config.toml`. This is Codex-specific visibility, not deletion and not necessarily a disable for Claude Code or other agents.
+- Capabilities bundled inside a Codex plugin follow the plugin lifecycle. Disabling one of those skills, hooks, or commands in Orbita updates `[plugins."<selector>"] enabled = false` rather than writing a per-skill override.
 - If a repository contains project plugin sources, Orbita treats them as project scope only when they are inside `<repo>/plugins/` and have a `.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` manifest.
 - Project `.codex/config.toml`, when present, is the project-level native config Orbita can inspect for plugin enablement.
 
 Orbita implementation:
 
 - Scan Codex plugin cache manifests and map `config.toml` enablement into `enabled`/`disabled`.
-- Scan `[[skills.config]]` path entries in `~/.codex/config.toml` and hide matching skills only from Codex when `enabled = false`.
+- Scan non-plugin `[[skills.config]]` path entries in `~/.codex/config.toml` and hide matching skills only from Codex when `enabled = false`.
 - For user-scope Codex enable, run `codex plugin add <selector>` so Codex owns both installed-cache creation and enabled state.
 - For project-local Codex plugin enablement, update the relevant project `[plugins."<selector>"] enabled` key because there is no marketplace install command for raw project plugin sources.
 - For Codex disable, update the relevant `[plugins."<selector>"] enabled = false` key until the Codex CLI exposes a native disable command.
@@ -100,6 +101,7 @@ Computer dimension:
   - `claude plugin enable <plugin>@<marketplace> --scope user`
   - `claude plugin disable <plugin>@<marketplace> --scope user`
   - `claude plugin update <plugin>@<marketplace> --scope user`
+  - `claude plugin remove <plugin>@<marketplace> --scope user -y`
 
 Project dimension:
 
@@ -118,8 +120,12 @@ Orbita implementation:
 
 - Scan `installed_plugins.json` and `enabledPlugins`.
 - Preserve scope in capability metadata: `user`, `project`, or `local`.
-- Expose native `list`, `enable`, `disable`, and `update` commands in the inspector.
+- Expose native `list`, `enable`, `disable`, `update`, and `delete` commands in the inspector.
 - Never write Claude plugin files directly; use Claude's CLI for lifecycle mutation.
+- Claude plugin children inherit plugin lifecycle actions; deleting or disabling a plugin child acts on the plugin package.
+- Claude native skills use `skillOverrides` for enablement. Project skills write `.claude/settings.json`; user skills write `~/.claude/settings.json`; enable removes the matching override from the settings file where it was found.
+- Claude `.mcp.json` project servers use `disabledMcpjsonServers` for enablement and remove the named server from `.mcp.json` for delete.
+- Claude settings hooks do not expose per-hook disable. Orbita only supports deleting a single scanned hook entry from its settings JSON.
 
 ## Sorting and Sections
 
@@ -144,6 +150,7 @@ Orbita stores maintenance commands in capability metadata:
 - `checkCommand`: list or refresh command that verifies installed/current state.
 - `updateCommand`: command that updates this plugin or skill.
 - `enableCommand` and `disableCommand`: native lifecycle command, or a Codex config write description.
+- `deleteCommand`: native delete command when the host owns deletion.
 
 The settings Plugins page provides broad maintenance commands:
 

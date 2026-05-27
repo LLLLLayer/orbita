@@ -41,8 +41,10 @@ public final class AgentViewResolver {
             switch capability.type {
             case .plugin, .skill:
                 return isClaudeNativeCapability(capability)
-            case .mcpServer, .instruction:
+            case .instruction:
                 return true
+            case .mcpServer:
+                return capability.metadata["claudeMCPEnabled"] != "false"
             case .command:
                 return capability.source.kind == "claude-command"
             case .hook:
