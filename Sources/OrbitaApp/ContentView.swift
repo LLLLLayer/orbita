@@ -731,7 +731,7 @@ struct ContentView: View {
     }
 
     private var defaultCategoryOptions: [CapabilityCategory] {
-        [.all, .plugin, .skill, .command, .mcp, .hook]
+        [.all, .plugin, .skill, .command, .agent, .hook, .mcp]
     }
 
     private var categoryOrderIDs: [String] {
@@ -992,6 +992,8 @@ private enum AllTabSubsectionKind: Hashable {
             self = .category(.plugin)
         case .skill:
             self = .category(.skill)
+        case .agent:
+            self = .category(.agent)
         case .command:
             self = .category(.command)
         case .mcpServer:

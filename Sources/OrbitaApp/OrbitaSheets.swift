@@ -820,6 +820,8 @@ private extension CapabilityCategory {
             return "shippingbox"
         case .skill:
             return "wand.and.stars"
+        case .agent:
+            return "person.2"
         case .command:
             return "terminal"
         case .mcp:

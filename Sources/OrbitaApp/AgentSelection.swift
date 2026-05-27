@@ -216,6 +216,7 @@ enum CapabilityCategory: String, CaseIterable, Identifiable {
     case all
     case plugin
     case skill
+    case agent
     case command
     case mcp
     case hook
@@ -231,6 +232,8 @@ enum CapabilityCategory: String, CaseIterable, Identifiable {
             return "Plugins"
         case .skill:
             return "Skills"
+        case .agent:
+            return "Agents"
         case .command:
             return "Commands"
         case .mcp:
@@ -250,6 +253,8 @@ enum CapabilityCategory: String, CaseIterable, Identifiable {
             return capability.type == .plugin
         case .skill:
             return capability.type == .skill && capability.pluginID == nil
+        case .agent:
+            return capability.type == .agent
         case .command:
             return capability.type == .command
         case .mcp:
@@ -318,6 +323,8 @@ enum CapabilityVisuals {
             return "shippingbox"
         case .skill:
             return "wand.and.stars"
+        case .agent:
+            return "person.2"
         case .mcpServer:
             return "server.rack"
         case .rule:
@@ -382,6 +389,8 @@ extension CapabilityType {
             return "Plugin"
         case .skill:
             return "Skill"
+        case .agent:
+            return "Agent"
         case .mcpServer:
             return "MCP"
         case .rule:

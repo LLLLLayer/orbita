@@ -5,6 +5,7 @@ public struct ScanOptions: Sendable {
     public var includeUserScope: Bool
     public var maxSkillFiles: Int
     public var userSkillRoots: [URL]
+    public var userAgentRoots: [URL]
     public var codexConfigURL: URL
     public var codexPluginCacheRoot: URL
     public var claudeInstalledPluginsURL: URL
@@ -17,6 +18,7 @@ public struct ScanOptions: Sendable {
         includeUserScope: Bool = true,
         maxSkillFiles: Int = 200,
         userSkillRoots: [URL]? = nil,
+        userAgentRoots: [URL]? = nil,
         codexConfigURL: URL? = nil,
         codexPluginCacheRoot: URL? = nil,
         claudeInstalledPluginsURL: URL? = nil,
@@ -29,6 +31,7 @@ public struct ScanOptions: Sendable {
         self.includeUserScope = includeUserScope
         self.maxSkillFiles = maxSkillFiles
         self.userSkillRoots = userSkillRoots ?? Self.defaultUserSkillRoots()
+        self.userAgentRoots = userAgentRoots ?? (userSkillRoots == nil ? Self.defaultUserAgentRoots() : [])
         self.codexConfigURL = codexConfigURL ?? home.appendingPathComponent(".codex/config.toml")
         self.codexPluginCacheRoot = codexPluginCacheRoot ?? home.appendingPathComponent(".codex/plugins/cache")
         self.claudeInstalledPluginsURL = claudeInstalledPluginsURL ?? home.appendingPathComponent(".claude/plugins/installed_plugins.json")
@@ -45,6 +48,13 @@ public struct ScanOptions: Sendable {
             home.appendingPathComponent(".agents/skills"),
             home.appendingPathComponent(".claude/skills"),
             home.appendingPathComponent(".codex/plugins/cache")
+        ]
+    }
+
+    public static func defaultUserAgentRoots() -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(".claude/agents")
         ]
     }
 
@@ -131,6 +141,11 @@ public final class CapabilityScanner {
                     issues: &issues
                 )
             }
+            scanUserAgentRoots(
+                options: options,
+                into: &capabilities,
+                issues: &issues
+            )
         }
         emitProgress("scan.claude.finish", path: root.appendingPathComponent(".claude").path, count: capabilities.count, options: options)
 
@@ -276,6 +291,14 @@ public final class CapabilityScanner {
             sourceKind: "claude-skill",
             projectRoot: root,
             claudeSkillStates: claudeSkillStates
+        )
+        scanAgentFiles(
+            at: root.appendingPathComponent(".claude/agents"),
+            options: options,
+            into: &capabilities,
+            issues: &issues,
+            scope: .project,
+            sourceKind: "claude-agent"
         )
     }
 
@@ -1087,6 +1110,111 @@ public final class CapabilityScanner {
             return URL(fileURLWithPath: destination).standardizedFileURL
         }
         return directory.appendingPathComponent(destination).standardizedFileURL
+    }
+
+    private func scanUserAgentRoots(
+        options: ScanOptions,
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
+        for root in options.userAgentRoots {
+            scanAgentFiles(
+                at: root.standardizedFileURL.resolvingSymlinksInPath(),
+                options: options,
+                into: &capabilities,
+                issues: &issues,
+                scope: .user,
+                sourceKind: "claude-agent"
+            )
+        }
+    }
+
+    private func scanAgentFiles(
+        at root: URL,
+        options: ScanOptions,
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue],
+        scope: CapabilityScope,
+        sourceKind: String,
+        packageName: String? = nil,
+        pluginID: String? = nil,
+        inheritedEnabled: Bool? = nil,
+        metadata baseMetadata: [String: String] = [:]
+    ) {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return
+        }
+
+        emitProgress("scan.agents-files.start", path: root.path, options: options)
+
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            issues.append(ScanIssue(severity: .warning, path: root.path, message: "Unable to enumerate agent files"))
+            emitProgress("scan.agents-files.failed", path: root.path, options: options)
+            return
+        }
+
+        var count = 0
+        for case let url as URL in enumerator {
+            guard url.pathExtension.lowercased() == "md" else { continue }
+            count += 1
+            let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
+            var metadata = fileMetadata(for: url, merging: frontmatter)
+            for (key, value) in baseMetadata where !value.isEmpty {
+                metadata[key] = value
+            }
+            metadata["agentName"] = frontmatter["name"] ?? url.deletingPathExtension().lastPathComponent
+            metadata["tools"] = frontmatter["tools"] ?? ""
+            metadata["disallowedTools"] = frontmatter["disallowedTools"] ?? ""
+            metadata["model"] = frontmatter["model"] ?? ""
+            metadata["permissionMode"] = frontmatter["permissionMode"] ?? ""
+            metadata["mcpServers"] = frontmatter["mcpServers"] ?? ""
+
+            capabilities.append(Capability(
+                id: stableID(type: .agent, path: url.path),
+                name: frontmatter["name"] ?? url.deletingPathExtension().lastPathComponent,
+                type: .agent,
+                scope: scope,
+                statuses: statusList(enabled: inheritedEnabled ?? true),
+                risks: riskHints(forAgentFrontmatter: frontmatter, scope: scope),
+                source: CapabilitySource(kind: sourceKind, path: url.path, packageName: packageName),
+                pluginID: pluginID,
+                summary: frontmatter["description"],
+                metadata: metadata.filter { !$0.value.isEmpty }
+            ))
+        }
+
+        emitProgress("scan.agents-files.finish", path: root.path, count: count, options: options)
+    }
+
+    private func riskHints(forAgentFrontmatter frontmatter: [String: String], scope: CapabilityScope) -> [RiskLevel] {
+        var risks: Set<RiskLevel> = [.info, .read]
+        let tools = (frontmatter["tools"] ?? "").lowercased()
+        let disallowedTools = (frontmatter["disallowedTools"] ?? "").lowercased()
+        let permissionMode = (frontmatter["permissionMode"] ?? "").lowercased()
+        let mcpServers = (frontmatter["mcpServers"] ?? "").lowercased()
+
+        if tools.contains("bash") || tools.contains("agent(") || tools == "agent" {
+            risks.insert(.exec)
+        }
+        if tools.contains("write")
+            || tools.contains("edit")
+            || permissionMode.contains("acceptedits")
+            || permissionMode.contains("bypasspermissions") {
+            risks.insert(.write)
+        }
+        if !mcpServers.isEmpty || tools.contains("mcp__") || disallowedTools.contains("mcp__") {
+            risks.insert(.network)
+        }
+        if scope == .user {
+            risks.insert(.global)
+        }
+
+        return risks.sorted { $0.rawValue < $1.rawValue }
     }
 
     private func scanSkillFiles(
@@ -2185,6 +2313,18 @@ public final class CapabilityScanner {
                     metadata: childMetadata,
                     into: &capabilities,
                     issues: &issues
+                )
+                scanAgentFiles(
+                    at: pluginRoot.appendingPathComponent("agents"),
+                    options: options,
+                    into: &capabilities,
+                    issues: &issues,
+                    scope: scope,
+                    sourceKind: "claude-plugin-agent",
+                    packageName: pluginName,
+                    pluginID: pluginID,
+                    inheritedEnabled: enabled,
+                    metadata: childMetadata
                 )
                 scanPluginHooks(
                     pluginRoot: pluginRoot,

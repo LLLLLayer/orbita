@@ -29,6 +29,8 @@ public final class AgentViewResolver {
                 return !isSharedAgentsCapability(capability)
             case .plugin, .mcpServer, .instruction:
                 return true
+            case .agent:
+                return false
             case .hook:
                 return capability.source.kind == "codex-hook"
                     || capability.source.kind == "codex-plugin-hook"
@@ -39,7 +41,7 @@ public final class AgentViewResolver {
             }
         case .claudeCode:
             switch capability.type {
-            case .plugin, .skill:
+            case .plugin, .skill, .agent:
                 return isClaudeNativeCapability(capability)
             case .instruction:
                 return true
@@ -60,7 +62,10 @@ public final class AgentViewResolver {
     }
 
     private func isClaudeNativeCapability(_ capability: Capability) -> Bool {
-        capability.source.kind == "claude-skill" || sourcePathComponents(for: capability).contains(".claude")
+        capability.source.kind == "claude-skill"
+            || capability.source.kind == "claude-agent"
+            || capability.source.kind == "claude-plugin-agent"
+            || sourcePathComponents(for: capability).contains(".claude")
     }
 
     private func isSharedAgentsCapability(_ capability: Capability) -> Bool {

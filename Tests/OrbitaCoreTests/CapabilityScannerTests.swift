@@ -767,6 +767,57 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
     }
 
+    func testClaudeAgentsAreScannedAsAgentCapabilities() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let userRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaClaudeAgents-\(UUID().uuidString)")
+        let projectAgent = projectRoot.appendingPathComponent(".claude/agents/code-reviewer.md")
+        let userAgent = userRoot.appendingPathComponent(".claude/agents/researcher.md")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: userRoot)
+        }
+
+        try FileManager.default.createDirectory(at: projectAgent.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: userAgent.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try agentText(name: "code-reviewer", description: "Reviews code changes", tools: "Read, Grep, Bash")
+            .write(to: projectAgent, atomically: true, encoding: .utf8)
+        try agentText(name: "researcher", description: "Researches implementation options", tools: "Read, Grep")
+            .write(to: userAgent, atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [],
+                userAgentRoots: [userAgent.deletingLastPathComponent()],
+                codexConfigURL: userRoot.appendingPathComponent("missing-config.toml"),
+                codexPluginCacheRoot: userRoot.appendingPathComponent("missing-cache"),
+                claudeInstalledPluginsURL: userRoot.appendingPathComponent("missing-claude.json"),
+                claudeSettingsURLs: []
+            )
+        )
+        let graph = CapabilityResolver().resolve(scanResult: result)
+
+        let scannedProjectAgent = try XCTUnwrap(result.capabilities.first { $0.name == "code-reviewer" && $0.source.kind == "claude-agent" })
+        let scannedUserAgent = try XCTUnwrap(result.capabilities.first { $0.name == "researcher" && $0.source.kind == "claude-agent" })
+        XCTAssertEqual(scannedProjectAgent.type, .agent)
+        XCTAssertEqual(scannedProjectAgent.scope, .project)
+        XCTAssertEqual(scannedProjectAgent.statuses, [.enabled])
+        XCTAssertTrue(scannedProjectAgent.risks.contains(.exec))
+        XCTAssertEqual(scannedProjectAgent.metadata["tools"], "Read, Grep, Bash")
+        XCTAssertEqual(scannedUserAgent.type, .agent)
+        XCTAssertEqual(scannedUserAgent.scope, .user)
+        XCTAssertTrue(scannedUserAgent.risks.contains(.global))
+
+        let claude = AgentViewResolver().view(for: .claudeCode, graph: graph)
+        let codex = AgentViewResolver().view(for: .codex, graph: graph)
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.id == scannedProjectAgent.id })
+        XCTAssertTrue(claude.visibleCapabilities.contains { $0.id == scannedUserAgent.id })
+        XCTAssertFalse(codex.visibleCapabilities.contains { $0.id == scannedProjectAgent.id })
+    }
+
     func testFileCapabilitiesIncludeStableContentHash() throws {
         let root = try fixtureURL("MixedProject")
 
@@ -2579,10 +2630,12 @@ final class CapabilityScannerTests: XCTestCase {
         let manifest = pluginRoot.appendingPathComponent(".claude-plugin/plugin.json")
         let skill = pluginRoot.appendingPathComponent("skills/using-superpowers/SKILL.md")
         let command = pluginRoot.appendingPathComponent("commands/brainstorm.md")
+        let agent = pluginRoot.appendingPathComponent("agents/reviewer.md")
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: command.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: agent.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
         {
           "name": "superpowers",
@@ -2599,6 +2652,16 @@ final class CapabilityScannerTests: XCTestCase {
 
         Brainstorm the implementation.
         """.write(to: command, atomically: true, encoding: .utf8)
+        try """
+        ---
+        name: reviewer
+        description: Reviews changes with Superpowers
+        tools: Read, Grep
+        model: sonnet
+        ---
+
+        Review recent changes.
+        """.write(to: agent, atomically: true, encoding: .utf8)
         try FileManager.default.createDirectory(at: registryRoot, withIntermediateDirectories: true)
         try """
         {
@@ -2641,25 +2704,31 @@ final class CapabilityScannerTests: XCTestCase {
         let plugin = try XCTUnwrap(result.capabilities.first { $0.name == "Superpowers" && $0.source.kind == "claude-plugin" })
         let pluginSkill = try XCTUnwrap(result.capabilities.first { $0.name == "using-superpowers" && $0.source.kind == "claude-plugin-skill" })
         let pluginCommand = try XCTUnwrap(result.capabilities.first { $0.name == "brainstorm" && $0.source.kind == "claude-plugin-command" })
+        let pluginAgent = try XCTUnwrap(result.capabilities.first { $0.name == "reviewer" && $0.source.kind == "claude-plugin-agent" })
         XCTAssertEqual(pluginSkill.pluginID, plugin.id)
         XCTAssertEqual(pluginCommand.pluginID, plugin.id)
+        XCTAssertEqual(pluginAgent.pluginID, plugin.id)
         XCTAssertEqual(pluginSkill.source.packageName, "superpowers")
         XCTAssertEqual(pluginCommand.source.packageName, "superpowers")
+        XCTAssertEqual(pluginAgent.source.packageName, "superpowers")
         XCTAssertEqual(pluginSkill.statuses, [.enabled])
         XCTAssertEqual(pluginCommand.statuses, [.enabled])
+        XCTAssertEqual(pluginAgent.statuses, [.enabled])
         XCTAssertEqual(pluginSkill.metadata["pluginSelector"], "superpowers@superpowers-marketplace")
         XCTAssertEqual(pluginCommand.metadata["manager"], "claude-code")
+        XCTAssertEqual(pluginAgent.metadata["manager"], "claude-code")
         XCTAssertTrue(pluginSkill.metadata["deleteCommand"]?.contains("claude plugin remove 'superpowers@superpowers-marketplace'") == true)
         XCTAssertTrue(pluginCommand.metadata["disableCommand"]?.contains("claude plugin disable 'superpowers@superpowers-marketplace'") == true)
+        XCTAssertEqual(pluginAgent.metadata["tools"], "Read, Grep")
 
-        let items = CapabilityDisplayGrouper().items(for: [plugin, pluginSkill, pluginCommand], preservesInputOrder: true)
+        let items = CapabilityDisplayGrouper().items(for: [plugin, pluginSkill, pluginCommand, pluginAgent], preservesInputOrder: true)
         XCTAssertEqual(items.count, 1)
         guard case let .group(group) = items.first else {
-            return XCTFail("Expected Claude plugin skills and commands to be grouped under the real plugin")
+            return XCTFail("Expected Claude plugin children to be grouped under the real plugin")
         }
         XCTAssertEqual(group.kind, .plugin)
         XCTAssertEqual(group.representative?.id, plugin.id)
-        XCTAssertEqual(group.capabilities.map(\.id).sorted(), [pluginCommand.id, pluginSkill.id].sorted())
+        XCTAssertEqual(group.capabilities.map(\.id).sorted(), [pluginAgent.id, pluginCommand.id, pluginSkill.id].sorted())
     }
 
     func testAgentsSkillsExposeSkillsCLIUpdateCommand() throws {
@@ -2786,6 +2855,19 @@ final class CapabilityScannerTests: XCTestCase {
         ---
 
         \(body)
+        """
+    }
+
+    private func agentText(name: String, description: String, tools: String) -> String {
+        """
+        ---
+        name: \(name)
+        description: \(description)
+        tools: \(tools)
+        model: sonnet
+        ---
+
+        \(description)
         """
     }
 }

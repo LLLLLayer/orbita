@@ -453,6 +453,7 @@ private struct ExpandedGroupSection: Identifiable {
 private enum CapabilityTypeSection: String, CaseIterable, Hashable {
     case plugins
     case skills
+    case agents
     case commands
     case mcp
     case hooks
@@ -465,6 +466,8 @@ private enum CapabilityTypeSection: String, CaseIterable, Hashable {
             self = .plugins
         case .skill:
             self = .skills
+        case .agent:
+            self = .agents
         case .command:
             self = .commands
         case .mcpServer:
@@ -481,6 +484,7 @@ private enum CapabilityTypeSection: String, CaseIterable, Hashable {
     static let displayOrder: [CapabilityTypeSection] = [
         .plugins,
         .skills,
+        .agents,
         .commands,
         .mcp,
         .hooks,
@@ -496,6 +500,8 @@ private enum CapabilityTypeSection: String, CaseIterable, Hashable {
             return "Plugins"
         case .skills:
             return "Skills"
+        case .agents:
+            return "Agents"
         case .commands:
             return "Commands"
         case .mcp:
@@ -835,6 +841,8 @@ private extension CapabilityType {
         switch self {
         case .skill:
             return "Skill capability"
+        case .agent:
+            return "Subagent"
         case .plugin:
             return "Plugin package"
         case .mcpServer:

@@ -176,14 +176,16 @@ private struct HeaderSurface: View {
                 HeaderRefreshButton(title: lastRefreshLabel, isScanning: isScanning, action: onRefresh)
             }
 
-            HStack(spacing: 18) {
+            HStack(spacing: 0) {
                 SummaryStat(title: "Total", value: capabilities.count, systemImage: "square.grid.2x2")
                 SummaryStat(title: "Plugins", value: count(.plugin), systemImage: "shippingbox")
                 SummaryStat(title: "Skills", value: count(.skill), systemImage: "wand.and.stars")
+                SummaryStat(title: "Agents", value: count(.agent), systemImage: "person.2")
                 SummaryStat(title: "Commands", value: count(.command), systemImage: "terminal")
                 SummaryStat(title: "MCP", value: count(.mcp), systemImage: "server.rack")
                 SummaryStat(title: "Hooks", value: count(.hook), systemImage: "link")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
         }
         .padding(18)
@@ -291,12 +293,16 @@ private struct SummaryStat: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(value)")
                     .font(.headline.monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
         }
-        .frame(minWidth: 92, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

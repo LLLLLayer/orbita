@@ -130,6 +130,13 @@ public final class AdapterPreviewBuilder {
                 targetPath: capability.source.path,
                 reason: "Codex loads skills from Codex-owned skill roots and plugin/user skill roots."
             )
+        case .agent:
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: false,
+                targetPath: nil,
+                reason: "Codex does not load Claude Code subagents."
+            )
         case .mcpServer:
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
@@ -200,6 +207,13 @@ public final class AdapterPreviewBuilder {
                 targetPath: capability.source.path,
                 reason: "Claude Code loads native skills from .claude/skills."
             )
+        case .agent where isClaudeNativeCapability(capability):
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: true,
+                targetPath: capability.source.path,
+                reason: "Claude Code loads custom subagents from .claude/agents and plugin agents directories."
+            )
         case .mcpServer:
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
@@ -239,7 +253,10 @@ public final class AdapterPreviewBuilder {
     }
 
     private func isClaudeNativeCapability(_ capability: Capability) -> Bool {
-        capability.source.kind == "claude-skill" || sourcePathComponents(for: capability).contains(".claude")
+        capability.source.kind == "claude-skill"
+            || capability.source.kind == "claude-agent"
+            || capability.source.kind == "claude-plugin-agent"
+            || sourcePathComponents(for: capability).contains(".claude")
     }
 
     private func isSharedAgentsCapability(_ capability: Capability) -> Bool {

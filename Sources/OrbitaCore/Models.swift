@@ -3,6 +3,7 @@ import Foundation
 public enum CapabilityType: String, Codable, CaseIterable, Sendable {
     case plugin
     case skill
+    case agent
     case mcpServer
     case rule
     case instruction
