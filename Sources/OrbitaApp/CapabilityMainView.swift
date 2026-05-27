@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import OrbitaCore
@@ -694,17 +695,72 @@ private struct SourceOverviewStrip: View {
 }
 
 private struct EmptyCapabilitiesState: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "tray")
-                .font(.system(size: 38, weight: .regular))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            if let image = EmptyStateIllustrationStore.image(named: imageName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 190, height: 190)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "tray")
+                    .font(.system(size: 38, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+            }
             Text("No capabilities")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var imageName: String {
+        colorScheme == .dark ? "empty-placeholder-dark" : "empty-placeholder-light"
+    }
+}
+
+@MainActor
+private enum EmptyStateIllustrationStore {
+    private static var cache: [String: NSImage] = [:]
+
+    static func image(named name: String) -> NSImage? {
+        if let cached = cache[name] {
+            return cached
+        }
+        guard let url = resourceURL(for: name),
+              let image = NSImage(contentsOf: url)?.copy() as? NSImage else {
+            return nil
+        }
+        cache[name] = image
+        return image
+    }
+
+    private static func resourceURL(for name: String) -> URL? {
+        #if SWIFT_PACKAGE
+        if let url = Bundle.module.url(
+            forResource: name,
+            withExtension: "png",
+            subdirectory: "EmptyStates"
+        ) {
+            return url
+        }
+        if let url = Bundle.module.url(forResource: name, withExtension: "png") {
+            return url
+        }
+        #endif
+
+        if let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "EmptyStates") {
+            return url
+        }
+        if let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Resources/EmptyStates") {
+            return url
+        }
+        return Bundle.main.url(forResource: name, withExtension: "png")
     }
 }
 

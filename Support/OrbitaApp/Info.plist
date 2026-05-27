@@ -10,6 +10,8 @@
   <string>Orbita</string>
   <key>CFBundleDisplayName</key>
   <string>Orbita</string>
+  <key>CFBundleIconFile</key>
+  <string>Orbita</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

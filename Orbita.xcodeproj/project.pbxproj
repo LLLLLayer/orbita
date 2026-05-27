@@ -44,7 +44,10 @@
 		200000000000000000001021 /* codex.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000021 /* codex.svg */; };
 		200000000000000000001022 /* cursor.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000022 /* cursor.svg */; };
 		200000000000000000001023 /* trae.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000023 /* trae.svg */; };
+		200000000000000000001024 /* empty-placeholder-dark.png in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000024 /* empty-placeholder-dark.png */; };
+		200000000000000000001025 /* empty-placeholder-light.png in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000025 /* empty-placeholder-light.png */; };
 		300000000000000000001001 /* libOrbitaCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 300000000000000000000002 /* libOrbitaCore.a */; };
+		300000000000000000001002 /* Orbita.icns in Resources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000011 /* Orbita.icns */; };
 		500000000000000000001001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002002 /* Sparkle */; };
 		500000000000000000001002 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = 500000000000000000002004 /* Textual */; };
 /* End PBXBuildFile section */
@@ -97,10 +100,13 @@
 		200000000000000000000021 /* codex.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = codex.svg; sourceTree = "<group>"; };
 		200000000000000000000022 /* cursor.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = cursor.svg; sourceTree = "<group>"; };
 		200000000000000000000023 /* trae.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = trae.svg; sourceTree = "<group>"; };
+		200000000000000000000024 /* empty-placeholder-dark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "empty-placeholder-dark.png"; sourceTree = "<group>"; };
+		200000000000000000000025 /* empty-placeholder-light.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "empty-placeholder-light.png"; sourceTree = "<group>"; };
 		300000000000000000000001 /* Orbita.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Orbita.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000002 /* libOrbitaCore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libOrbitaCore.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		300000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		300000000000000000000004 /* OrbitaApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OrbitaApp.entitlements; sourceTree = "<group>"; };
+		300000000000000000000011 /* Orbita.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = Orbita.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,6 +181,7 @@
 			isa = PBXGroup;
 			children = (
 				200000000000000000000031 /* AgentIcons */,
+				200000000000000000000032 /* EmptyStates */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -188,6 +195,15 @@
 				200000000000000000000023 /* trae.svg */,
 			);
 			path = AgentIcons;
+			sourceTree = "<group>";
+		};
+		200000000000000000000032 /* EmptyStates */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000024 /* empty-placeholder-dark.png */,
+				200000000000000000000025 /* empty-placeholder-light.png */,
+			);
+			path = EmptyStates;
 			sourceTree = "<group>";
 		};
 		300000000000000000000008 /* OrbitaCore */ = {
@@ -223,6 +239,7 @@
 			isa = PBXGroup;
 			children = (
 				300000000000000000000003 /* Info.plist */,
+				300000000000000000000011 /* Orbita.icns */,
 				300000000000000000000004 /* OrbitaApp.entitlements */,
 			);
 			path = OrbitaApp;
@@ -314,9 +331,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				300000000000000000001002 /* Orbita.icns in Resources */,
 				200000000000000000001020 /* claude.svg in Resources */,
 				200000000000000000001021 /* codex.svg in Resources */,
 				200000000000000000001022 /* cursor.svg in Resources */,
+				200000000000000000001024 /* empty-placeholder-dark.png in Resources */,
+				200000000000000000001025 /* empty-placeholder-light.png in Resources */,
 				200000000000000000001023 /* trae.svg in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
