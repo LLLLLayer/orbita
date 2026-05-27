@@ -356,40 +356,46 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
-    func planSync(_ capability: Capability, to agent: AgentSelection) -> ApplyPlan? {
+    func planSync(
+        _ capability: Capability,
+        to agent: AgentSelection,
+        mode: AgentSyncMode,
+        destinationScope: AgentSyncDestinationScope
+    ) -> ApplyPlan? {
         guard let graph else { return nil }
-        guard !agent.includesCapability(capability, in: graph) else {
-            return nil
-        }
         let capabilityIDs = groupedCapabilityIDs(for: capability)
         let syncableCapabilities = graph.capabilities.filter { candidate in
             (capabilityIDs.isEmpty ? [capability.id] : capabilityIDs).contains(candidate.id)
-                && candidate.type == .skill
+                && candidate.type.supportsAgentSync
         }
         guard !syncableCapabilities.isEmpty else {
-            return planEnable(capability)
+            return nil
         }
         guard let agentID = agent.skillsInstallAgentID else {
-            return planEnable(capability)
+            return nil
         }
 
         do {
             let plan: ApplyPlan
             if capabilityIDs.isEmpty {
-                plan = try ApplyPlanBuilder().planSyncSkillInstallTarget(
+                plan = try ApplyPlanBuilder().planSyncInstallTarget(
                     capabilityID: capability.id,
                     agentID: agentID,
-                    graph: graph
+                    graph: graph,
+                    mode: mode,
+                    destinationScope: destinationScope
                 )
             } else {
-                plan = try ApplyPlanBuilder().planSyncSkillInstallTargets(
+                plan = try ApplyPlanBuilder().planSyncInstallTargets(
                     capabilityIDs: capabilityIDs,
                     groupID: capability.id,
                     agentID: agentID,
-                    graph: graph
+                    graph: graph,
+                    mode: mode,
+                    destinationScope: destinationScope
                 )
             }
-            OrbitaTelemetry.apply.notice("plan.sync capability=\(capability.name, privacy: .public) agent=\(agentID, privacy: .public) operations=\(plan.operations.count, privacy: .public)")
+            OrbitaTelemetry.apply.notice("plan.sync capability=\(capability.name, privacy: .public) agent=\(agentID, privacy: .public) mode=\(mode.rawValue, privacy: .public) scope=\(destinationScope.rawValue, privacy: .public) operations=\(plan.operations.count, privacy: .public)")
             return plan
         } catch {
             errorMessage = error.localizedDescription
@@ -647,21 +653,37 @@ final class ProjectCapabilityStore: ObservableObject {
             return
         }
 
-        let symlinkTargetsByName = plan.operations
-            .filter { $0.kind == .createSymlink }
-            .reduce(into: [String: String]()) { result, operation in
-                result[URL(fileURLWithPath: operation.path).lastPathComponent] = operation.path
+        let installTargetsByName = plan.operations
+            .compactMap { operation -> (name: String, relationship: String, path: String)? in
+                switch operation.kind {
+                case .createSymlink:
+                    let path = operation.path
+                    return (URL(fileURLWithPath: path).lastPathComponent, "symlink", path)
+                case .copyPath:
+                    guard let path = operation.target else { return nil }
+                    return (URL(fileURLWithPath: path).lastPathComponent, "copy", path)
+                default:
+                    return nil
+                }
+            }
+            .reduce(into: [String: (relationship: String, path: String)]()) { result, target in
+                result[target.name] = (target.relationship, target.path)
             }
         let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
         for index in graph.capabilities.indices where affectedIDs.contains(graph.capabilities[index].id) {
             guard graph.capabilities[index].type == .skill else {
                 continue
             }
-            let installPath = symlinkTargetsByName[graph.capabilities[index].name]
+            let installTarget = installTargetsByName[graph.capabilities[index].name]
             appendMetadataListValue(agentID, key: "skillsInstalledAgentIDs", separator: ",", in: &graph.capabilities[index])
             appendMetadataListValue(agent.displayName, key: "skillsInstalledAgents", separator: ", ", in: &graph.capabilities[index])
-            if let installPath {
-                upsertSkillInstallTarget(agentID: agentID, installPath: installPath, in: &graph.capabilities[index])
+            if let installTarget {
+                upsertSkillInstallTarget(
+                    agentID: agentID,
+                    relationship: installTarget.relationship,
+                    installPath: installTarget.path,
+                    in: &graph.capabilities[index]
+                )
             }
         }
     }
@@ -698,13 +720,13 @@ final class ProjectCapabilityStore: ObservableObject {
         capability.metadata[key] = (values + [value]).joined(separator: separator)
     }
 
-    private func upsertSkillInstallTarget(agentID: String, installPath: String, in capability: inout Capability) {
+    private func upsertSkillInstallTarget(agentID: String, relationship: String, installPath: String, in capability: inout Capability) {
         let prefix = "\(agentID)="
         var lines = capability.metadata["skillsInstallTargets"]?
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init) ?? []
         lines.removeAll { $0.hasPrefix(prefix) }
-        lines.append("\(agentID)=symlink:\(installPath)")
+        lines.append("\(agentID)=\(relationship):\(installPath)")
         capability.metadata["skillsInstallTargets"] = lines.joined(separator: "\n")
     }
 }

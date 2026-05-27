@@ -262,6 +262,15 @@ public final class CapabilityScanner {
             into: &capabilities,
             issues: &issues
         )
+        scanAgentFiles(
+            at: root.appendingPathComponent(".codex/agents"),
+            options: options,
+            into: &capabilities,
+            issues: &issues,
+            scope: .project,
+            sourceKind: "codex-agent",
+            allowedExtensions: ["md", "toml", "json"]
+        )
         scanSkillFiles(
             at: root.appendingPathComponent(".codex/skills"),
             options: options,
@@ -1162,6 +1171,7 @@ public final class CapabilityScanner {
         issues: inout [ScanIssue],
         scope: CapabilityScope,
         sourceKind: String,
+        allowedExtensions: Set<String> = ["md"],
         packageName: String? = nil,
         pluginID: String? = nil,
         inheritedEnabled: Bool? = nil,
@@ -1186,9 +1196,10 @@ public final class CapabilityScanner {
 
         var count = 0
         for case let url as URL in enumerator {
-            guard url.pathExtension.lowercased() == "md" else { continue }
+            guard allowedExtensions.contains(url.pathExtension.lowercased()) else { continue }
             count += 1
-            let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
+            let text = try? String(contentsOf: url, encoding: .utf8)
+            let frontmatter = agentMetadata(from: text, url: url)
             var metadata = fileMetadata(for: url, merging: frontmatter)
             for (key, value) in baseMetadata where !value.isEmpty {
                 metadata[key] = value
@@ -1215,6 +1226,36 @@ public final class CapabilityScanner {
         }
 
         emitProgress("scan.agents-files.finish", path: root.path, count: count, options: options)
+    }
+
+    private func agentMetadata(from text: String?, url: URL) -> [String: String] {
+        guard let text else { return [:] }
+        if url.pathExtension.lowercased() == "md" {
+            return parseFrontmatter(text)
+        }
+        return parseSimpleKeyValueMetadata(text)
+    }
+
+    private func parseSimpleKeyValueMetadata(_ text: String) -> [String: String] {
+        var metadata: [String: String] = [:]
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.hasPrefix("#"),
+                  let separator = line.firstIndex(of: "=") else {
+                continue
+            }
+            let key = String(line[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard ["name", "description", "tools", "model", "permissionMode"].contains(key) else {
+                continue
+            }
+            let value = String(line[line.index(after: separator)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            if !value.isEmpty, value != "\"\"\"" {
+                metadata[key] = value
+            }
+        }
+        return metadata
     }
 
     private func riskHints(forAgentFrontmatter frontmatter: [String: String], scope: CapabilityScope) -> [RiskLevel] {
@@ -1526,7 +1567,7 @@ public final class CapabilityScanner {
         } else if sourceKind == "codex-skill" {
             metadata["manager"] = "codex"
             metadata["codexSkillName"] = name
-            metadata["lifecycleNote"] = "Codex native skill lifecycle uses .codex/skills for project skills and CODEX_HOME/skills for user skills."
+            metadata["lifecycleNote"] = "Codex native skill lifecycle uses direct skill folders and [[skills.config]] overrides."
             statuses = [.enabled]
         } else if let codexCacheInfo, scope == .user {
             let selector = "\(codexCacheInfo.pluginName)@\(codexCacheInfo.marketplace)"

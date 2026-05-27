@@ -81,6 +81,8 @@ extension ApplyOperationKind {
             return "Create folder"
         case .createSymlink:
             return "Create link"
+        case .copyPath:
+            return "Copy path"
         case .cachePath:
             return "Cache source"
         case .restorePath:

@@ -48,7 +48,7 @@ public enum SkillsAgentCatalog {
             .init(id: "codebuddy", displayName: "CodeBuddy", projectSkillsDir: ".codebuddy/skills", globalSkillsDir: "\(home)/.codebuddy/skills"),
             .init(id: "codemaker", displayName: "Codemaker", projectSkillsDir: ".codemaker/skills", globalSkillsDir: "\(home)/.codemaker/skills"),
             .init(id: "codestudio", displayName: "Code Studio", projectSkillsDir: ".codestudio/skills", globalSkillsDir: "\(home)/.codestudio/skills"),
-            .init(id: "codex", displayName: "Codex", projectSkillsDir: ".codex/skills", globalSkillsDir: "\(codexHome)/skills"),
+            .init(id: "codex", displayName: "Codex", projectSkillsDir: ".agents/skills", globalSkillsDir: "\(codexHome)/skills"),
             .init(id: "command-code", displayName: "Command Code", projectSkillsDir: ".commandcode/skills", globalSkillsDir: "\(home)/.commandcode/skills"),
             .init(id: "continue", displayName: "Continue", projectSkillsDir: ".continue/skills", globalSkillsDir: "\(home)/.continue/skills"),
             .init(id: "cortex", displayName: "Cortex Code", projectSkillsDir: ".cortex/skills", globalSkillsDir: "\(home)/.snowflake/cortex/skills"),

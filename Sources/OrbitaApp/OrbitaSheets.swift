@@ -371,12 +371,39 @@ private struct AddAgentActionButton: View {
     }
 }
 
+struct SyncCapabilityRequest {
+    var agent: AgentSelection
+    var mode: AgentSyncMode
+    var destinationScope: AgentSyncDestinationScope
+}
+
 struct SyncCapabilitySheet: View {
     let capability: Capability
     let agents: [AgentSelection]
     let visibleAgentIDs: Set<String>
-    let onSelect: (AgentSelection) -> Void
+    let onSelect: (SyncCapabilityRequest) -> Void
     let onCancel: () -> Void
+
+    @State private var selectedAgentID: String?
+    @State private var selectedMode: AgentSyncMode
+    @State private var selectedDestinationScope: AgentSyncDestinationScope
+
+    init(
+        capability: Capability,
+        agents: [AgentSelection],
+        visibleAgentIDs: Set<String>,
+        onSelect: @escaping (SyncCapabilityRequest) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.capability = capability
+        self.agents = agents
+        self.visibleAgentIDs = visibleAgentIDs
+        self.onSelect = onSelect
+        self.onCancel = onCancel
+        _selectedAgentID = State(initialValue: agents.first { !visibleAgentIDs.contains($0.id) }?.id ?? agents.first?.id)
+        _selectedMode = State(initialValue: .copy)
+        _selectedDestinationScope = State(initialValue: capability.scope == .project ? .project : .user)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -386,14 +413,30 @@ struct SyncCapabilitySheet: View {
                 systemImage: "arrow.triangle.branch"
             )
 
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Copy mode", selection: $selectedMode) {
+                    Label("Copy", systemImage: "doc.on.doc").tag(AgentSyncMode.copy)
+                    Label("Symlink", systemImage: "link").tag(AgentSyncMode.symlink)
+                }
+                .pickerStyle(.segmented)
+
+                Picker("Target", selection: $selectedDestinationScope) {
+                    ForEach(destinationScopes, id: \.self) { scope in
+                        Text(scope == .project ? "Project" : "Global").tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(agents) { agent in
                         SyncAgentRow(
                             agent: agent,
-                            isAlreadyVisible: visibleAgentIDs.contains(agent.id)
+                            isAlreadyVisible: visibleAgentIDs.contains(agent.id),
+                            isSelected: selectedAgentID == agent.id
                         ) {
-                            onSelect(agent)
+                            selectedAgentID = agent.id
                         }
                     }
                 }
@@ -411,6 +454,19 @@ struct SyncCapabilitySheet: View {
                 Spacer(minLength: 0)
 
                 AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(
+                    title: "Sync",
+                    systemImage: "arrow.triangle.branch",
+                    prominent: true,
+                    isDisabled: selectedAgent == nil
+                ) {
+                    guard let selectedAgent else { return }
+                    onSelect(SyncCapabilityRequest(
+                        agent: selectedAgent,
+                        mode: selectedMode,
+                        destinationScope: selectedDestinationScope
+                    ))
+                }
             }
         }
         .padding(22)
@@ -418,11 +474,20 @@ struct SyncCapabilitySheet: View {
         .background(OrbitaTheme.canvas)
         .presentationBackground(OrbitaTheme.canvas)
     }
+
+    private var selectedAgent: AgentSelection? {
+        agents.first { $0.id == selectedAgentID }
+    }
+
+    private var destinationScopes: [AgentSyncDestinationScope] {
+        capability.scope == .project ? [.project, .user] : [.user]
+    }
 }
 
 private struct SyncAgentRow: View {
     let agent: AgentSelection
     let isAlreadyVisible: Bool
+    let isSelected: Bool
     let onSelect: () -> Void
 
     var body: some View {
@@ -450,7 +515,7 @@ private struct SyncAgentRow: View {
 
                 Image(systemName: isAlreadyVisible ? "checkmark.circle.fill" : "arrow.right.circle")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isAlreadyVisible ? Color.green : Color.primary)
+                    .foregroundStyle(isSelected ? Color.accentColor : (isAlreadyVisible ? Color.green : Color.primary))
                     .frame(width: 24, height: 24)
             }
             .padding(.horizontal, 10)
@@ -459,13 +524,11 @@ private struct SyncAgentRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(OrbitaTheme.border)
+                .strokeBorder(isSelected ? OrbitaTheme.strongBorder : OrbitaTheme.border)
         }
-        .disabled(isAlreadyVisible)
-        .opacity(isAlreadyVisible ? 0.56 : 1)
     }
 }
 

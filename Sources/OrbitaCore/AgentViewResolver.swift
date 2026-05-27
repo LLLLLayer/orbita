@@ -30,7 +30,7 @@ public final class AgentViewResolver {
             case .plugin, .mcpServer, .instruction:
                 return true
             case .agent:
-                return false
+                return capability.source.kind == "codex-agent"
             case .hook:
                 return capability.source.kind == "codex-hook"
                     || capability.source.kind == "codex-plugin-hook"
@@ -69,14 +69,16 @@ public final class AgentViewResolver {
     }
 
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
-        if capability.source.kind == "codex-skill" || capability.source.kind == "user-skill" {
+        if capability.source.kind == "codex-skill"
+            || capability.source.kind == "agents-skill"
+            || capability.source.kind == "user-skill" {
             return true
         }
         if capability.source.kind == "claude-skill" || capability.source.kind.hasPrefix("claude-plugin-") {
             return false
         }
         if capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents") {
-            return false
+            return true
         }
         return capability.source.kind == "skill" || sourcePathComponents(for: capability).contains(".codex")
     }

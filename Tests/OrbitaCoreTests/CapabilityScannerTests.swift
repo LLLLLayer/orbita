@@ -773,7 +773,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "codex-doc" && $0.source.kind == "codex-skill" })
         XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "review-helper" && $0.source.kind == "claude-skill" })
         XCTAssertFalse(claude.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
-        XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
+        XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
     }
 
     func testClaudeAgentsAreScannedAsAgentCapabilities() throws {
@@ -1286,7 +1286,7 @@ final class CapabilityScannerTests: XCTestCase {
         let codexMapping = try XCTUnwrap(codexPreview.capabilityMappings.first { $0.capabilityID == skill.id })
         XCTAssertTrue(codexMapping.supported)
         XCTAssertEqual(codexMapping.targetPath, skill.source.path)
-        XCTAssertTrue(codexMapping.reason.contains("Codex loads skills"))
+        XCTAssertTrue(codexMapping.reason.contains("Codex loads repo skills"))
 
         let cursorMapping = try XCTUnwrap(cursorPreview.capabilityMappings.first { $0.capabilityID == skill.id })
         XCTAssertFalse(cursorMapping.supported)
@@ -1643,6 +1643,186 @@ final class CapabilityScannerTests: XCTestCase {
             $0.kind == .createSymlink
                 && $0.path == source.path
                 && $0.target == source.path
+        })
+    }
+
+    func testSyncProjectSkillCanCopyToProjectOrGlobalTarget() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let skillName = "project-skill-\(UUID().uuidString)"
+        let source = projectRoot.appendingPathComponent(".codex/skills/\(skillName)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try skillText(name: skillName, body: "Project skill")
+            .write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skill = Capability(
+            id: "skill:\(source.appendingPathComponent("SKILL.md").path)",
+            name: skillName,
+            type: .skill,
+            scope: .project,
+            source: CapabilitySource(kind: "codex-skill", path: source.appendingPathComponent("SKILL.md").path)
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let projectPlan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id,
+            agentID: "claude-code",
+            graph: graph,
+            mode: .copy,
+            destinationScope: .project
+        )
+        let projectTarget = projectRoot.appendingPathComponent(".claude/skills/\(skillName)").path
+        XCTAssertTrue(projectPlan.operations.contains {
+            $0.kind == .copyPath && $0.path == source.path && $0.target == projectTarget
+        })
+
+        let codexProjectPlan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id,
+            agentID: "codex",
+            graph: graph,
+            mode: .copy,
+            destinationScope: .project
+        )
+        let codexProjectTarget = projectRoot.appendingPathComponent(".agents/skills/\(skillName)").path
+        XCTAssertTrue(codexProjectPlan.operations.contains {
+            $0.kind == .copyPath && $0.path == source.path && $0.target == codexProjectTarget
+        })
+
+        let globalPlan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id,
+            agentID: "claude-code",
+            graph: graph,
+            mode: .copy,
+            destinationScope: .user
+        )
+        let globalTarget = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/skills/\(skillName)")
+            .path
+        XCTAssertTrue(globalPlan.operations.contains {
+            $0.kind == .copyPath && $0.path == source.path && $0.target == globalTarget
+        })
+    }
+
+    func testSyncUserCapabilityCannotTargetProjectStorage() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaUserSkill-\(UUID().uuidString)")
+            .appendingPathComponent(".codex/skills/global-only")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: source.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+        }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try skillText(name: "global-only", body: "Global skill")
+            .write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skill = Capability(
+            id: "skill:\(source.appendingPathComponent("SKILL.md").path)",
+            name: "global-only",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "codex-skill", path: source.appendingPathComponent("SKILL.md").path)
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        XCTAssertThrowsError(try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id,
+            agentID: "claude-code",
+            graph: graph,
+            mode: .copy,
+            destinationScope: .project
+        ))
+    }
+
+    func testSyncCopyCanReplaceExistingSameSourceSymlink() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let skillName = "replace-link-\(UUID().uuidString)"
+        let source = projectRoot.appendingPathComponent(".codex/skills/\(skillName)")
+        let destination = projectRoot.appendingPathComponent(".claude/skills/\(skillName)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: skillName, body: "Project skill")
+            .write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: source)
+
+        let skill = Capability(
+            id: "skill:\(source.appendingPathComponent("SKILL.md").path)",
+            name: skillName,
+            type: .skill,
+            scope: .project,
+            source: CapabilitySource(kind: "codex-skill", path: source.appendingPathComponent("SKILL.md").path)
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let plan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id,
+            agentID: "claude-code",
+            graph: graph,
+            mode: .copy,
+            destinationScope: .project
+        )
+
+        XCTAssertTrue(plan.operations.contains {
+            $0.kind == .copyPath && $0.path == source.path && $0.target == destination.path
+        })
+    }
+
+    func testSyncCommandsAndAgentsUseKnownCompatibleRoots() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        let command = projectRoot.appendingPathComponent(".codex/commands/review.md")
+        let agent = projectRoot.appendingPathComponent(".claude/agents/reviewer.md")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        try FileManager.default.createDirectory(at: command.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: agent.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Review\n".write(to: command, atomically: true, encoding: .utf8)
+        try agentText(name: "reviewer", description: "Reviews code", tools: "Read")
+            .write(to: agent, atomically: true, encoding: .utf8)
+
+        let commandCapability = Capability(
+            id: "command:\(command.path)",
+            name: "review",
+            type: .command,
+            scope: .project,
+            source: CapabilitySource(kind: "codex-command", path: command.path)
+        )
+        let agentCapability = Capability(
+            id: "agent:\(agent.path)",
+            name: "reviewer",
+            type: .agent,
+            scope: .project,
+            source: CapabilitySource(kind: "claude-agent", path: agent.path)
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [commandCapability, agentCapability], issues: [])
+
+        let commandPlan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: commandCapability.id,
+            agentID: "claude-code",
+            graph: graph,
+            mode: .symlink,
+            destinationScope: .project
+        )
+        XCTAssertTrue(commandPlan.operations.contains {
+            $0.kind == .createSymlink
+                && $0.path == projectRoot.appendingPathComponent(".claude/commands/review.md").path
+                && $0.target == command.path
+        })
+
+        let agentPlan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: agentCapability.id,
+            agentID: "codex",
+            graph: graph,
+            mode: .copy,
+            destinationScope: .user
+        )
+        XCTAssertTrue(agentPlan.operations.contains {
+            $0.kind == .copyPath
+                && $0.path == agent.path
+                && $0.target == FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/agents/reviewer.md").path
         })
     }
 
@@ -2841,7 +3021,8 @@ final class CapabilityScannerTests: XCTestCase {
         )
         XCTAssertTrue(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("claude-code") == true)
         XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("claude-code=symlink") == true)
-        XCTAssertNotEqual(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex="), true)
+        XCTAssertTrue(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("codex") == true)
+        XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex=canonical") == true)
     }
 
     private func fixtureURL(_ name: String) throws -> URL {

@@ -13,11 +13,33 @@ public enum ApplyOperationKind: String, Codable, Sendable {
     case readSource
     case createDirectory
     case createSymlink
+    case copyPath
     case cachePath
     case restorePath
     case removePath
     case writeFile
     case appendLog
+}
+
+public enum AgentSyncMode: String, Codable, CaseIterable, Sendable {
+    case copy
+    case symlink
+}
+
+public enum AgentSyncDestinationScope: String, Codable, CaseIterable, Sendable {
+    case project
+    case user
+}
+
+public extension CapabilityType {
+    var supportsAgentSync: Bool {
+        switch self {
+        case .skill, .command, .agent:
+            return true
+        case .plugin, .mcpServer, .rule, .instruction, .hook, .unknown:
+            return false
+        }
+    }
 }
 
 public struct ApplyOperation: Codable, Hashable, Sendable {
@@ -142,14 +164,34 @@ public final class ApplyPlanBuilder {
     public func planSyncSkillInstallTarget(
         capabilityID: String,
         agentID: String,
-        graph: CapabilityGraph
+        graph: CapabilityGraph,
+        mode: AgentSyncMode = .symlink,
+        destinationScope: AgentSyncDestinationScope? = nil
+    ) throws -> ApplyPlan {
+        try planSyncInstallTarget(
+            capabilityID: capabilityID,
+            agentID: agentID,
+            graph: graph,
+            mode: mode,
+            destinationScope: destinationScope
+        )
+    }
+
+    public func planSyncInstallTarget(
+        capabilityID: String,
+        agentID: String,
+        graph: CapabilityGraph,
+        mode: AgentSyncMode = .symlink,
+        destinationScope: AgentSyncDestinationScope? = nil
     ) throws -> ApplyPlan {
         let capabilities = try capabilities(matching: [capabilityID], fallbackID: capabilityID, graph: graph)
-        return try planSyncSkillInstallTargets(
+        return try planSyncInstallTargets(
             capabilities: capabilities,
             planCapabilityID: capabilityID,
             agentID: agentID,
-            graph: graph
+            graph: graph,
+            mode: mode,
+            destinationScope: destinationScope
         )
     }
 
@@ -157,14 +199,36 @@ public final class ApplyPlanBuilder {
         capabilityIDs: [String],
         groupID: String,
         agentID: String,
-        graph: CapabilityGraph
+        graph: CapabilityGraph,
+        mode: AgentSyncMode = .symlink,
+        destinationScope: AgentSyncDestinationScope? = nil
+    ) throws -> ApplyPlan {
+        try planSyncInstallTargets(
+            capabilityIDs: capabilityIDs,
+            groupID: groupID,
+            agentID: agentID,
+            graph: graph,
+            mode: mode,
+            destinationScope: destinationScope
+        )
+    }
+
+    public func planSyncInstallTargets(
+        capabilityIDs: [String],
+        groupID: String,
+        agentID: String,
+        graph: CapabilityGraph,
+        mode: AgentSyncMode = .symlink,
+        destinationScope: AgentSyncDestinationScope? = nil
     ) throws -> ApplyPlan {
         let capabilities = try capabilities(matching: capabilityIDs, fallbackID: groupID, graph: graph)
-        return try planSyncSkillInstallTargets(
+        return try planSyncInstallTargets(
             capabilities: capabilities,
             planCapabilityID: groupID,
             agentID: agentID,
-            graph: graph
+            graph: graph,
+            mode: mode,
+            destinationScope: destinationScope
         )
     }
 
@@ -261,36 +325,59 @@ public final class ApplyPlanBuilder {
         )
     }
 
-    private func planSyncSkillInstallTargets(
+    private func planSyncInstallTargets(
         capabilities: [Capability],
         planCapabilityID: String,
         agentID: String,
-        graph: CapabilityGraph
+        graph: CapabilityGraph,
+        mode: AgentSyncMode,
+        destinationScope requestedDestinationScope: AgentSyncDestinationScope?
     ) throws -> ApplyPlan {
         guard let agent = SkillsAgentCatalog.agents.first(where: { $0.id == agentID }) else {
             throw OrbitaError.invalidApplyPlan("Unknown Skills CLI agent: \(agentID)")
         }
+        let destinationScope = requestedDestinationScope ?? defaultSyncDestinationScope(for: capabilities)
 
         let syncTargets = try capabilities.compactMap { capability -> (capability: Capability, root: URL, destination: URL, source: URL)? in
-            guard capability.type == .skill else {
+            guard capability.type.supportsAgentSync else {
                 return nil
             }
-            let source = try skillSyncSourceDirectory(for: capability)
-            let root = skillSyncDestinationRoot(for: agent, capability: capability, source: source, graph: graph)
-            let destination = root.appendingPathComponent(skillSyncDirectoryName(for: capability, source: source))
-            guard !skillInstallTargetExists(destination: destination, source: source) else {
-                return nil
+            guard isDirectSyncCompatible(capability: capability, agentID: agent.id) else {
+                throw OrbitaError.invalidApplyPlan("\(agent.displayName) cannot directly load \(capability.type.rawValue) files from \(capability.source.kind)")
             }
-            guard !fileManager.fileExists(atPath: destination.path),
-                  (try? fileManager.destinationOfSymbolicLink(atPath: destination.path)) == nil
-            else {
-                throw OrbitaError.invalidApplyPlan("Target already exists for \(agent.displayName): \(destination.path)")
+            let source = try syncSourceURL(for: capability)
+            let root = try syncDestinationRoot(
+                for: agent,
+                capability: capability,
+                destinationScope: destinationScope,
+                graph: graph
+            )
+            let destination = root.appendingPathComponent(syncDestinationName(for: capability, source: source))
+            switch mode {
+            case .copy:
+                if let existingTarget = try? fileManager.destinationOfSymbolicLink(atPath: destination.path) {
+                    let resolved = resolveSymlink(destination: existingTarget, from: destination.deletingLastPathComponent())
+                    guard resolved.standardizedFileURL.resolvingSymlinksInPath().path == source.standardizedFileURL.resolvingSymlinksInPath().path else {
+                        throw OrbitaError.invalidApplyPlan("Target already exists for \(agent.displayName): \(destination.path)")
+                    }
+                } else if fileManager.fileExists(atPath: destination.path) {
+                    throw OrbitaError.invalidApplyPlan("Target already exists for \(agent.displayName): \(destination.path)")
+                }
+            case .symlink:
+                guard !skillInstallTargetExists(destination: destination, source: source) else {
+                    return nil
+                }
+                guard !fileManager.fileExists(atPath: destination.path),
+                      (try? fileManager.destinationOfSymbolicLink(atPath: destination.path)) == nil
+                else {
+                    throw OrbitaError.invalidApplyPlan("Target already exists for \(agent.displayName): \(destination.path)")
+                }
             }
             return (capability, root, destination, source)
         }
 
         guard !syncTargets.isEmpty else {
-            throw OrbitaError.invalidApplyPlan("\(agent.displayName) already has this skill target")
+            throw OrbitaError.invalidApplyPlan("\(agent.displayName) already has this \(syncKindDescription(for: capabilities)) target")
         }
 
         var operations: [ApplyOperation] = []
@@ -306,20 +393,31 @@ public final class ApplyPlanBuilder {
         operations.append(contentsOf: syncTargets
             .sorted { $0.destination.path < $1.destination.path }
             .map { target in
-                ApplyOperation(
-                    kind: .createSymlink,
-                    path: target.destination.path,
-                    target: target.source.path,
-                    risk: .write,
-                    description: "Link \(target.capability.name) into \(agent.displayName)"
-                )
+                switch mode {
+                case .copy:
+                    return ApplyOperation(
+                        kind: .copyPath,
+                        path: target.source.path,
+                        target: target.destination.path,
+                        risk: .write,
+                        description: "Copy \(target.capability.name) into \(agent.displayName)"
+                    )
+                case .symlink:
+                    return ApplyOperation(
+                        kind: .createSymlink,
+                        path: target.destination.path,
+                        target: target.source.path,
+                        risk: .write,
+                        description: "Link \(target.capability.name) into \(agent.displayName)"
+                    )
+                }
             })
 
         let agentsRoot = URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".agents")
         operations.append(ApplyOperation(
             kind: .appendLog,
             path: agentsRoot.appendingPathComponent("logs/apply.log").path,
-            content: "\(ISO8601DateFormatter().string(from: Date())) sync \(planCapabilityID) agent-target:\(agentID) affected:\(syncTargets.count)\n",
+            content: "\(ISO8601DateFormatter().string(from: Date())) sync \(planCapabilityID) agent-target:\(agentID) mode:\(mode.rawValue) scope:\(destinationScope.rawValue) affected:\(syncTargets.count)\n",
             risk: .write,
             description: "Append agent sync operation log"
         ))
@@ -1107,6 +1205,35 @@ public final class ApplyPlanBuilder {
         skillInstallTargets(for: capability).first { $0.agentID == agentID }
     }
 
+    private func defaultSyncDestinationScope(for capabilities: [Capability]) -> AgentSyncDestinationScope {
+        capabilities.allSatisfy { $0.scope == .project } ? .project : .user
+    }
+
+    private func syncKindDescription(for capabilities: [Capability]) -> String {
+        let types = Set(capabilities.map(\.type))
+        if types.count == 1, let type = types.first {
+            return type.rawValue
+        }
+        return "capability"
+    }
+
+    private func syncSourceURL(for capability: Capability) throws -> URL {
+        let source: URL
+        if capability.type == .skill {
+            source = try skillSyncSourceDirectory(for: capability)
+        } else {
+            source = URL(fileURLWithPath: manifestSourcePath(for: capability)).standardizedFileURL
+        }
+        let resolved = source.resolvingSymlinksInPath()
+        let effectiveSource = fileManager.fileExists(atPath: resolved.path) ? resolved : source
+        guard fileManager.fileExists(atPath: effectiveSource.path) ||
+            (try? fileManager.destinationOfSymbolicLink(atPath: source.path)) != nil
+        else {
+            throw OrbitaError.invalidApplyPlan("Sync source does not exist: \(source.path)")
+        }
+        return effectiveSource
+    }
+
     private func skillSyncSourceDirectory(for capability: Capability) throws -> URL {
         let canonicalPath = capability.metadata["skillsCanonicalPath"]
             .flatMap { $0.isEmpty ? nil : $0 }
@@ -1119,49 +1246,126 @@ public final class ApplyPlanBuilder {
         return source
     }
 
+    private func syncDestinationRoot(
+        for agent: SkillsAgentDefinition,
+        capability: Capability,
+        destinationScope: AgentSyncDestinationScope,
+        graph: CapabilityGraph
+    ) throws -> URL {
+        if destinationScope == .project, capability.scope != .project {
+            throw OrbitaError.invalidApplyPlan("My Mac capabilities can only sync into global agent storage")
+        }
+
+        switch capability.type {
+        case .skill:
+            return try skillSyncDestinationRoot(
+                for: agent,
+                capability: capability,
+                destinationScope: destinationScope,
+                graph: graph
+            )
+        case .command:
+            if let root = commandSyncDestinationRoot(for: agent.id, destinationScope: destinationScope, graph: graph) {
+                return root
+            }
+        case .agent:
+            if let root = agentSyncDestinationRoot(for: agent.id, destinationScope: destinationScope, graph: graph) {
+                return root
+            }
+        case .plugin, .mcpServer, .rule, .instruction, .hook, .unknown:
+            break
+        }
+        throw OrbitaError.invalidApplyPlan("\(agent.displayName) does not expose a compatible \(capability.type.rawValue) sync directory")
+    }
+
     private func skillSyncDestinationRoot(
         for agent: SkillsAgentDefinition,
         capability: Capability,
-        source: URL,
+        destinationScope: AgentSyncDestinationScope,
         graph: CapabilityGraph
-    ) -> URL {
-        if capability.scope == .user {
+    ) throws -> URL {
+        if destinationScope == .user {
             if let globalSkillsDir = agent.globalSkillsDir {
                 return URL(fileURLWithPath: globalSkillsDir).standardizedFileURL
             }
-            if agent.usesSharedProjectSkills {
-                if let canonicalPath = capability.metadata["skillsCanonicalPath"],
-                   !canonicalPath.isEmpty {
-                    return URL(fileURLWithPath: canonicalPath).deletingLastPathComponent().standardizedFileURL
-                }
-                if let agentsSkillsRoot = sharedAgentsSkillsRoot(containing: source) {
-                    return agentsSkillsRoot
-                }
-                return FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent(".agents/skills")
-                    .standardizedFileURL
-            }
+            throw OrbitaError.invalidApplyPlan("\(agent.displayName) does not expose a global skills directory")
         }
         return URL(fileURLWithPath: graph.projectRoot)
             .appendingPathComponent(agent.projectSkillsDir)
             .standardizedFileURL
     }
 
-    private func sharedAgentsSkillsRoot(containing source: URL) -> URL? {
-        let components = source.standardizedFileURL.pathComponents
-        guard let agentsIndex = components.lastIndex(of: ".agents"),
-              agentsIndex + 1 < components.count,
-              components[agentsIndex + 1] == "skills"
-        else {
+    private func commandSyncDestinationRoot(
+        for agentID: String,
+        destinationScope: AgentSyncDestinationScope,
+        graph: CapabilityGraph
+    ) -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        switch (agentID, destinationScope) {
+        case ("codex", .project):
+            return URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".codex/commands").standardizedFileURL
+        case ("codex", .user):
+            return home.appendingPathComponent(".codex/commands").standardizedFileURL
+        case ("claude-code", .project):
+            return URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".claude/commands").standardizedFileURL
+        case ("claude-code", .user):
+            return home.appendingPathComponent(".claude/commands").standardizedFileURL
+        default:
             return nil
         }
-        return components.dropFirst().prefix(agentsIndex + 1).reduce(URL(fileURLWithPath: "/")) { url, component in
-            url.appendingPathComponent(component)
-        }
-        .standardizedFileURL
     }
 
-    private func skillSyncDirectoryName(for capability: Capability, source: URL) -> String {
+    private func agentSyncDestinationRoot(
+        for agentID: String,
+        destinationScope: AgentSyncDestinationScope,
+        graph: CapabilityGraph
+    ) -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        switch (agentID, destinationScope) {
+        case ("codex", .project):
+            return URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".codex/agents").standardizedFileURL
+        case ("codex", .user):
+            return home.appendingPathComponent(".codex/agents").standardizedFileURL
+        case ("claude-code", .project):
+            return URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".claude/agents").standardizedFileURL
+        case ("claude-code", .user):
+            return home.appendingPathComponent(".claude/agents").standardizedFileURL
+        default:
+            return nil
+        }
+    }
+
+    private func isDirectSyncCompatible(capability: Capability, agentID: String) -> Bool {
+        switch capability.type {
+        case .skill:
+            return true
+        case .command:
+            let ext = URL(fileURLWithPath: manifestSourcePath(for: capability)).pathExtension.lowercased()
+            if agentID == "claude-code" {
+                return ext == "md"
+            }
+            if agentID == "codex" {
+                return ["md", "json", "toml"].contains(ext)
+            }
+            return false
+        case .agent:
+            let ext = URL(fileURLWithPath: manifestSourcePath(for: capability)).pathExtension.lowercased()
+            if agentID == "claude-code" {
+                return ext == "md"
+            }
+            if agentID == "codex" {
+                return ["toml", "md", "json"].contains(ext)
+            }
+            return false
+        case .plugin, .mcpServer, .rule, .instruction, .hook, .unknown:
+            return false
+        }
+    }
+
+    private func syncDestinationName(for capability: Capability, source: URL) -> String {
+        guard capability.type == .skill else {
+            return source.lastPathComponent
+        }
         if let canonicalPath = capability.metadata["skillsCanonicalPath"],
            !canonicalPath.isEmpty {
             return URL(fileURLWithPath: canonicalPath).lastPathComponent
@@ -1511,6 +1715,11 @@ public final class ApplyPlanExecutor {
             } else {
                 try fileManager.createSymbolicLink(atPath: operation.path, withDestinationPath: target)
             }
+        case .copyPath:
+            guard let target = operation.target else {
+                throw OrbitaError.invalidApplyPlan("Missing copy target for \(operation.path)")
+            }
+            try copyReplacingItem(from: operation.path, to: target)
         case .cachePath, .restorePath:
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing target for \(operation.path)")
@@ -1548,8 +1757,18 @@ public final class ApplyPlanExecutor {
             return
         }
         let operationPath = normalizedContainmentPath(URL(fileURLWithPath: operation.path).standardizedFileURL.path)
+        let projectRootPath = normalizedContainmentPath(agentsRoot.deletingLastPathComponent().standardizedFileURL.path)
         let agentsRootPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
         let orbitaRootPath = normalizedContainmentPath(orbitaRoot.standardizedFileURL.path)
+        func isProjectPath(_ path: String) -> Bool {
+            path == projectRootPath || path.hasPrefix(projectRootPath + "/")
+        }
+        func isInternalProjectStoragePath(_ path: String) -> Bool {
+            path == agentsRootPath
+                || path.hasPrefix(agentsRootPath + "/")
+                || path == orbitaRootPath
+                || path.hasPrefix(orbitaRootPath + "/")
+        }
         switch operation.kind {
         case .cachePath:
             guard let target = operation.target else {
@@ -1574,23 +1793,27 @@ public final class ApplyPlanExecutor {
                 throw OrbitaError.invalidApplyPlan("Restore target is outside known agent storage: \(target)")
             }
         case .createDirectory, .createSymlink:
-            let isProjectPath = operationPath == agentsRootPath
-                || operationPath.hasPrefix(agentsRootPath + "/")
-                || operationPath == orbitaRootPath
-                || operationPath.hasPrefix(orbitaRootPath + "/")
-            guard isProjectPath || isAgentStoragePath(operationPath) else {
+            let destinationIsAllowed = isInternalProjectStoragePath(operationPath) || isAgentStoragePath(operationPath)
+            guard destinationIsAllowed else {
                 throw OrbitaError.invalidApplyPlan("Operation is outside known agent storage: \(operation.path)")
             }
             if operation.kind == .createSymlink,
                let target = operation.target {
                 let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
-                let targetIsProjectPath = targetPath == agentsRootPath
-                    || targetPath.hasPrefix(agentsRootPath + "/")
-                    || targetPath == orbitaRootPath
-                    || targetPath.hasPrefix(orbitaRootPath + "/")
-                guard isProjectPath || targetIsProjectPath || isAgentStoragePath(targetPath) else {
+                guard isProjectPath(targetPath) || isAgentStoragePath(targetPath) else {
                     throw OrbitaError.invalidApplyPlan("Symlink target is outside known agent storage: \(target)")
                 }
+            }
+        case .copyPath:
+            guard let target = operation.target else {
+                throw OrbitaError.invalidApplyPlan("Missing copy target for \(operation.path)")
+            }
+            guard isProjectPath(operationPath) || isAgentStoragePath(operationPath) else {
+                throw OrbitaError.invalidApplyPlan("Copy source is outside known agent storage: \(operation.path)")
+            }
+            let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
+            guard isInternalProjectStoragePath(targetPath) || isAgentStoragePath(targetPath) else {
+                throw OrbitaError.invalidApplyPlan("Copy target is outside known agent storage: \(target)")
             }
         default:
             guard operationPath == agentsRootPath

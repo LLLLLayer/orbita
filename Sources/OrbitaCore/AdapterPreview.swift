@@ -121,16 +121,24 @@ public final class AdapterPreviewBuilder {
                     capabilityID: capability.id,
                     supported: false,
                     targetPath: nil,
-                    reason: "Codex does not load this skill source directly; sync it into .codex/skills or CODEX_HOME/skills first."
+                    reason: "Codex does not load this skill source directly; sync it into .agents/skills or CODEX_HOME/skills first."
                 )
             }
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: true,
                 targetPath: capability.source.path,
-                reason: "Codex loads skills from .codex/skills, CODEX_HOME/skills, and configured user skill roots."
+                reason: "Codex loads repo skills from .agents/skills and user skills from configured Codex skill roots."
             )
         case .agent:
+            if capability.source.kind == "codex-agent" {
+                return AdapterCapabilityMapping(
+                    capabilityID: capability.id,
+                    supported: true,
+                    targetPath: capability.source.path,
+                    reason: "Codex loads project subagents from .codex/agents."
+                )
+            }
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: false,
@@ -260,14 +268,16 @@ public final class AdapterPreviewBuilder {
     }
 
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
-        if capability.source.kind == "codex-skill" || capability.source.kind == "user-skill" {
+        if capability.source.kind == "codex-skill"
+            || capability.source.kind == "agents-skill"
+            || capability.source.kind == "user-skill" {
             return true
         }
         if capability.source.kind == "claude-skill" || capability.source.kind.hasPrefix("claude-plugin-") {
             return false
         }
         if capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents") {
-            return false
+            return true
         }
         return capability.source.kind == "skill" || sourcePathComponents(for: capability).contains(".codex")
     }

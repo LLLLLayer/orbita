@@ -549,7 +549,9 @@ private struct CapabilityGroupTile: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            AgentSyncStack(agents: visibleAgents, onSync: onSync)
+            if group.capabilities.contains(where: { $0.type.supportsAgentSync }) {
+                AgentSyncStack(agents: visibleAgents, onSync: onSync)
+            }
         }
         .padding(12)
         .frame(
@@ -707,7 +709,9 @@ private struct CapabilityTile: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            AgentSyncStack(agents: visibleAgents, onSync: onSync)
+            if capability.type.supportsAgentSync {
+                AgentSyncStack(agents: visibleAgents, onSync: onSync)
+            }
         }
         .padding(12)
         .frame(

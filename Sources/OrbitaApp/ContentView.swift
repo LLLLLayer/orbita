@@ -91,10 +91,15 @@ struct ContentView: View {
         .sheet(item: $pendingSyncCapability) { capability in
             SyncCapabilitySheet(
                 capability: capability,
-                agents: agentOptions,
+                agents: syncAgentOptions(for: capability),
                 visibleAgentIDs: visibleAgentIDs(for: capability),
-                onSelect: { agent in
-                    let plan = store.planSync(capability, to: agent)
+                onSelect: { request in
+                    let plan = store.planSync(
+                        capability,
+                        to: request.agent,
+                        mode: request.mode,
+                        destinationScope: request.destinationScope
+                    )
                     pendingSyncCapability = nil
                     if let plan {
                         DispatchQueue.main.async {
@@ -694,6 +699,53 @@ struct ContentView: View {
             let isVisible = targetCapabilities.allSatisfy { agent.includesCapability($0, in: graph) }
             return isVisible ? agent.id : nil
         })
+    }
+
+    private func syncAgentOptions(for capability: Capability) -> [AgentSelection] {
+        guard let graph = store.graph else {
+            return []
+        }
+        let targetIDs = capabilityTargetIDs(for: capability)
+        let capabilities = graph.capabilities.filter {
+            targetIDs.contains($0.id) && $0.type.supportsAgentSync
+        }
+        guard !capabilities.isEmpty else {
+            return []
+        }
+
+        return agentOptions.filter { agent in
+            guard let agentID = agent.skillsInstallAgentID else {
+                return false
+            }
+            return capabilities.allSatisfy { syncCapability($0, isCompatibleWith: agentID) }
+        }
+    }
+
+    private func syncCapability(_ capability: Capability, isCompatibleWith agentID: String) -> Bool {
+        switch capability.type {
+        case .skill:
+            return true
+        case .command:
+            let ext = URL(fileURLWithPath: capability.metadata["sourcePath"] ?? capability.source.path).pathExtension.lowercased()
+            if agentID == "claude-code" {
+                return ext == "md"
+            }
+            if agentID == "codex" {
+                return ["md", "json", "toml"].contains(ext)
+            }
+            return false
+        case .agent:
+            let ext = URL(fileURLWithPath: capability.metadata["sourcePath"] ?? capability.source.path).pathExtension.lowercased()
+            if agentID == "claude-code" {
+                return ext == "md"
+            }
+            if agentID == "codex" {
+                return ["md", "json", "toml"].contains(ext)
+            }
+            return false
+        case .plugin, .mcpServer, .rule, .instruction, .hook, .unknown:
+            return false
+        }
     }
 
     private func capabilityTargetIDs(for capability: Capability) -> Set<String> {
