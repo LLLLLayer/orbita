@@ -26,7 +26,7 @@ public final class AgentViewResolver {
             guard capability.metadata["codexSkillEnabled"] != "false" else { return false }
             switch capability.type {
             case .skill:
-                return !isSharedAgentsCapability(capability)
+                return isCodexSkillCapability(capability)
             case .plugin, .mcpServer, .instruction:
                 return true
             case .agent:
@@ -68,8 +68,17 @@ public final class AgentViewResolver {
             || sourcePathComponents(for: capability).contains(".claude")
     }
 
-    private func isSharedAgentsCapability(_ capability: Capability) -> Bool {
-        capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents")
+    private func isCodexSkillCapability(_ capability: Capability) -> Bool {
+        if capability.source.kind == "codex-skill" || capability.source.kind == "user-skill" {
+            return true
+        }
+        if capability.source.kind == "claude-skill" || capability.source.kind.hasPrefix("claude-plugin-") {
+            return false
+        }
+        if capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents") {
+            return false
+        }
+        return capability.source.kind == "skill" || sourcePathComponents(for: capability).contains(".codex")
     }
 
     private func sourcePathComponents(for capability: Capability) -> [String] {

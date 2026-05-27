@@ -106,7 +106,10 @@ public final class CapabilityScanner {
 
         var capabilities: [Capability] = []
         var issues: [ScanIssue] = []
-        let codexSkillStates = codexSkillStates(at: options.codexConfigURL)
+        var codexSkillStateOverrides = codexSkillStates(at: options.codexConfigURL)
+        codexSkillStateOverrides.merge(codexSkillStates(at: root.appendingPathComponent(".codex/config.toml"))) { _, project in
+            project
+        }
         let claudeStateURLs = claudeSettingsStateURLs(projectRoot: root, options: options)
         let claudeSkillStates = claudeSkillOverrideStates(at: claudeStateURLs)
         let claudeDisabledMCPServerSettingsPaths = claudeDisabledMcpjsonServerSettingsPaths(at: claudeStateURLs)
@@ -118,7 +121,13 @@ public final class CapabilityScanner {
         emitProgress("scan.instructions.finish", path: root.path, count: capabilities.count, options: options)
 
         emitProgress("scan.codex.start", path: root.appendingPathComponent(".codex").path, options: options)
-        scanCodexWorkspace(at: root, into: &capabilities, issues: &issues)
+        scanCodexWorkspace(
+            at: root,
+            options: options,
+            codexSkillStates: codexSkillStateOverrides,
+            into: &capabilities,
+            issues: &issues
+        )
         if options.includeUserScope {
             scanCodexHooksConfig(
                 at: options.codexConfigURL.deletingLastPathComponent().appendingPathComponent("hooks.json"),
@@ -168,18 +177,18 @@ public final class CapabilityScanner {
             at: root,
             options: options,
             skillsLock: projectSkillsLock,
-            codexSkillStates: codexSkillStates,
+            codexSkillStates: codexSkillStateOverrides,
             into: &capabilities,
             issues: &issues
         )
         emitProgress("scan.agents.finish", path: root.appendingPathComponent(".agents").path, count: capabilities.count, options: options)
 
-        scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues, codexConfigPath: options.codexConfigURL.path, codexSkillStates: codexSkillStates)
+        scanSkillFiles(at: root, options: options, into: &capabilities, issues: &issues, codexConfigPath: options.codexConfigURL.path, codexSkillStates: codexSkillStateOverrides)
         scanUserSkillRoots(
             projectRoot: root,
             options: options,
             globalSkillsLock: globalSkillsLock,
-            codexSkillStates: codexSkillStates,
+            codexSkillStates: codexSkillStateOverrides,
             claudeSkillStates: claudeSkillStates,
             into: &capabilities,
             issues: &issues
@@ -232,7 +241,13 @@ public final class CapabilityScanner {
         }
     }
 
-    private func scanCodexWorkspace(at root: URL, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
+    private func scanCodexWorkspace(
+        at root: URL,
+        options: ScanOptions,
+        codexSkillStates: [String: Bool],
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
         scanCodexMarkdownFiles(
             at: root.appendingPathComponent(".codex/commands"),
             type: .command,
@@ -246,6 +261,17 @@ public final class CapabilityScanner {
             sourceKind: "codex-hook",
             into: &capabilities,
             issues: &issues
+        )
+        scanSkillFiles(
+            at: root.appendingPathComponent(".codex/skills"),
+            options: options,
+            into: &capabilities,
+            issues: &issues,
+            scope: .project,
+            sourceKind: "codex-skill",
+            projectRoot: root,
+            codexConfigPath: root.appendingPathComponent(".codex/config.toml").path,
+            codexSkillStates: codexSkillStates
         )
         scanCodexHooksConfig(
             at: root.appendingPathComponent(".codex/hooks.json"),
@@ -1438,7 +1464,20 @@ public final class CapabilityScanner {
         if components.contains(".claude") {
             return "claude-skill"
         }
+        if containsPathComponentPair(".codex", "skills", in: components) {
+            return "codex-skill"
+        }
         return "user-skill"
+    }
+
+    private func containsPathComponentPair(_ first: String, _ second: String, in components: [String]) -> Bool {
+        guard components.count >= 2 else { return false }
+        for index in 0..<(components.count - 1) {
+            if components[index] == first, components[index + 1] == second {
+                return true
+            }
+        }
+        return false
     }
 
     private func scanSkill(
@@ -1483,6 +1522,11 @@ public final class CapabilityScanner {
                 lock: skillsLock,
                 canonicalRoot: skillsCanonicalRoot
             )
+            statuses = [.enabled]
+        } else if sourceKind == "codex-skill" {
+            metadata["manager"] = "codex"
+            metadata["codexSkillName"] = name
+            metadata["lifecycleNote"] = "Codex native skill lifecycle uses .codex/skills for project skills and CODEX_HOME/skills for user skills."
             statuses = [.enabled]
         } else if let codexCacheInfo, scope == .user {
             let selector = "\(codexCacheInfo.pluginName)@\(codexCacheInfo.marketplace)"
@@ -1539,7 +1583,7 @@ public final class CapabilityScanner {
                 metadata["codexSkillConfigPath"] = url.path
                 metadata["codexDisableCommand"] = "Set [[skills.config]] path = \(shellQuoted(url.path)) enabled = false in \(configPath)"
                 metadata["codexEnableCommand"] = "Set [[skills.config]] path = \(shellQuoted(url.path)) enabled = true in \(configPath)"
-                if codexSkillEnabled == false, sourceKind == "user-skill" {
+                if codexSkillEnabled == false, sourceKind == "user-skill" || sourceKind == "codex-skill" {
                     statuses = [.disabled]
                 }
             }

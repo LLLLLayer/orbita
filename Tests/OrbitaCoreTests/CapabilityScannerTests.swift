@@ -746,14 +746,17 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.contains { $0.id == server.id })
     }
 
-    func testAgentViewsDoNotTreatAgentsSkillsAsNativeAgentSkills() throws {
+    func testAgentViewsKeepCodexAndClaudeProjectSkillsSeparate() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let nativeCodexSkill = temporaryRoot.appendingPathComponent(".codex/skills/codex-doc/SKILL.md")
         let nativeClaudeSkill = temporaryRoot.appendingPathComponent(".claude/skills/review-helper/SKILL.md")
         let sharedAgentsSkill = temporaryRoot.appendingPathComponent(".agents/skills/shared-doc/SKILL.md")
 
+        try FileManager.default.createDirectory(at: nativeCodexSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: nativeClaudeSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: sharedAgentsSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "codex-doc", body: "Codex native helper").write(to: nativeCodexSkill, atomically: true, encoding: .utf8)
         try skillText(name: "review-helper", body: "Claude native helper").write(to: nativeClaudeSkill, atomically: true, encoding: .utf8)
         try skillText(name: "shared-doc", body: "Shared agent skill").write(to: sharedAgentsSkill, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: temporaryRoot) }
@@ -761,8 +764,14 @@ final class CapabilityScannerTests: XCTestCase {
         let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
         let claude = AgentViewResolver().view(for: .claudeCode, graph: graph)
         let codex = AgentViewResolver().view(for: .codex, graph: graph)
+        let codexNative = try XCTUnwrap(graph.capabilities.first { $0.name == "codex-doc" && $0.source.kind == "codex-skill" })
 
+        XCTAssertEqual(codexNative.metadata["manager"], "codex")
+        XCTAssertTrue(codexNative.statuses.contains(.enabled))
         XCTAssertTrue(claude.visibleCapabilities.contains { $0.name == "review-helper" && $0.source.kind == "claude-skill" })
+        XCTAssertFalse(claude.visibleCapabilities.contains { $0.name == "codex-doc" && $0.source.kind == "codex-skill" })
+        XCTAssertTrue(codex.visibleCapabilities.contains { $0.name == "codex-doc" && $0.source.kind == "codex-skill" })
+        XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "review-helper" && $0.source.kind == "claude-skill" })
         XCTAssertFalse(claude.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
         XCTAssertFalse(codex.visibleCapabilities.contains { $0.name == "shared-doc" && $0.source.kind == "agents-skill" })
     }
@@ -1243,7 +1252,7 @@ final class CapabilityScannerTests: XCTestCase {
             )
         )
         let graph = CapabilityResolver().resolve(scanResult: scan)
-        let capability = try XCTUnwrap(graph.capabilities.first { $0.name == "review-helper" && $0.source.kind == "user-skill" })
+        let capability = try XCTUnwrap(graph.capabilities.first { $0.name == "review-helper" && $0.source.kind == "codex-skill" })
 
         XCTAssertEqual(capability.metadata["codexConfigPath"], config.path)
         XCTAssertTrue(capability.metadata["codexSkillConfigPath"]?.hasSuffix("/.codex/skills/review-helper/SKILL.md") == true)
@@ -2832,7 +2841,7 @@ final class CapabilityScannerTests: XCTestCase {
         )
         XCTAssertTrue(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("claude-code") == true)
         XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("claude-code=symlink") == true)
-        XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex=canonical") == true)
+        XCTAssertNotEqual(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex="), true)
     }
 
     private func fixtureURL(_ name: String) throws -> URL {

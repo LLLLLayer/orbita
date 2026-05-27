@@ -116,19 +116,19 @@ public final class AdapterPreviewBuilder {
                 reason: "Codex can see plugin-provided capabilities through the generated adapter index."
             )
         case .skill:
-            guard !isSharedAgentsCapability(capability) else {
+            guard isCodexSkillCapability(capability) else {
                 return AdapterCapabilityMapping(
                     capabilityID: capability.id,
                     supported: false,
                     targetPath: nil,
-                    reason: "Codex does not load skills directly from .agents; sync the skill into Codex's own skills directory first."
+                    reason: "Codex does not load this skill source directly; sync it into .codex/skills or CODEX_HOME/skills first."
                 )
             }
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: true,
                 targetPath: capability.source.path,
-                reason: "Codex loads skills from Codex-owned skill roots and plugin/user skill roots."
+                reason: "Codex loads skills from .codex/skills, CODEX_HOME/skills, and configured user skill roots."
             )
         case .agent:
             return AdapterCapabilityMapping(
@@ -259,8 +259,17 @@ public final class AdapterPreviewBuilder {
             || sourcePathComponents(for: capability).contains(".claude")
     }
 
-    private func isSharedAgentsCapability(_ capability: Capability) -> Bool {
-        capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents")
+    private func isCodexSkillCapability(_ capability: Capability) -> Bool {
+        if capability.source.kind == "codex-skill" || capability.source.kind == "user-skill" {
+            return true
+        }
+        if capability.source.kind == "claude-skill" || capability.source.kind.hasPrefix("claude-plugin-") {
+            return false
+        }
+        if capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents") {
+            return false
+        }
+        return capability.source.kind == "skill" || sourcePathComponents(for: capability).contains(".codex")
     }
 
     private func sourcePathComponents(for capability: Capability) -> [String] {
