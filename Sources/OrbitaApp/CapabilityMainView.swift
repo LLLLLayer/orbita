@@ -181,6 +181,8 @@ private struct HeaderSurface: View {
                 SummaryStat(title: "Plugins", value: count(.plugin), systemImage: "shippingbox")
                 SummaryStat(title: "Skills", value: count(.skill), systemImage: "wand.and.stars")
                 SummaryStat(title: "Commands", value: count(.command), systemImage: "terminal")
+                SummaryStat(title: "MCP", value: count(.mcp), systemImage: "server.rack")
+                SummaryStat(title: "Hooks", value: count(.hook), systemImage: "link")
             }
 
         }

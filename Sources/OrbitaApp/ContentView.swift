@@ -731,7 +731,7 @@ struct ContentView: View {
     }
 
     private var defaultCategoryOptions: [CapabilityCategory] {
-        CapabilityCategory.allCases
+        [.all, .plugin, .skill, .command, .mcp, .hook]
     }
 
     private var categoryOrderIDs: [String] {
@@ -999,7 +999,7 @@ private enum AllTabSubsectionKind: Hashable {
         case .hook:
             self = .category(.hook)
         case .instruction, .rule:
-            self = .category(.instruction)
+            self = .other
         case .unknown:
             self = .other
         }
