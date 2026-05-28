@@ -3,6 +3,23 @@ import OrbitaCore
 
 private typealias AgentVisibilityIndex = [String: Set<String>]
 
+private extension AgentSelection {
+    func representsSameAgent(as selectedAgent: AgentSelection?) -> Bool {
+        guard let selectedAgent else {
+            return false
+        }
+        if id == selectedAgent.id {
+            return true
+        }
+        guard let agentID = skillsInstallAgentID,
+              let selectedAgentID = selectedAgent.skillsInstallAgentID
+        else {
+            return false
+        }
+        return agentID == selectedAgentID
+    }
+}
+
 struct CapabilityCollectionView: View {
     let sections: [CapabilityCollectionSection]
     let graph: CapabilityGraph?
@@ -180,7 +197,7 @@ struct CapabilityCollectionView: View {
     private func visibleAgents(for item: CapabilityDisplayItem, in agentVisibilityIndex: AgentVisibilityIndex) -> [AgentSelection] {
         let capabilityIDs = Set(item.capabilities.map(\.id))
         return agentOptions.filter { agent in
-            if agent.id == selectedAgent?.id {
+            if agent.representsSameAgent(as: selectedAgent) {
                 return false
             }
             guard let visibleIDs = agentVisibilityIndex[agent.id] else {
@@ -403,7 +420,7 @@ private struct ExpandedCapabilityGroupShelf: View {
     private func visibleAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
         let capabilityIDs = Set(item.capabilities.map(\.id))
         return agentOptions.filter { agent in
-            if agent.id == selectedAgent?.id {
+            if agent.representsSameAgent(as: selectedAgent) {
                 return false
             }
             guard let visibleIDs = agentVisibilityIndex[agent.id] else {
