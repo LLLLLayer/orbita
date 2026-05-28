@@ -6,6 +6,7 @@ enum AgentBehavior: String, Codable, CaseIterable, Sendable {
     case codexSource
     case claudeSource
     case cursorSource
+    case traeSource
     case codexLike
     case claudeLike
     case skillsAgent
@@ -22,7 +23,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
     static let codex = AgentSelection(id: "built-in:codex", displayName: "Codex", behavior: .codexSource)
     static let claudeCode = AgentSelection(id: "built-in:claude-code", displayName: "Claude Code", behavior: .claudeSource)
     static let cursor = AgentSelection(id: "built-in:cursor", displayName: "Cursor", behavior: .cursorSource)
-    static let defaultAgents = [agents, codex, claudeCode, cursor]
+    static let trae = AgentSelection(id: "built-in:trae", displayName: "Trae", behavior: .traeSource)
+    static let defaultAgents = [agents, codex, claudeCode, cursor, trae]
 
     var isBuiltIn: Bool {
         id.hasPrefix("built-in:")
@@ -45,6 +47,9 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.cursor.id || behavior == .cursorSource {
             return "cursor"
         }
+        if id == Self.trae.id || behavior == .traeSource {
+            return "trae"
+        }
         return nil
     }
 
@@ -58,6 +63,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
         case .cursorSource:
             return AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities
+        case .traeSource:
+            return AgentViewResolver().view(for: .trae, graph: graph).visibleCapabilities
         case .codexLike:
             return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeLike:
@@ -94,6 +101,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             ids = Set(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.map(\.id))
         case .cursorSource:
             ids = Set(AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities.map(\.id))
+        case .traeSource:
+            ids = Set(AgentViewResolver().view(for: .trae, graph: graph).visibleCapabilities.map(\.id))
         case .codexLike:
             ids = Set(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.map(\.id))
         case .claudeLike:
@@ -166,6 +175,9 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.cursor.id {
             return "cursorarrow.rays"
         }
+        if id == Self.trae.id {
+            return "sparkles"
+        }
         switch behavior {
         case .agentsSource:
             return "point.3.connected.trianglepath.dotted"
@@ -175,6 +187,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return "text.bubble"
         case .cursorSource:
             return "cursorarrow.rays"
+        case .traeSource:
+            return "sparkles"
         case .codexLike:
             return "command"
         case .claudeLike:
@@ -196,7 +210,7 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.cursor.id || behavior == .cursorSource || skillsAgentID == "cursor" {
             return "cursor"
         }
-        if skillsAgentID == "trae" || skillsAgentID == "trae-cn" || displayName.localizedCaseInsensitiveContains("trae") {
+        if id == Self.trae.id || behavior == .traeSource || skillsAgentID == "trae" || displayName.localizedCaseInsensitiveContains("trae") {
             return "trae"
         }
         return nil
@@ -378,6 +392,8 @@ extension AgentID {
             return "Claude Code"
         case .cursor:
             return "Cursor"
+        case .trae:
+            return "Trae"
         }
     }
 }

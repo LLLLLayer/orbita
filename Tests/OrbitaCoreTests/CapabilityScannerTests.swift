@@ -1078,6 +1078,78 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
     }
 
+    func testTraeAgentViewIncludesSharedAgentsSkillsAndExcludesNativeOnes() throws {
+        let agentsSkill = Capability(
+            id: "skill:.agents:shared-doc",
+            name: "shared-doc",
+            type: .skill,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "agents-skill", path: "/tmp/project/.agents/skills/shared-doc/SKILL.md")
+        )
+        let codexSkill = Capability(
+            id: "skill:.codex:codex-doc",
+            name: "codex-doc",
+            type: .skill,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "codex-skill", path: "/tmp/project/.codex/skills/codex-doc/SKILL.md")
+        )
+        let claudeSkill = Capability(
+            id: "skill:.claude:review-helper",
+            name: "review-helper",
+            type: .skill,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "claude-skill", path: "/tmp/project/.claude/skills/review-helper/SKILL.md")
+        )
+        let claudePlugin = Capability(
+            id: "plugin:claude:im-knowledge",
+            name: "Im Knowledge",
+            type: .plugin,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.info],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/cache/marketplace/im-knowledge/1.0.0", packageName: "im-knowledge")
+        )
+        let traeNativeSkill = Capability(
+            id: "skill:.trae:trae-helper",
+            name: "trae-helper",
+            type: .skill,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "skill", path: "/Users/dev/.trae/skills/trae-helper/SKILL.md")
+        )
+        let mcpServer = Capability(
+            id: "mcp:project-server",
+            name: "project-server",
+            type: .mcpServer,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.network],
+            source: CapabilitySource(kind: "mcp-config", path: "/tmp/project/.mcp.json")
+        )
+        let graph = CapabilityGraph(
+            projectRoot: "/tmp/project",
+            capabilities: [agentsSkill, codexSkill, claudeSkill, claudePlugin, traeNativeSkill, mcpServer],
+            issues: []
+        )
+
+        let traeView = AgentViewResolver().view(for: .trae, graph: graph)
+        let visibleIDs = Set(traeView.visibleCapabilities.map { $0.id })
+
+        XCTAssertTrue(visibleIDs.contains(agentsSkill.id), "Trae should pick up shared .agents/skills entries")
+        XCTAssertTrue(visibleIDs.contains(traeNativeSkill.id), "Trae should pick up skills under ~/.trae/")
+        XCTAssertTrue(visibleIDs.contains(mcpServer.id), "Trae should see project MCP servers")
+        XCTAssertFalse(visibleIDs.contains(codexSkill.id), "Trae must not see Codex-native skills")
+        XCTAssertFalse(visibleIDs.contains(claudeSkill.id), "Trae must not see Claude-native skills")
+        XCTAssertFalse(visibleIDs.contains(claudePlugin.id), "Trae has no plugin surface and should ignore Claude plugins")
+    }
+
     func testCodexAgentViewExcludesClaudeNativePlugins() throws {
         let claudePlugin = Capability(
             id: "plugin:claude:im-knowledge",
@@ -1267,7 +1339,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .cursor && $0.visibleCount > 0 && $0.hiddenCount > 0 })
 
         let larkDoc = try XCTUnwrap(overview.differences.first { $0.capabilityName == "lark-doc" })
-        XCTAssertEqual(larkDoc.visibleAgents, [.codex])
+        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae]))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.cursor))
     }
@@ -1282,6 +1354,7 @@ final class CapabilityScannerTests: XCTestCase {
 
         XCTAssertEqual(explanation.capability.id, skill.id)
         XCTAssertTrue(explanation.visibleAgents.contains(.codex))
+        XCTAssertTrue(explanation.visibleAgents.contains(.trae))
         XCTAssertFalse(explanation.visibleAgents.contains(.claudeCode))
         XCTAssertFalse(explanation.visibleAgents.contains(.cursor))
         XCTAssertTrue(explanation.hiddenAgents.contains(.claudeCode))
@@ -1446,7 +1519,7 @@ final class CapabilityScannerTests: XCTestCase {
         let preview = AdapterPreviewBuilder().preview(for: .codex, graph: graph)
 
         XCTAssertEqual(preview.agent, .codex)
-        XCTAssertTrue(preview.generatedFiles.contains { $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
+        XCTAssertTrue(preview.generatedFiles.contains { $0.path.hasSuffix("/.orbita/adapters/codex/capabilities.json") })
         XCTAssertTrue(preview.supportedCapabilities.contains { $0.name == "lark-doc" && $0.type == .skill })
         XCTAssertTrue(preview.unsupportedCapabilities.contains { $0.type == .rule })
         XCTAssertFalse(preview.appliesChanges)
@@ -1490,7 +1563,7 @@ final class CapabilityScannerTests: XCTestCase {
         let report = DriftReportBuilder().report(graph: graph)
 
         let larkDoc = try XCTUnwrap(report.items.first { $0.capabilityName == "lark-doc" })
-        XCTAssertEqual(larkDoc.visibleAgents, [.codex])
+        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae]))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.cursor))
         XCTAssertTrue(larkDoc.reasons.contains { $0.contains("visible to codex") })
@@ -1607,9 +1680,8 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(plan.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") && $0.target == skill.source.path.replacingOccurrences(of: "/SKILL.md", with: "") })
         XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/manifest.json") })
         XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/lock.json") })
-        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
-        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/claude-code/capabilities.json") })
-        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/cursor/capabilities.json") })
+        XCTAssertFalse(plan.operations.contains { $0.kind == .writeFile && $0.path.contains("/.agents/adapters/") })
+        XCTAssertFalse(plan.operations.contains { $0.kind == .writeFile && $0.path.contains("/.orbita/adapters/") })
         XCTAssertTrue(plan.operations.contains { $0.kind == .appendLog && $0.path.hasSuffix("/.agents/logs/apply.log") })
     }
 
@@ -2016,9 +2088,8 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/manifest.json") && ($0.content ?? "").contains("lark-doc") })
         XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/lock.json") && ($0.content ?? "").contains("contentHash") })
         XCTAssertTrue(plan.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") })
-        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
-        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/claude-code/capabilities.json") })
-        XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/cursor/capabilities.json") })
+        XCTAssertFalse(plan.operations.contains { $0.kind == .writeFile && $0.path.contains("/.agents/adapters/") })
+        XCTAssertFalse(plan.operations.contains { $0.kind == .writeFile && $0.path.contains("/.orbita/adapters/") })
         XCTAssertFalse(plan.operations.contains { $0.kind == .removePath })
     }
 
@@ -2036,7 +2107,8 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(result.completedOperations.count, plan.operations.count)
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/manifest.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/lock.json").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".orbita/adapters/codex/capabilities.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".codex/commands/bootstrap.md").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".claude/commands/review.md").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".cursor/rules/project.md").path))
@@ -2254,7 +2326,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(manifestText.contains(CapabilityStatus.enabled.rawValue))
     }
 
-    func testDisableSkillPlanExecutorRegeneratesAdaptersWithoutDisabledSkill() throws {
+    func testDisableSkillPlanExecutorDoesNotWriteAdapterFiles() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
         try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
@@ -2269,10 +2341,8 @@ final class CapabilityScannerTests: XCTestCase {
         let disablePlan = try ApplyPlanBuilder().planDisable(capabilityID: skill.id, graph: enabledGraph)
         _ = try executor.apply(disablePlan)
 
-        let adapterPath = temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json")
-        let adapterText = try String(contentsOf: adapterPath, encoding: .utf8)
-        XCTAssertTrue(adapterText.contains("\"agent\" : \"codex\""))
-        XCTAssertFalse(adapterText.contains("\"id\" : \"\(skill.id)\""))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.appendingPathComponent(".orbita/adapters/codex/capabilities.json").path))
     }
 
     func testRollbackPlanInvertsLastApplyLogAction() throws {
@@ -2293,7 +2363,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(rollback.action, .rollback)
         XCTAssertEqual(rollback.capabilityID, skill.id)
         XCTAssertTrue(rollback.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") })
-        XCTAssertTrue(rollback.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/adapters/codex/capabilities.json") })
+        XCTAssertFalse(rollback.operations.contains { $0.kind == .writeFile && $0.path.contains("/adapters/") })
         XCTAssertTrue(rollback.operations.contains { $0.kind == .appendLog && ($0.content ?? "").contains("rollback") })
     }
 
@@ -2341,7 +2411,7 @@ final class CapabilityScannerTests: XCTestCase {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
         try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
-        let adapterFile = temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json")
+        let adapterFile = temporaryRoot.appendingPathComponent(".orbita/adapters/codex/capabilities.json")
         try FileManager.default.createDirectory(at: adapterFile.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
         {
@@ -2369,10 +2439,48 @@ final class CapabilityScannerTests: XCTestCase {
 
         XCTAssertTrue(plan.operations.contains { operation in
             operation.kind == .removePath
-                && operation.path.hasSuffix("/.agents/adapters/codex/capabilities.json")
+                && operation.path.hasSuffix("/.orbita/adapters/codex/capabilities.json")
                 && operation.description.contains("stale adapter")
         })
         XCTAssertFalse(plan.operations.contains { $0.path.contains("node_modules") })
+    }
+
+    func testCleanPlanRemovesLegacyAgentsAdapterFiles() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: try fixtureURL("MixedProject"), to: temporaryRoot)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let skill = try XCTUnwrap(graph.capabilities.first { $0.name == "lark-doc" && $0.type == .skill })
+        let adapterFile = temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json")
+        try FileManager.default.createDirectory(at: adapterFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "agent": "codex",
+          "capabilities": [
+            {
+              "id": "\(skill.id)",
+              "name": "\(skill.name)",
+              "type": "\(skill.type.rawValue)",
+              "scope": "\(skill.scope.rawValue)",
+              "sourcePath": "\(skill.source.path)",
+              "statuses": ["discovered"],
+              "risks": ["info"]
+            }
+          ],
+          "mappings": []
+        }
+        """.write(to: adapterFile, atomically: true, encoding: .utf8)
+
+        let plan = try ApplyPlanBuilder().planClean(graph: graph)
+
+        XCTAssertTrue(plan.operations.contains { operation in
+            operation.kind == .removePath
+                && operation.path.hasSuffix("/.agents/adapters/codex/capabilities.json")
+                && operation.description.contains("legacy .agents adapter")
+        })
     }
 
     func testCleanPlanRemovesAdapterFilesReferencingDisabledCapabilities() throws {
@@ -2400,7 +2508,7 @@ final class CapabilityScannerTests: XCTestCase {
         }
         """.write(to: manifest, atomically: true, encoding: .utf8)
 
-        let adapterFile = temporaryRoot.appendingPathComponent(".agents/adapters/codex/capabilities.json")
+        let adapterFile = temporaryRoot.appendingPathComponent(".orbita/adapters/codex/capabilities.json")
         try FileManager.default.createDirectory(at: adapterFile.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
         {
@@ -2427,7 +2535,7 @@ final class CapabilityScannerTests: XCTestCase {
 
         XCTAssertTrue(plan.operations.contains { operation in
             operation.kind == .removePath
-                && operation.path.hasSuffix("/.agents/adapters/codex/capabilities.json")
+                && operation.path.hasSuffix("/.orbita/adapters/codex/capabilities.json")
                 && operation.description.contains("disabled")
         })
     }

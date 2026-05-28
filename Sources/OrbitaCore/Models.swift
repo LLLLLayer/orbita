@@ -44,6 +44,7 @@ public enum AgentID: String, Codable, CaseIterable, Sendable {
     case codex
     case claudeCode = "claude-code"
     case cursor
+    case trae
 }
 
 public struct CapabilitySource: Codable, Hashable, Sendable {

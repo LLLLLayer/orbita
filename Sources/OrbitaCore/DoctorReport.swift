@@ -65,6 +65,8 @@ public final class DoctorReportBuilder {
             directoryCheck(id: "codex-plugin-cache", title: "Codex plugin cache", url: homeDirectory.appendingPathComponent(".codex/plugins/cache")),
             directoryCheck(id: "claude-home", title: "Claude Code config directory", url: homeDirectory.appendingPathComponent(".claude")),
             directoryCheck(id: "cursor-home", title: "Cursor config directory", url: homeDirectory.appendingPathComponent(".cursor")),
+            directoryCheck(id: "trae-home", title: "Trae config directory", url: homeDirectory.appendingPathComponent(".trae")),
+            directoryCheck(id: "trae-skills", title: "Trae skills directory", url: homeDirectory.appendingPathComponent(".trae/skills")),
             fileCheck(id: "project-mcp", title: "Project MCP config", url: URL(fileURLWithPath: currentDirectory).appendingPathComponent(".mcp.json"))
         ]
 

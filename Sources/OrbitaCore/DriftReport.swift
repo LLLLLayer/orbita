@@ -124,6 +124,8 @@ public final class DriftReportBuilder {
             return "Claude Code"
         case .cursor:
             return "Cursor"
+        case .trae:
+            return "Trae"
         }
     }
 }

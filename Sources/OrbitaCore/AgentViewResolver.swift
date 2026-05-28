@@ -65,6 +65,43 @@ public final class AgentViewResolver {
             }
         case .cursor:
             return [.rule, .mcpServer, .instruction].contains(capability.type)
+        case .trae:
+            return isVisibleToTrae(capability)
+        }
+    }
+
+    /// Trae reads SKILL.md-based skills, MCP servers and Instructions like
+    /// Cursor does. We additionally surface anything explicitly installed via
+    /// `npx skills` for the trae agent ID, plus capabilities physically
+    /// living under `.trae/` (project or global), so Trae's view tracks
+    /// what its CLI actually touches.
+    private func isVisibleToTrae(_ capability: Capability) -> Bool {
+        if capability.metadata["skillsInstalledAgentIDs"]?
+            .split(separator: ",")
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .contains("trae") == true {
+            return true
+        }
+        if sourcePathComponents(for: capability).contains(".trae") {
+            return true
+        }
+        switch capability.type {
+        case .skill:
+            // Trae picks up shared `.agents/skills` and user-scope skills the
+            // way other generic agents do, but it does not get Codex- or
+            // Claude-native ones.
+            let kind = capability.source.kind
+            if kind == "codex-skill" || kind == "claude-skill" || kind.hasPrefix("claude-plugin-") {
+                return false
+            }
+            return kind == "agents-skill"
+                || kind == "user-skill"
+                || kind == "skill"
+                || sourcePathComponents(for: capability).contains(".agents")
+        case .mcpServer, .instruction, .rule:
+            return true
+        case .plugin, .agent, .hook, .command, .unknown:
+            return false
         }
     }
 

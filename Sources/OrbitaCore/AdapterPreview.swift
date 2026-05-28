@@ -80,7 +80,7 @@ public final class AdapterPreviewBuilder {
 
     private func adapterFilePath(for agent: AgentID, projectRoot: String) -> String {
         URL(fileURLWithPath: projectRoot)
-            .appendingPathComponent(".agents/adapters")
+            .appendingPathComponent(".orbita/adapters")
             .appendingPathComponent(agent.rawValue)
             .appendingPathComponent("capabilities.json")
             .path
@@ -103,6 +103,8 @@ public final class AdapterPreviewBuilder {
             return claudeCodeMapping(for: capability, projectRoot: projectRoot)
         case .cursor:
             return cursorMapping(for: capability)
+        case .trae:
+            return traeMapping(for: capability)
         }
     }
 
@@ -315,6 +317,48 @@ public final class AdapterPreviewBuilder {
                 supported: false,
                 targetPath: nil,
                 reason: "Cursor does not load \(capability.type.rawValue) capabilities through this adapter."
+            )
+        }
+    }
+
+    private func traeMapping(for capability: Capability) -> AdapterCapabilityMapping {
+        switch capability.type {
+        case .skill:
+            let kind = capability.source.kind
+            if kind == "codex-skill" || kind == "claude-skill" || kind.hasPrefix("claude-plugin-") {
+                return AdapterCapabilityMapping(
+                    capabilityID: capability.id,
+                    supported: false,
+                    targetPath: nil,
+                    reason: "Trae does not load this skill source directly; sync it into .agents/skills or ~/.trae/skills first."
+                )
+            }
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: true,
+                targetPath: capability.source.path,
+                reason: "Trae loads SKILL.md-based skills from .agents/skills and ~/.trae/skills."
+            )
+        case .mcpServer:
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: true,
+                targetPath: capability.source.path,
+                reason: "Trae can read MCP server configuration from project and user sources."
+            )
+        case .instruction, .rule:
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: true,
+                targetPath: capability.source.path,
+                reason: "Trae uses supported project instruction and rule files as context."
+            )
+        default:
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: false,
+                targetPath: nil,
+                reason: "Trae does not load \(capability.type.rawValue) capabilities through this adapter."
             )
         }
     }
