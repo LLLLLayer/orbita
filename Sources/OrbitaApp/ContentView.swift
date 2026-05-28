@@ -72,6 +72,13 @@ struct ContentView: View {
         .ignoresSafeArea(.container, edges: .top)
         .tint(OrbitaTheme.prominentControlFill)
         .environment(\.locale, Locale(identifier: orbitaLanguageCode))
+        .localized()
+        .onAppear {
+            LocalizationManager.shared.setLanguage(orbitaLanguageCode)
+        }
+        .onChange(of: orbitaLanguageCode) { _, newValue in
+            LocalizationManager.shared.setLanguage(newValue)
+        }
         .fileImporter(isPresented: $importerPresented, allowedContentTypes: [.folder]) { result in
             if case let .success(url) = result {
                 store.openProject(url)

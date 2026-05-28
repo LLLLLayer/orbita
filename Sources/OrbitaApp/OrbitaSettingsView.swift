@@ -8,6 +8,9 @@ enum OrbitaLanguage: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Always rendered in the language's own script — never translated. The picker
+    /// is the one place users need to recognize a language even when the UI is in
+    /// another one.
     var title: String {
         switch self {
         case .english:
@@ -28,16 +31,17 @@ enum ScanRefreshPolicy: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    @MainActor
     var title: String {
         switch self {
         case .thirtyMinutes:
-            return "30 minutes"
+            return L("refresh.thirtyMinutes")
         case .oneHour:
-            return "1 hour"
+            return L("refresh.oneHour")
         case .automatic:
-            return "Automatic"
+            return L("refresh.automatic")
         case .manual:
-            return "Manual"
+            return L("refresh.manual")
         }
     }
 
@@ -62,14 +66,15 @@ enum CapabilitySortOption: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    @MainActor
     var title: String {
         switch self {
         case .nameAscending:
-            return "Name"
+            return L("sort.name")
         case .modifiedNewest:
-            return "Modified newest"
+            return L("sort.modifiedNewest")
         case .modifiedOldest:
-            return "Modified oldest"
+            return L("sort.modifiedOldest")
         }
     }
 }
@@ -96,12 +101,13 @@ struct OrbitaSettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(OrbitaTheme.canvas)
+        .localized()
     }
 
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Settings")
+                Text(L("settings.title"))
                     .font(.title3.weight(.semibold))
                 Spacer()
                 Button(action: onClose) {
@@ -111,7 +117,7 @@ struct OrbitaSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .orbitaControlSurface(cornerRadius: 8)
-                .help("Close settings")
+                .help(L("settings.close"))
             }
             .padding(.top, 26)
             .padding(.horizontal, 16)
@@ -158,13 +164,13 @@ struct OrbitaSettingsView: View {
 
     private var generalSettings: some View {
         SettingsPageStack {
-            SettingsHeader(title: "General", subtitle: "Scan behavior, language, and capability display preferences.")
-            SettingsCard(title: "Preferences", systemImage: "slider.horizontal.3") {
+            SettingsHeader(title: L("settings.page.general"), subtitle: L("settings.general.subtitle"))
+            SettingsCard(title: L("settings.general.preferences"), systemImage: "slider.horizontal.3") {
                 SettingsPreferenceRow(
-                    title: "Refresh",
-                    subtitle: "Controls cache lifetime before Orbita scans capabilities again."
+                    title: L("settings.general.refresh.title"),
+                    subtitle: L("settings.general.refresh.subtitle")
                 ) {
-                    Picker("Refresh", selection: $refreshPolicy) {
+                    Picker(L("settings.general.refresh.title"), selection: $refreshPolicy) {
                         ForEach(ScanRefreshPolicy.allCases) { policy in
                             Text(policy.title).tag(policy.rawValue)
                         }
@@ -177,10 +183,10 @@ struct OrbitaSettingsView: View {
                 SettingsDivider()
 
                 SettingsPreferenceRow(
-                    title: "Capability sort",
-                    subtitle: "Default order for capability lists and grouped sections."
+                    title: L("settings.general.sort.title"),
+                    subtitle: L("settings.general.sort.subtitle")
                 ) {
-                    Picker("Capability sort", selection: $sortOption) {
+                    Picker(L("settings.general.sort.title"), selection: $sortOption) {
                         ForEach(CapabilitySortOption.allCases) { option in
                             Text(option.title).tag(option.rawValue)
                         }
@@ -193,10 +199,10 @@ struct OrbitaSettingsView: View {
                 SettingsDivider()
 
                 SettingsPreferenceRow(
-                    title: "Language",
-                    subtitle: "Display language used by the Orbita interface."
+                    title: L("settings.general.language.title"),
+                    subtitle: L("settings.general.language.subtitle")
                 ) {
-                    Picker("Display language", selection: $languageCode) {
+                    Picker(L("settings.general.language.picker"), selection: $languageCode) {
                         ForEach(OrbitaLanguage.allCases) { language in
                             Text(language.title).tag(language.rawValue)
                         }
@@ -211,11 +217,11 @@ struct OrbitaSettingsView: View {
 
     private var pluginSettings: some View {
         SettingsPageStack {
-            SettingsHeader(title: "Plugins", subtitle: "Maintenance commands for Codex, Claude Code, and .agents skills.")
-            SettingsCard(title: "Maintenance", systemImage: "terminal") {
+            SettingsHeader(title: L("settings.page.plugins"), subtitle: L("settings.plugins.subtitle"))
+            SettingsCard(title: L("settings.plugins.maintenance"), systemImage: "terminal") {
                 CommandRow(
-                    title: "Codex marketplaces",
-                    detail: "Refresh configured Git marketplace snapshots and rescan Orbita.",
+                    title: L("settings.plugins.codex.title"),
+                    detail: L("settings.plugins.codex.detail"),
                     command: "codex plugin marketplace upgrade",
                     isRunning: isRunningCommand,
                     onRun: { runCommand("codex plugin marketplace upgrade") }
@@ -224,8 +230,8 @@ struct OrbitaSettingsView: View {
                 SettingsDivider()
 
                 CommandRow(
-                    title: "Claude Code plugins",
-                    detail: "List installed plugins with enable status. Update individual plugins from the inspector.",
+                    title: L("settings.plugins.claude.title"),
+                    detail: L("settings.plugins.claude.detail"),
                     command: "claude plugin list --json",
                     isRunning: isRunningCommand,
                     onRun: { runCommand("claude plugin list --json") }
@@ -234,8 +240,8 @@ struct OrbitaSettingsView: View {
                 SettingsDivider()
 
                 CommandRow(
-                    title: ".agents skills",
-                    detail: "Trigger Skills CLI update in the current project context.",
+                    title: L("settings.plugins.agents.title"),
+                    detail: L("settings.plugins.agents.detail"),
                     command: projectRootPath == nil ? "npx skills update -y" : "npx skills update -p -y",
                     isRunning: isRunningCommand,
                     onRun: { runCommand(projectRootPath == nil ? "npx skills update -y" : "npx skills update -p -y") }
@@ -247,35 +253,35 @@ struct OrbitaSettingsView: View {
 
     private var releaseSettings: some View {
         SettingsPageStack {
-            SettingsHeader(title: "Release", subtitle: "Version metadata, signed DMG release, notarization, and Sparkle readiness.")
+            SettingsHeader(title: L("settings.page.release"), subtitle: L("settings.release.subtitle"))
             ReleaseSummaryCard(
                 versionInfo: VersionInfo.current,
                 projectName: projectName,
                 projectRootPath: projectRootPath
             )
 
-            SettingsCard(title: "Pipeline", systemImage: "shippingbox") {
-                SettingsInfoRow(title: "Workflow", value: ".github/workflows/release.yml")
-                SettingsInfoRow(title: "Tag", value: "v\(VersionInfo.current.version)")
-                SettingsInfoRow(title: "Artifact", value: "Orbita-v\(VersionInfo.current.version).dmg")
+            SettingsCard(title: L("settings.release.pipeline"), systemImage: "shippingbox") {
+                SettingsInfoRow(title: L("settings.release.row.workflow"), value: ".github/workflows/release.yml")
+                SettingsInfoRow(title: L("settings.release.row.tag"), value: "v\(VersionInfo.current.version)")
+                SettingsInfoRow(title: L("settings.release.row.artifact"), value: "Orbita-v\(VersionInfo.current.version).dmg")
 
                 SettingsDivider()
 
-                SettingsInfoRow(title: "Signing", value: "Developer ID Application")
-                SettingsInfoRow(title: "Runtime", value: "Hardened Runtime")
-                SettingsInfoRow(title: "Notary", value: "xcrun notarytool + stapler")
+                SettingsInfoRow(title: L("settings.release.row.signing"), value: "Developer ID Application")
+                SettingsInfoRow(title: L("settings.release.row.runtime"), value: "Hardened Runtime")
+                SettingsInfoRow(title: L("settings.release.row.notary"), value: "xcrun notarytool + stapler")
 
                 SettingsDivider()
 
-                SettingsInfoRow(title: "Updater", value: "Sparkle runtime + appcast")
-                SettingsInfoRow(title: "Feed", value: "SUFeedURL over HTTPS")
-                SettingsInfoRow(title: "Security", value: "SUPublicEDKey + EdDSA archive signatures")
+                SettingsInfoRow(title: L("settings.release.row.updater"), value: "Sparkle runtime + appcast")
+                SettingsInfoRow(title: L("settings.release.row.feed"), value: "SUFeedURL over HTTPS")
+                SettingsInfoRow(title: L("settings.release.row.security"), value: "SUPublicEDKey + EdDSA archive signatures")
             }
 
-            SettingsCard(title: "Actions", systemImage: "play.circle") {
+            SettingsCard(title: L("settings.release.actions"), systemImage: "play.circle") {
                 CommandRow(
-                    title: "Check GitHub CLI",
-                    detail: "Verify local gh authentication before creating tags or releases.",
+                    title: L("settings.release.action.gh.title"),
+                    detail: L("settings.release.action.gh.detail"),
                     command: "gh auth status",
                     isRunning: isRunningCommand,
                     onRun: { runCommand("gh auth status") }
@@ -284,8 +290,8 @@ struct OrbitaSettingsView: View {
                 SettingsDivider()
 
                 CommandRow(
-                    title: "Tag current version",
-                    detail: "Create a local DMG, push the release tag, then let GitHub Actions sign, notarize, staple, and publish the DMG.",
+                    title: L("settings.release.action.tag.title"),
+                    detail: L("settings.release.action.tag.detail"),
                     command: "script/release_github.sh v\(VersionInfo.current.version)",
                     isRunning: isRunningCommand,
                     onRun: { runCommand("script/release_github.sh v\(VersionInfo.current.version)") }
@@ -298,8 +304,11 @@ struct OrbitaSettingsView: View {
     @ViewBuilder
     private var commandResultView: some View {
         if let commandResult {
-            SettingsCard(title: commandResult.exitCode == 0 ? "Command Output" : "Command Failed", systemImage: commandResult.exitCode == 0 ? "terminal" : "exclamationmark.triangle") {
-                Text(commandResult.output.isEmpty ? "(no output)" : commandResult.output)
+            SettingsCard(
+                title: commandResult.exitCode == 0 ? L("settings.command.output") : L("settings.command.failed"),
+                systemImage: commandResult.exitCode == 0 ? "terminal" : "exclamationmark.triangle"
+            ) {
+                Text(commandResult.output.isEmpty ? L("settings.command.empty") : commandResult.output)
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
                     .lineLimit(12)
@@ -331,11 +340,12 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    @MainActor
     var title: String {
         switch self {
-        case .general: return "General"
-        case .plugins: return "Plugins"
-        case .release: return "Release"
+        case .general: return L("settings.page.general")
+        case .plugins: return L("settings.page.plugins")
+        case .release: return L("settings.page.release")
         }
     }
 
@@ -470,10 +480,10 @@ private struct ReleaseSummaryCard: View {
 
             SettingsDivider()
 
-            SettingsInfoRow(title: "Bundle", value: versionInfo.bundleIdentifier)
-            SettingsInfoRow(title: "Project", value: projectName)
+            SettingsInfoRow(title: L("settings.release.row.bundle"), value: versionInfo.bundleIdentifier)
+            SettingsInfoRow(title: L("settings.release.row.project"), value: projectName)
             if let projectRootPath {
-                SettingsInfoRow(title: "Path", value: projectRootPath)
+                SettingsInfoRow(title: L("settings.release.row.path"), value: projectRootPath)
             }
         }
         .padding(16)
@@ -568,7 +578,7 @@ private struct CommandRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: onRun) {
-                Label(isRunning ? "Running" : "Run", systemImage: isRunning ? "hourglass" : "play")
+                Label(isRunning ? L("settings.command.running") : L("settings.command.run"), systemImage: isRunning ? "hourglass" : "play")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)

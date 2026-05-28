@@ -35,16 +35,16 @@ Releases are tag-driven. `script/release_github.sh vX.Y.Z` builds, signs (if `DE
 The CLI is the canonical product surface — the App is a viewer over the same logic. Common shapes:
 
 ```bash
-swift run orbita scan     --project <path> [--json]
-swift run orbita status   --project <path> [--json]
-swift run orbita graph    --project <path> [--json]
-swift run orbita overview --project <path> [--json]
-swift run orbita drift    --project <path>
-swift run orbita agent    --project <path> --agent codex|claude-code|cursor
-swift run orbita explain  --project <path> <capability-id>
-swift run orbita preview  --project <path> --agent <id>
-swift run orbita doctor   [--project <path>]
-swift run orbita plan     --project <path> --merge|--rollback|--clean|--enable <id>|--disable <id>|--delete <id> [--apply] [--json]
+swift run orbita scan     --project-root <path> [--json]
+swift run orbita status   --project-root <path> [--json]
+swift run orbita graph    --project-root <path> [--json]
+swift run orbita overview --project-root <path> [--json]
+swift run orbita drift    --project-root <path>
+swift run orbita agent    --project-root <path> --agent codex|claude-code|cursor
+swift run orbita explain  --project-root <path> <capability-id>
+swift run orbita preview  --project-root <path> --agent <id>
+swift run orbita doctor   [--project-root <path>]
+swift run orbita plan     --project-root <path> --merge|--rollback|--clean|--enable <id>|--disable <id>|--delete <id> [--apply] [--json]
 ```
 
 `--no-user-scope` restricts scanning to the project. `plan` without `--apply` prints a dry run; with `--apply` it returns completed/failed/pending operations.

@@ -1,139 +1,125 @@
-# Orbita
+<div align="center">
+  <img src="docs/assets/orbita-logo.png" alt="Orbita" width="160" />
+  <h1>Orbita</h1>
+  <p><strong>A macOS console for managing Coding Agent capabilities.</strong></p>
+  <p>
+    <a href="https://github.com/LLLLLayer/orbita/releases/latest">Download</a> ·
+    <a href="docs/capability-lifecycle.md">Lifecycle</a> ·
+    <a href="docs/release.md">Release</a>
+  </p>
+  <p>
+    English ·
+    <a href="README.zh-CN.md">简体中文</a> ·
+    <a href="README.zh-TW.md">繁體中文</a>
+  </p>
+</div>
 
-Orbita 是一个面向 Coding Agent 的 macOS 能力管理控制台。它会扫描本机和当前项目，解释 Codex、Claude Code、`.agents` 等环境实际会加载哪些 Skills、Plugins、Commands、Hooks、MCP servers、Rules 和 Instructions。
+---
 
-Orbita 的目标不是再做一个插件商店，而是提供一个本地事实来源：能力从哪里来、属于哪个作用域、是否启用、哪些 Agent 能看到、有没有冲突、漂移或安全风险。
+Orbita scans your machine and the current project to show what Codex Desktop, Claude Code, the cross-agent `.agents` workspace, and Cursor will actually load — Skills, Plugins, Commands, Hooks, MCP servers, Rules, and Instructions. It is not another plugin store; it's a local source of truth for **where a capability comes from, which agent can see it, and whether anything has drifted, conflicts, or carries risk**.
 
-## 能管理什么
+The repository ships three things from one SwiftPM package:
 
-- 基于 `SKILL.md` 的 Agent Skills。
-- Codex Desktop 的 Plugins、Skills、Commands、Hooks、MCP 配置和项目文件。
-- Claude Code 的 Plugins、Commands、Hooks、Settings 和项目 Instructions。
-- `.agents` 项目能力意图、生成的 adapter preview 和 lock 数据。
-- Cursor rules、legacy `.cursorrules`、`.mcp.json` 和共享项目元数据。
-- 从 package 内容、本地目录和插件缓存中推断出来的虚拟 Plugin。
+- **OrbitaCore** — scan / resolve / agent-view / overview / adapter-preview / drift / doctor / apply-plan logic.
+- **`orbita` CLI** — thin wrapper around `OrbitaCore` with text and `--json` output.
+- **OrbitaApp** — SwiftUI macOS app over the same core, with Sparkle auto-update.
 
-## 核心能力
+## Download
 
-- **能力图谱**：统一扫描用户级、项目级、原生 Agent 配置、Plugin cache 和 `.agents` intent。
-- **Agent 视角**：展示 Overview、Agents、Codex、Claude Code 分别能看到什么能力。
-- **生命周期管理**：支持 merge、enable、disable、delete、clean、rollback、更新检查和原生 Plugin 更新触发。
-- **Skills CLI 兼容**：读取 `skills-lock.json` / `.skill-lock.json`，展示 source/ref/hash/skillPath、canonical 路径和基于 `skills` agent 路径表推断的安装目标。
-- **漂移诊断**：解释 broken path、duplicate、shadowed、disabled 但仍被发现、以及 review flag。
-- **风险可见性**：标记读文件、写文件、执行命令、网络访问、secrets 和全局作用域等风险。
-- **发版自动化**：内置 GitHub Release 工作流，支持签名、notarized DMG 和 Sparkle appcast。
+Pre-built signed and notarized DMGs are published on every tag.
 
-## 产品模型
+- **Latest release:** [github.com/LLLLLayer/orbita/releases/latest](https://github.com/LLLLLayer/orbita/releases/latest)
+- **All releases:** [github.com/LLLLLayer/orbita/releases](https://github.com/LLLLLayer/orbita/releases)
+- The app updates itself in place via [Sparkle](https://sparkle-project.org).
 
-Orbita 把容易混在一起的三件事拆开处理：
+Requirements: macOS 15 or newer.
 
-- **Source**：真实文件、目录、Plugin cache 或 package。
-- **Intent**：项目或原生客户端是否希望启用这个能力。
-- **Visibility**：某个具体 Agent 是否真的能加载这个能力。
+## What Orbita can manage
 
-例如 Codex Plugin 的启用不能只写 `config.toml`。用户级 Codex Plugin 需要通过 `codex plugin add <plugin>@<marketplace>` 安装或刷新 Plugin cache，并记录启用状态；禁用在当前 Codex CLI 没有公开 disable 命令时才回退为写 `enabled = false`。
+- `SKILL.md`-based Agent Skills.
+- Codex Desktop Plugins, Skills, Commands, Hooks, MCP configs, and project files.
+- Claude Code Plugins, Commands, Hooks, Settings, and project Instructions.
+- `.agents` capability intent, generated adapter previews, and lock data.
+- Cursor rules, legacy `.cursorrules`, `.mcp.json`, and shared project metadata.
+- Virtual Plugins inferred from package contents, local directories, and plugin caches.
 
-Codex 项目维度要分开看：commands、hooks、plugin config 等 Codex 原生项目配置仍在 `<repo>/.codex`；基于 `SKILL.md` 的 repo skills 按 Codex 官方规则放在 `<repo>/.agents/skills`，Codex 会从当前工作目录向上扫描 `.agents/skills` 直到仓库根。Codex 还支持在 `~/.codex/config.toml` 里通过 `[[skills.config]]` 禁用单个 `SKILL.md` 路径，Orbita 会把这种状态识别为 Codex 专属可见性。
+## Core capabilities
 
-## 项目结构
+- **Capability graph.** Unified scan across user scope, project scope, native agent configs, plugin caches, and `.agents` intent.
+- **Agent perspective.** Overview, Agents, Codex, and Claude Code views show what each agent can actually see.
+- **Lifecycle management.** `merge`, `enable`, `disable`, `delete`, `clean`, `rollback`, update checks, and triggers for native plugin updates.
+- **Skills CLI compatibility.** Reads `skills-lock.json` / `.skill-lock.json`, surfaces source / ref / hash / skillPath, canonical paths, and inferred install targets.
+- **Drift diagnostics.** Explains broken paths, duplicates, shadowed entries, disabled-but-still-discovered, and review flags.
+- **Risk visibility.** Flags read-file, write-file, command execution, network access, secrets, and global scope.
+- **Three-layer model.** Source (real files / cache / package) vs. Intent (`.agents/manifest.json`) vs. Visibility (per-agent) — never conflated.
+- **Release automation.** GitHub Release workflow with code signing, notarized DMG, and Sparkle appcast.
+
+## Build and debug from source
+
+```bash
+swift build                       # SwiftPM build of all targets
+swift test                        # OrbitaCoreTests + OrbitaCLITests
+swift test --filter <name>        # single test
+./script/xcode_build.sh build     # xcodebuild against Orbita.xcodeproj (App scheme)
+./script/build_and_run.sh         # build + open Orbita.app
+./script/build_and_run.sh --verify     # build + open + assert process is running
+./script/build_and_run.sh --telemetry  # stream OSLog subsystem dev.orbita.app
+swift run orbita <command>        # run the CLI from source
+```
+
+Debug tips:
+
+- **Stream telemetry:** `./script/build_and_run.sh --telemetry` tails the `dev.orbita.app` OSLog subsystem (`App`, `Scan`, `Apply` categories). Scan log lines (`scan.start`, `scan.phase`, `scan.finish`, `scan.failed`) include capability counts, issue counts, and duration.
+- **Drive from the CLI:** the App is a viewer over the same logic — `swift run orbita scan|status|graph|overview|drift|agent|explain|preview|doctor|plan` exercises every code path the App does. Add `--json` for machine output.
+- **Inspect a single capability:** `swift run orbita explain --project-root <path> <capability-id>`.
+- **Dry-run a change:** `swift run orbita plan --project-root <path> --merge` (or `--enable`, `--disable`, `--delete`, `--rollback`, `--clean`). Add `--apply` to write.
+- **Open in Xcode:** `open Orbita.xcodeproj`.
+
+## CLI overview
+
+```bash
+swift run orbita scan     --project-root <path> [--json]
+swift run orbita status   --project-root <path> [--json]
+swift run orbita graph    --project-root <path> [--json]
+swift run orbita overview --project-root <path> [--json]
+swift run orbita drift    --project-root <path>
+swift run orbita agent    --project-root <path> --agent codex|claude-code|cursor
+swift run orbita explain  --project-root <path> <capability-id>
+swift run orbita preview  --project-root <path> --agent <id>
+swift run orbita doctor   [--project-root <path>]
+swift run orbita plan     --project-root <path> --merge|--rollback|--clean|--enable <id>|--disable <id>|--delete <id> [--apply] [--json]
+```
+
+`--no-user-scope` restricts scanning to the project. `plan` without `--apply` prints a dry run; with `--apply` it returns completed / failed / pending operations.
+
+## Project structure
 
 ```text
 Sources/
-  OrbitaCore/   扫描、解析、图谱模型、Apply Plan、状态报告
-  OrbitaCLI/    scan/status/overview/plan/doctor 等命令行入口
-  OrbitaApp/    SwiftUI macOS App 和交互式能力控制台
-Support/        App bundle metadata、entitlements 和发版配置
-Tests/          Scanner、Resolver、Apply Plan、CLI 和 fixture 覆盖
-docs/           公开文档、生命周期规范和发版清单
-script/         本地构建、运行、打包、签名和发版脚本
+  OrbitaCore/   scan, resolve, graph model, Apply Plan, status reports
+  OrbitaCLI/    scan/status/overview/plan/doctor entry points
+  OrbitaApp/    SwiftUI macOS app and capability console
+Support/        bundle metadata, entitlements, release config
+Tests/          scanner, resolver, Apply Plan, CLI, fixtures
+docs/           public docs, lifecycle spec, release checklist
+script/         local build, run, package, sign, release scripts
 ```
 
-## 环境要求
+## Documentation
 
-- macOS 14 或更新版本。
-- 支持 Swift 6 的 Xcode。
-- Git。
-- 可选：Codex Desktop / Codex CLI、Claude Code CLI、`npx skills`。
+- [docs/capability-lifecycle.md](docs/capability-lifecycle.md) — authoritative per-agent enable / disable / update / delete contract.
+- [docs/hook-logic.md](docs/hook-logic.md) — hook scanner contract (event / matcher / handler model, host inference).
+- [docs/release.md](docs/release.md) — signing, notarization, DMG, Sparkle appcast checklist.
 
-## 构建和运行
+## License
 
-打开 Xcode 工程：
+Orbita is released under the [MIT License](LICENSE).
 
-```bash
-open Orbita.xcodeproj
-```
+## Acknowledgements
 
-命令行构建：
+Orbita is built on the work of the open-source community. In particular it depends on:
 
-```bash
-./script/xcode_build.sh build
-```
+- [**Sparkle**](https://github.com/sparkle-project/Sparkle) — software update framework for macOS apps. MIT License.
+- [**Textual**](https://github.com/gonzalezreal/textual) — Markdown rendering for SwiftUI. MIT License.
 
-运行 macOS App：
-
-```bash
-./script/build_and_run.sh --verify
-```
-
-调试扫描和 Apply 行为时查看统一日志：
-
-```bash
-./script/build_and_run.sh --telemetry
-```
-
-## CLI 用法
-
-SwiftPM 会构建 `orbita` executable target：
-
-```bash
-swift run orbita status --project-root /path/to/project
-swift run orbita overview --project-root /path/to/project
-swift run orbita graph --project-root /path/to/project --json
-swift run orbita drift --project-root /path/to/project
-swift run orbita doctor
-```
-
-生成或执行项目 `.agents` 变更计划：
-
-```bash
-swift run orbita plan --merge --project-root /path/to/project
-swift run orbita plan --disable "capability-name" --project-root /path/to/project
-swift run orbita plan --rollback --project-root /path/to/project --apply
-swift run orbita plan --clean --project-root /path/to/project --apply
-```
-
-Apply Plan 会在写入前展示 operation kind、path、target、risk 和说明。
-
-## 生命周期规范
-
-详细规范见 [docs/capability-lifecycle.md](docs/capability-lifecycle.md)，包括：
-
-- `.agents` 在电脑维度和项目维度的启用、禁用和更新逻辑。
-- Codex Desktop Plugin 的 install、enable、disable、remove 和 update 行为。
-- Claude Code Plugin 的作用域和原生命令。
-- Plugin 更新检查和触发命令。
-- signed DMG、notarization 和 Sparkle 更新流程。
-
-## 发版
-
-本地发版验证：
-
-```bash
-script/release_github.sh v0.1.0
-```
-
-正式公开发版通过 GitHub Actions 的 tag workflow 触发，需要 Apple Developer ID 签名、notarization 凭据和 Sparkle EdDSA key。完整清单见 [docs/release.md](docs/release.md)。
-
-## 开发检查
-
-```bash
-swift test
-./script/xcode_build.sh build
-./script/xcode_build.sh test
-```
-
-## 文档
-
-- [docs/README.md](docs/README.md)：文档索引。
-- [docs/capability-lifecycle.md](docs/capability-lifecycle.md)：Agent 能力生命周期规范。
-- [docs/release.md](docs/release.md)：签名、notarization、DMG 和自动更新流程。
+The project also takes inspiration from Codex Desktop, Claude Code, Cursor, and the broader Coding Agent ecosystem whose capability formats Orbita reads.
