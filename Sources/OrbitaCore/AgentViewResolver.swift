@@ -4,11 +4,15 @@ public final class AgentViewResolver {
     public init() {}
 
     public func view(for agent: AgentID, graph: CapabilityGraph) -> AgentView {
-        let visible = graph.capabilities.filter { capability in
+        var visible = graph.capabilities.filter { capability in
             isVisible(capability, to: agent)
         }
+        if agent == .claudeCode {
+            visible = claudeEffectiveCapabilities(from: visible)
+        }
+        let visibleIDs = Set(visible.map(\.id))
         let hidden = graph.capabilities.filter { capability in
-            !visible.contains(capability)
+            !visibleIDs.contains(capability.id)
         }
         return AgentView(
             projectRoot: graph.projectRoot,
@@ -49,6 +53,7 @@ public final class AgentViewResolver {
                 return capability.metadata["claudeMCPEnabled"] != "false"
             case .command:
                 return capability.source.kind == "claude-command"
+                    || capability.source.kind == "claude-plugin-command"
             case .hook:
                 return capability.source.kind == "claude-settings"
                     || capability.source.kind == "claude-settings-hook"
@@ -64,7 +69,8 @@ public final class AgentViewResolver {
     private func isClaudeNativeCapability(_ capability: Capability) -> Bool {
         capability.source.kind == "claude-skill"
             || capability.source.kind == "claude-agent"
-            || capability.source.kind == "claude-plugin-agent"
+            || capability.source.kind == "claude-plugin"
+            || capability.source.kind.hasPrefix("claude-plugin-")
             || sourcePathComponents(for: capability).contains(".claude")
     }
 
@@ -85,5 +91,91 @@ public final class AgentViewResolver {
 
     private func sourcePathComponents(for capability: Capability) -> [String] {
         URL(fileURLWithPath: capability.source.path).pathComponents
+    }
+
+    private func claudeEffectiveCapabilities(from capabilities: [Capability]) -> [Capability] {
+        let pluginInstalls = capabilities.filter(isClaudePluginInstall)
+        guard !pluginInstalls.isEmpty else {
+            return capabilities
+        }
+
+        // Keep the install Claude would resolve at runtime, not every cached copy.
+        let effectivePlugins = Dictionary(grouping: pluginInstalls) { capability in
+            capability.metadata["pluginSelector"] ?? capability.id
+        }
+        .compactMapValues { installs in
+            installs.min(by: claudePluginPrecedence)
+        }
+
+        let effectivePluginIDs = Set(effectivePlugins.values.map(\.id))
+        let installedPluginIDs = Set(pluginInstalls.map(\.id))
+        let shadowedPluginIDs = installedPluginIDs.subtracting(effectivePluginIDs)
+
+        return capabilities.filter { capability in
+            if shadowedPluginIDs.contains(capability.id) {
+                return false
+            }
+            if let pluginID = capability.pluginID,
+               shadowedPluginIDs.contains(pluginID),
+               isClaudePluginChild(capability) {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func isClaudePluginInstall(_ capability: Capability) -> Bool {
+        capability.type == .plugin
+            && capability.metadata["manager"] == "claude-code"
+            && capability.source.kind == "claude-plugin"
+            && capability.metadata["pluginSelector"] != nil
+    }
+
+    private func isClaudePluginChild(_ capability: Capability) -> Bool {
+        capability.metadata["manager"] == "claude-code"
+            || capability.source.kind.hasPrefix("claude-plugin-")
+    }
+
+    private func claudePluginPrecedence(_ lhs: Capability, _ rhs: Capability) -> Bool {
+        let lhsScopeRank = claudePluginScopeRank(lhs)
+        let rhsScopeRank = claudePluginScopeRank(rhs)
+        if lhsScopeRank != rhsScopeRank {
+            return lhsScopeRank < rhsScopeRank
+        }
+
+        let versionComparison = claudePluginVersion(lhs).compare(
+            claudePluginVersion(rhs),
+            options: [.caseInsensitive, .numeric]
+        )
+        if versionComparison != .orderedSame {
+            return versionComparison == .orderedDescending
+        }
+
+        let lhsUpdated = lhs.metadata["lastUpdated"] ?? lhs.metadata["installedAt"] ?? ""
+        let rhsUpdated = rhs.metadata["lastUpdated"] ?? rhs.metadata["installedAt"] ?? ""
+        if lhsUpdated != rhsUpdated {
+            return lhsUpdated > rhsUpdated
+        }
+
+        return lhs.id < rhs.id
+    }
+
+    private func claudePluginScopeRank(_ capability: Capability) -> Int {
+        switch capability.metadata["managerScope"] ?? capability.scope.rawValue {
+        case "managed":
+            return 0
+        case "local":
+            return 1
+        case "project":
+            return 2
+        case "user":
+            return 3
+        default:
+            return 4
+        }
+    }
+
+    private func claudePluginVersion(_ capability: Capability) -> String {
+        capability.metadata["installedVersion"] ?? ""
     }
 }

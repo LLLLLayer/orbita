@@ -1,6 +1,23 @@
 import Foundation
 import OrbitaCore
 
+private enum ApplyExecutionOutcome: Sendable {
+    case success(ApplyExecutionResult)
+    case failure(String)
+}
+
+enum CapabilityOptimisticMutation: Equatable, Sendable {
+    case enable
+    case disable
+    case delete
+}
+
+struct CapabilityOptimisticMutationToken: Sendable {
+    fileprivate let previousGraph: CapabilityGraph?
+    fileprivate let optimisticRevision: Int?
+    fileprivate let affectedCapabilities: [Capability]
+}
+
 @MainActor
 final class ProjectCapabilityStore: ObservableObject {
     static let environmentSelectionID = "environment"
@@ -25,6 +42,7 @@ final class ProjectCapabilityStore: ObservableObject {
     private let snapshotStore: CapabilitySnapshotStore
     private let projectLibraryStore: ProjectLibraryStore
     private let iso8601Formatter = ISO8601DateFormatter()
+    private var graphRevision = 0
 
     init(
         projectRoot: URL? = nil,
@@ -91,7 +109,7 @@ final class ProjectCapabilityStore: ObservableObject {
         guard let projectRoot else {
             OrbitaTelemetry.scan.notice("scan.skipped reason=no-project")
             if !preserveCurrentGraph {
-                graph = nil
+                setGraph(nil)
             }
             errorMessage = nil
             isScanning = false
@@ -108,7 +126,7 @@ final class ProjectCapabilityStore: ObservableObject {
         errorMessage = nil
         if let snapshot = try? snapshotStore.load(projectRoot: root) {
             if !preserveCurrentGraph {
-                graph = snapshot.graph
+                setGraph(snapshot.graph)
             }
             lastRefreshedAt = iso8601Formatter.date(from: snapshot.capturedAt)
             if !force, isSnapshotFresh(snapshot) {
@@ -123,7 +141,7 @@ final class ProjectCapabilityStore: ObservableObject {
             OrbitaTelemetry.scan.notice("snapshot.loaded root=\(root.path, privacy: .private)")
         } else {
             if !preserveCurrentGraph {
-                graph = nil
+                setGraph(nil)
             }
             lastRefreshedAt = nil
             scanMessage = "Scanning \(projectName)"
@@ -158,7 +176,7 @@ final class ProjectCapabilityStore: ObservableObject {
                     return
                 }
 
-                self.graph = graph
+                self.setGraph(graph)
                 self.errorMessage = nil
                 self.isScanning = false
                 self.scanMessage = "Found \(graph.capabilities.count) capabilities"
@@ -178,7 +196,7 @@ final class ProjectCapabilityStore: ObservableObject {
                     OrbitaTelemetry.scan.notice("scan.cancelled root=\(root.path, privacy: .private)")
                     return
                 }
-                self.graph = nil
+                self.setGraph(nil)
                 self.errorMessage = error.localizedDescription
                 self.isScanning = false
                 self.scanMessage = nil
@@ -196,6 +214,11 @@ final class ProjectCapabilityStore: ObservableObject {
             return false
         }
         return Date().timeIntervalSince(capturedAt) < Double(ttlMinutes * 60)
+    }
+
+    private func setGraph(_ graph: CapabilityGraph?) {
+        self.graph = graph
+        graphRevision += 1
     }
 
     fileprivate func updateScanProgress(_ event: ScanProgressEvent, for root: URL) {
@@ -521,27 +544,119 @@ final class ProjectCapabilityStore: ObservableObject {
     @discardableResult
     func apply(_ plan: ApplyPlan) -> Bool {
         let affectedCapabilities = affectedCapabilities(for: plan)
+        let previousGraph = graph
         errorMessage = nil
-        do {
-            let result = try ApplyPlanExecutor().apply(plan)
-            OrbitaTelemetry.apply.notice("apply.finish action=\(plan.action.rawValue, privacy: .public) operations=\(result.completedOperations.count, privacy: .public)")
-            optimisticallyApply(plan)
-            if plan.action == .delete {
-                finishFastDeleteSync(affectedCapabilities: affectedCapabilities)
-            } else {
-                reload(force: true, preserveCurrentGraph: true)
+
+        let didOptimisticallyApply = optimisticallyApply(plan)
+        let optimisticRevision = didOptimisticallyApply ? graphRevision : nil
+
+        Task { [weak self, plan, affectedCapabilities, previousGraph, optimisticRevision] in
+            let outcome = await Task.detached(priority: .userInitiated) {
+                do {
+                    let result = try ApplyPlanExecutor().apply(plan)
+                    return ApplyExecutionOutcome.success(result)
+                } catch {
+                    return ApplyExecutionOutcome.failure(error.localizedDescription)
+                }
+            }.value
+
+            guard let self else { return }
+
+            switch outcome {
+            case let .success(result):
+                self.finishApply(
+                    plan,
+                    result: result,
+                    affectedCapabilities: affectedCapabilities,
+                    optimisticRevision: optimisticRevision
+                )
+            case let .failure(message):
+                self.failApply(
+                    plan,
+                    message: message,
+                    previousGraph: previousGraph,
+                    optimisticRevision: optimisticRevision
+                )
             }
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            OrbitaTelemetry.apply.error("apply.failed action=\(plan.action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-            return false
+        }
+
+        return true
+    }
+
+    private func finishApply(
+        _ plan: ApplyPlan,
+        result: ApplyExecutionResult,
+        affectedCapabilities: [Capability],
+        optimisticRevision: Int?
+    ) {
+        OrbitaTelemetry.apply.notice("apply.finish action=\(plan.action.rawValue, privacy: .public) operations=\(result.completedOperations.count, privacy: .public)")
+        if plan.action == .delete, isCurrentOptimisticRevision(optimisticRevision) {
+            finishFastDeleteSync(affectedCapabilities: affectedCapabilities)
+        } else {
+            reload(force: true, preserveCurrentGraph: true)
         }
     }
 
+    private func failApply(
+        _ plan: ApplyPlan,
+        message: String,
+        previousGraph: CapabilityGraph?,
+        optimisticRevision: Int?
+    ) {
+        if isCurrentOptimisticRevision(optimisticRevision) {
+            setGraph(previousGraph)
+        }
+        OrbitaTelemetry.apply.error("apply.failed action=\(plan.action.rawValue, privacy: .public) error=\(message, privacy: .public)")
+        reload(force: true, preserveCurrentGraph: true)
+        errorMessage = message
+    }
+
+    private func isCurrentOptimisticRevision(_ revision: Int?) -> Bool {
+        guard let revision else { return false }
+        return graphRevision == revision
+    }
+
+    func beginOptimisticMutation(
+        _ mutation: CapabilityOptimisticMutation,
+        capability: Capability
+    ) -> CapabilityOptimisticMutationToken {
+        let affectedCapabilities = affectedCapabilities(for: optimisticCapabilityIDs(for: capability))
+        let previousGraph = graph
+        let didOptimisticallyApply = optimisticallyApply(mutation, capability: capability)
+        return CapabilityOptimisticMutationToken(
+            previousGraph: previousGraph,
+            optimisticRevision: didOptimisticallyApply ? graphRevision : nil,
+            affectedCapabilities: affectedCapabilities.isEmpty ? [capability] : affectedCapabilities
+        )
+    }
+
+    func finishOptimisticMutation(
+        _ mutation: CapabilityOptimisticMutation,
+        capability: Capability,
+        token: CapabilityOptimisticMutationToken
+    ) {
+        if mutation == .delete, isCurrentOptimisticRevision(token.optimisticRevision) {
+            finishFastDeleteSync(affectedCapabilities: token.affectedCapabilities)
+        } else {
+            reload(force: true, preserveCurrentGraph: true)
+        }
+    }
+
+    func failOptimisticMutation(_ token: CapabilityOptimisticMutationToken, message: String) {
+        if isCurrentOptimisticRevision(token.optimisticRevision) {
+            setGraph(token.previousGraph)
+        }
+        reload(force: true, preserveCurrentGraph: true)
+        errorMessage = message
+    }
+
     private func affectedCapabilities(for plan: ApplyPlan) -> [Capability] {
-        guard let graph else { return [] }
         let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
+        return affectedCapabilities(for: affectedIDs)
+    }
+
+    private func affectedCapabilities(for affectedIDs: Set<String>) -> [Capability] {
+        guard let graph else { return [] }
         return graph.capabilities.filter { affectedIDs.contains($0.id) }
     }
 
@@ -598,11 +713,11 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
-    private func optimisticallyApply(_ plan: ApplyPlan) {
+    private func optimisticallyApply(_ plan: ApplyPlan) -> Bool {
         guard var projected = graph,
               projected.projectRoot == plan.projectRoot
         else {
-            return
+            return false
         }
 
         switch plan.action {
@@ -615,11 +730,42 @@ final class ProjectCapabilityStore: ObservableObject {
             let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
             projected.capabilities.removeAll { affectedIDs.contains($0.id) }
         case .merge, .rollback, .clean:
-            return
+            return false
         }
 
         projected.generatedAt = ISO8601DateFormatter().string(from: Date())
-        graph = projected
+        setGraph(projected)
+        return true
+    }
+
+    private func optimisticallyApply(_ mutation: CapabilityOptimisticMutation, capability: Capability) -> Bool {
+        guard var projected = graph else {
+            return false
+        }
+
+        let affectedIDs = optimisticCapabilityIDs(for: capability)
+        switch mutation {
+        case .enable:
+            for capabilityID in affectedIDs {
+                setStatus(.enabled, capabilityID: capabilityID, in: &projected)
+            }
+        case .disable:
+            for capabilityID in affectedIDs {
+                setStatus(.disabled, capabilityID: capabilityID, in: &projected)
+            }
+        case .delete:
+            projected.capabilities.removeAll { affectedIDs.contains($0.id) }
+        }
+
+        projected.generatedAt = ISO8601DateFormatter().string(from: Date())
+        setGraph(projected)
+        return true
+    }
+
+    private func optimisticCapabilityIDs(for capability: Capability) -> Set<String> {
+        var ids = Set(groupedCapabilityIDs(for: capability))
+        ids.insert(capability.id)
+        return ids
     }
 
     private func setStatus(_ status: CapabilityStatus, capabilityID: String, in graph: inout CapabilityGraph) {

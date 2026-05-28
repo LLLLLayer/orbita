@@ -53,11 +53,11 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         case .agentsSource:
             return sourceCapabilities(.agents, in: graph)
         case .codexSource:
-            return sourceCapabilities(.codex, in: graph)
+            return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeSource:
-            return sourceCapabilities(.claude, in: graph)
+            return AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
         case .cursorSource:
-            return sourceCapabilities(.cursor, in: graph)
+            return AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities
         case .codexLike:
             return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeLike:
@@ -89,11 +89,11 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         case .agentsSource:
             ids = sourceCapabilityIDs(.agents, in: graph)
         case .codexSource:
-            ids = sourceCapabilityIDs(.codex, in: graph)
+            ids = Set(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.map(\.id))
         case .claudeSource:
-            ids = sourceCapabilityIDs(.claude, in: graph)
+            ids = Set(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.map(\.id))
         case .cursorSource:
-            ids = sourceCapabilityIDs(.cursor, in: graph)
+            ids = Set(AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities.map(\.id))
         case .codexLike:
             ids = Set(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.map(\.id))
         case .claudeLike:

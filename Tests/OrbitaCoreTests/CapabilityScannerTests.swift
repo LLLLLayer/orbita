@@ -1078,6 +1078,137 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
     }
 
+    func testClaudeAgentViewShowsEffectivePluginScopeOnly() throws {
+        let projectPlugin = Capability(
+            id: "plugin:claude:workflow-unicorn-marketplace:project:aweme",
+            name: "Workflow",
+            type: .plugin,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.info, .read],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/cache/unicorn-marketplace/workflow/1.4.10", packageName: "workflow"),
+            metadata: [
+                "manager": "claude-code",
+                "pluginSelector": "workflow@unicorn-marketplace",
+                "managerScope": "project",
+                "installedVersion": "1.4.10"
+            ]
+        )
+        let localPlugin = Capability(
+            id: "plugin:claude:workflow-unicorn-marketplace:local:aweme",
+            name: "Workflow",
+            type: .plugin,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.info, .read],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/cache/unicorn-marketplace/workflow/1.4.11", packageName: "workflow"),
+            metadata: [
+                "manager": "claude-code",
+                "pluginSelector": "workflow@unicorn-marketplace",
+                "managerScope": "local",
+                "installedVersion": "1.4.11"
+            ]
+        )
+        let projectCommand = Capability(
+            id: "command:/tmp/cache/unicorn-marketplace/workflow/1.4.10/commands/unicorn-apply.md",
+            name: "unicorn-apply",
+            type: .command,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "claude-plugin-command", path: "/tmp/cache/unicorn-marketplace/workflow/1.4.10/commands/unicorn-apply.md", packageName: "workflow"),
+            pluginID: projectPlugin.id,
+            metadata: [
+                "manager": "claude-code",
+                "pluginSelector": "workflow@unicorn-marketplace",
+                "managerScope": "project",
+                "installedVersion": "1.4.10"
+            ]
+        )
+        let localCommand = Capability(
+            id: "command:/tmp/cache/unicorn-marketplace/workflow/1.4.11/commands/unicorn-apply.md",
+            name: "unicorn-apply",
+            type: .command,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "claude-plugin-command", path: "/tmp/cache/unicorn-marketplace/workflow/1.4.11/commands/unicorn-apply.md", packageName: "workflow"),
+            pluginID: localPlugin.id,
+            metadata: [
+                "manager": "claude-code",
+                "pluginSelector": "workflow@unicorn-marketplace",
+                "managerScope": "local",
+                "installedVersion": "1.4.11"
+            ]
+        )
+        let rawGraph = CapabilityGraph(
+            projectRoot: "/tmp/aweme",
+            capabilities: [projectPlugin, localPlugin, projectCommand, localCommand],
+            issues: []
+        )
+
+        let visibleIDs = Set(AgentViewResolver().view(for: .claudeCode, graph: rawGraph).visibleCapabilities.map(\.id))
+
+        XCTAssertTrue(visibleIDs.contains(localPlugin.id))
+        XCTAssertTrue(visibleIDs.contains(localCommand.id))
+        XCTAssertFalse(visibleIDs.contains(projectPlugin.id))
+        XCTAssertFalse(visibleIDs.contains(projectCommand.id))
+
+        let resolvedGraph = CapabilityResolver().resolve(scanResult: ScanResult(
+            projectRoot: "/tmp/aweme",
+            capabilities: rawGraph.capabilities,
+            issues: []
+        ))
+        let resolvedIDs = Set(resolvedGraph.capabilities.map(\.id))
+        XCTAssertTrue(resolvedIDs.contains(localPlugin.id))
+        XCTAssertTrue(resolvedIDs.contains(localCommand.id))
+        XCTAssertFalse(resolvedIDs.contains(projectPlugin.id))
+        XCTAssertFalse(resolvedIDs.contains(projectCommand.id))
+    }
+
+    func testClaudeAgentViewUsesLatestVersionWithinSamePluginScope() throws {
+        let olderPlugin = Capability(
+            id: "plugin:claude:workflow-unicorn-marketplace:local:aweme:old",
+            name: "Workflow",
+            type: .plugin,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.info, .read],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/cache/unicorn-marketplace/workflow/1.4.10", packageName: "workflow"),
+            metadata: [
+                "manager": "claude-code",
+                "pluginSelector": "workflow@unicorn-marketplace",
+                "managerScope": "local",
+                "installedVersion": "1.4.10"
+            ]
+        )
+        let latestPlugin = Capability(
+            id: "plugin:claude:workflow-unicorn-marketplace:local:aweme:latest",
+            name: "Workflow",
+            type: .plugin,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.info, .read],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/cache/unicorn-marketplace/workflow/1.4.11", packageName: "workflow"),
+            metadata: [
+                "manager": "claude-code",
+                "pluginSelector": "workflow@unicorn-marketplace",
+                "managerScope": "local",
+                "installedVersion": "1.4.11"
+            ]
+        )
+        let graph = CapabilityGraph(
+            projectRoot: "/tmp/aweme",
+            capabilities: [olderPlugin, latestPlugin],
+            issues: []
+        )
+
+        let visibleIDs = Set(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.map(\.id))
+
+        XCTAssertTrue(visibleIDs.contains(latestPlugin.id))
+        XCTAssertFalse(visibleIDs.contains(olderPlugin.id))
+    }
+
     func testAgentOverviewSummarizesPerAgentVisibilityDifferences() throws {
         let root = try fixtureURL("MixedProject")
         let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))

@@ -11,6 +11,9 @@ struct CapabilityInspectorView: View {
     let onDisable: (Capability) -> Void
     let onDelete: (Capability) -> Void
     let onOpenMarkdownPreview: (MarkdownPreviewDocument) -> Void
+    let onBeginNativeMutation: (CapabilityOptimisticMutation, Capability) -> CapabilityOptimisticMutationToken
+    let onNativeMutationSucceeded: (CapabilityOptimisticMutation, Capability, CapabilityOptimisticMutationToken) -> Void
+    let onNativeMutationFailed: (Capability, CapabilityOptimisticMutationToken, String) -> Void
     let onNativePluginChanged: () -> Void
 
     @State private var runningNativeActionID: String?
@@ -139,28 +142,163 @@ struct CapabilityInspectorView: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .confirmationDialog(
-            "Delete \(pendingNativeDeleteAction?.capability.name ?? "Capability")?",
-            isPresented: Binding(
-                get: { pendingNativeDeleteAction != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        pendingNativeDeleteAction = nil
-                    }
-                }
-            )
-        ) {
-            if let request = pendingNativeDeleteAction {
-                Button("Delete", role: .destructive) {
+        .sheet(item: $pendingNativeDeleteAction) { request in
+            NativePluginDeleteConfirmationSheet(
+                capability: request.capability,
+                command: request.action.command,
+                onDelete: {
                     runNativePluginAction(request.action, capability: request.capability)
                     pendingNativeDeleteAction = nil
+                },
+                onCancel: {
+                    pendingNativeDeleteAction = nil
+                }
+            )
+        }
+    }
+
+    private struct NativePluginDeleteConfirmationSheet: View {
+        let capability: Capability
+        let command: String
+        let onDelete: () -> Void
+        let onCancel: () -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                impactPanel
+                commandPanel
+
+                HStack(spacing: 10) {
+                    NativeDeleteSheetButton(
+                        title: "Cancel",
+                        systemImage: "xmark",
+                        action: onCancel
+                    )
+
+                    Spacer(minLength: 0)
+
+                    NativeDeleteSheetButton(
+                        title: "Delete",
+                        systemImage: "trash",
+                        isDestructive: true,
+                        action: onDelete
+                    )
+                    .keyboardShortcut(.defaultAction)
                 }
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if let request = pendingNativeDeleteAction {
-                Text(request.action.command)
+            .padding(22)
+            .frame(width: 560)
+            .background(OrbitaTheme.canvas)
+            .presentationBackground(OrbitaTheme.canvas)
+        }
+
+        private var header: some View {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.red.opacity(0.11))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Color.red.opacity(0.22))
+                        }
+
+                    Image(systemName: "trash")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.red)
+                }
+                .frame(width: 42, height: 42)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Delete \(capability.name)?")
+                        .font(.title2.weight(.semibold))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Native plugin action")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
             }
+        }
+
+        private var impactPanel: some View {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: 44, height: 44)
+                    .background(Color.red.opacity(0.11), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.red.opacity(0.22))
+                    }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Permanent delete")
+                        .font(.headline.weight(.semibold))
+                    Text("This removes the selected capability through its native lifecycle command. The list will update immediately; if the command fails, Orbita will restore the previous state.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+        }
+
+        private var commandPanel: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Command", systemImage: "terminal")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(command)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(3)
+                    .truncationMode(.middle)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(OrbitaTheme.border)
+                    }
+            }
+        }
+    }
+
+    private struct NativeDeleteSheetButton: View {
+        let title: String
+        let systemImage: String
+        var isDestructive = false
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                Label(title, systemImage: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .foregroundStyle(isDestructive ? .red : .primary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(isDestructive ? Color.red.opacity(0.24) : OrbitaTheme.border)
+            }
+        }
+
+        private var backgroundColor: Color {
+            isDestructive ? Color.red.opacity(0.11) : OrbitaTheme.controlFill
         }
     }
 
@@ -391,6 +529,8 @@ struct CapabilityInspectorView: View {
         guard runningNativeActionID == nil else { return }
         runningNativeActionID = action.id
         nativeActionResult = nil
+        let optimisticMutation = action.optimisticMutation
+        let optimisticToken = optimisticMutation.map { onBeginNativeMutation($0, capability) }
 
         Task.detached {
             let result: CommandRunResult
@@ -456,7 +596,18 @@ struct CapabilityInspectorView: View {
                 }
                 runningNativeActionID = nil
                 if result.exitCode == 0 {
-                    onNativePluginChanged()
+                    if let optimisticMutation, let optimisticToken {
+                        onNativeMutationSucceeded(optimisticMutation, capability, optimisticToken)
+                    } else {
+                        onNativePluginChanged()
+                    }
+                } else if let optimisticToken {
+                    let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onNativeMutationFailed(
+                        capability,
+                        optimisticToken,
+                        output.isEmpty ? "\(action.title) failed: \(action.command)" : output
+                    )
                 }
             }
         }
@@ -1239,6 +1390,19 @@ private struct NativePluginAction: Identifiable {
 
     var isEnablementToggle: Bool {
         kind == .enable || kind == .disable
+    }
+
+    var optimisticMutation: CapabilityOptimisticMutation? {
+        switch kind {
+        case .enable:
+            return .enable
+        case .disable:
+            return .disable
+        case .delete:
+            return .delete
+        case .install, .check, .update:
+            return nil
+        }
     }
 
     static func actions(for capability: Capability) -> [NativePluginAction] {

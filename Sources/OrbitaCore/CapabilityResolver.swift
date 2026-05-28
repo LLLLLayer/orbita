@@ -8,6 +8,7 @@ public final class CapabilityResolver {
         applyAgentsIntent(from: scanResult.capabilities, to: &capabilities)
         capabilities.append(contentsOf: inferredPlugins(from: capabilities))
         capabilities = deduplicatedCapabilities(capabilities)
+        capabilities = effectiveClaudePluginCapabilities(capabilities)
         markDuplicates(in: &capabilities)
         markShadowedAndDrifted(in: &capabilities)
 
@@ -219,6 +220,92 @@ public final class CapabilityResolver {
             result.append(capability)
         }
         return result
+    }
+
+    private func effectiveClaudePluginCapabilities(_ capabilities: [Capability]) -> [Capability] {
+        let pluginInstalls = capabilities.filter(isClaudePluginInstall)
+        guard !pluginInstalls.isEmpty else {
+            return capabilities
+        }
+
+        // Claude may keep multiple cached installs, but a session sees one install per selector.
+        let effectivePlugins = Dictionary(grouping: pluginInstalls) { capability in
+            capability.metadata["pluginSelector"] ?? capability.id
+        }
+        .compactMapValues { installs in
+            installs.min(by: claudePluginPrecedence)
+        }
+
+        let effectivePluginIDs = Set(effectivePlugins.values.map(\.id))
+        let installedPluginIDs = Set(pluginInstalls.map(\.id))
+        let shadowedPluginIDs = installedPluginIDs.subtracting(effectivePluginIDs)
+
+        return capabilities.filter { capability in
+            if shadowedPluginIDs.contains(capability.id) {
+                return false
+            }
+            if let pluginID = capability.pluginID,
+               shadowedPluginIDs.contains(pluginID),
+               isClaudePluginChild(capability) {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func isClaudePluginInstall(_ capability: Capability) -> Bool {
+        capability.type == .plugin
+            && capability.metadata["manager"] == "claude-code"
+            && capability.source.kind == "claude-plugin"
+            && capability.metadata["pluginSelector"] != nil
+    }
+
+    private func isClaudePluginChild(_ capability: Capability) -> Bool {
+        capability.metadata["manager"] == "claude-code"
+            || capability.source.kind.hasPrefix("claude-plugin-")
+    }
+
+    private func claudePluginPrecedence(_ lhs: Capability, _ rhs: Capability) -> Bool {
+        let lhsScopeRank = claudePluginScopeRank(lhs)
+        let rhsScopeRank = claudePluginScopeRank(rhs)
+        if lhsScopeRank != rhsScopeRank {
+            return lhsScopeRank < rhsScopeRank
+        }
+
+        let versionComparison = claudePluginVersion(lhs).compare(
+            claudePluginVersion(rhs),
+            options: [.caseInsensitive, .numeric]
+        )
+        if versionComparison != .orderedSame {
+            return versionComparison == .orderedDescending
+        }
+
+        let lhsUpdated = lhs.metadata["lastUpdated"] ?? lhs.metadata["installedAt"] ?? ""
+        let rhsUpdated = rhs.metadata["lastUpdated"] ?? rhs.metadata["installedAt"] ?? ""
+        if lhsUpdated != rhsUpdated {
+            return lhsUpdated > rhsUpdated
+        }
+
+        return lhs.id < rhs.id
+    }
+
+    private func claudePluginScopeRank(_ capability: Capability) -> Int {
+        switch capability.metadata["managerScope"] ?? capability.scope.rawValue {
+        case "managed":
+            return 0
+        case "local":
+            return 1
+        case "project":
+            return 2
+        case "user":
+            return 3
+        default:
+            return 4
+        }
+    }
+
+    private func claudePluginVersion(_ capability: Capability) -> String {
+        capability.metadata["installedVersion"] ?? ""
     }
 
     private func statusRank(_ capability: Capability) -> Int {

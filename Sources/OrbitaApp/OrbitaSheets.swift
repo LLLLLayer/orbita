@@ -409,47 +409,27 @@ struct SyncCapabilitySheet: View {
         VStack(alignment: .leading, spacing: 18) {
             CategorySheetHeader(
                 title: "Sync to Agent",
-                subtitle: capability.name,
+                subtitle: syncSubtitle,
                 systemImage: "arrow.triangle.branch"
             )
 
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Copy mode", selection: $selectedMode) {
-                    Label("Copy", systemImage: "doc.on.doc").tag(AgentSyncMode.copy)
-                    Label("Symlink", systemImage: "link").tag(AgentSyncMode.symlink)
-                }
-                .pickerStyle(.segmented)
+            VStack(spacing: 12) {
+                destinationPanel
 
-                Picker("Target", selection: $selectedDestinationScope) {
-                    ForEach(destinationScopes, id: \.self) { scope in
-                        Text(scope == .project ? "Project" : "Global").tag(scope)
-                    }
+                HStack(alignment: .top, spacing: 12) {
+                    methodPanel
+                    locationPanel
                 }
-                .pickerStyle(.segmented)
-            }
 
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(agents) { agent in
-                        SyncAgentRow(
-                            agent: agent,
-                            isAlreadyVisible: visibleAgentIDs.contains(agent.id),
-                            isSelected: selectedAgentID == agent.id
-                        ) {
-                            selectedAgentID = agent.id
-                        }
-                    }
-                }
-                .padding(14)
+                syncPreview
             }
-            .frame(height: min(340, CGFloat(max(agents.count, 1)) * 62 + 28))
-            .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
 
             HStack(spacing: 10) {
-                Text("Targets match the current Agent row order.")
+                Label(statusText, systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 0)
 
@@ -470,9 +450,143 @@ struct SyncCapabilitySheet: View {
             }
         }
         .padding(22)
-        .frame(width: 500)
+        .frame(width: 620)
         .background(OrbitaTheme.canvas)
         .presentationBackground(OrbitaTheme.canvas)
+    }
+
+    private var syncSubtitle: String {
+        capability.name
+    }
+
+    private var destinationPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SyncStepHeader(
+                number: 1,
+                title: "Destination",
+                detail: selectedAgent.map { "Sync to \($0.displayName)" } ?? "Choose an agent"
+            )
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(agents.enumerated()), id: \.element.id) { index, agent in
+                        SyncAgentRow(
+                            agent: agent,
+                            isAlreadyVisible: visibleAgentIDs.contains(agent.id),
+                            isSelected: selectedAgentID == agent.id
+                        ) {
+                            selectedAgentID = agent.id
+                        }
+
+                        if index < agents.count - 1 {
+                            Divider()
+                                .padding(.leading, 54)
+                        }
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .frame(height: min(236, CGFloat(max(agents.count, 1)) * 58 + 12))
+            .background(OrbitaTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(OrbitaTheme.border)
+            }
+        }
+        .padding(14)
+        .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+    }
+
+    private var methodPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SyncStepHeader(number: 2, title: "Method", detail: selectedMode.title)
+
+            VStack(spacing: 8) {
+                SyncOptionButton(
+                    title: "Copy",
+                    detail: "Create an independent file at the target.",
+                    systemImage: "doc.on.doc",
+                    isSelected: selectedMode == .copy
+                ) {
+                    selectedMode = .copy
+                }
+
+                SyncOptionButton(
+                    title: "Symlink",
+                    detail: "Point the target back to this source.",
+                    systemImage: "link",
+                    isSelected: selectedMode == .symlink
+                ) {
+                    selectedMode = .symlink
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+    }
+
+    private var locationPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SyncStepHeader(number: 3, title: "Location", detail: selectedDestinationScope.title)
+
+            VStack(spacing: 8) {
+                ForEach(destinationScopes, id: \.self) { scope in
+                    SyncOptionButton(
+                        title: scope.title,
+                        detail: scope.detail,
+                        systemImage: scope.systemImage,
+                        isSelected: selectedDestinationScope == scope
+                    ) {
+                        selectedDestinationScope = scope
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+    }
+
+    private var syncPreview: some View {
+        HStack(spacing: 10) {
+            Label(capability.name, systemImage: capabilityPreviewIcon)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Image(systemName: "arrow.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Label(selectedAgent?.displayName ?? "Agent", systemImage: "person.crop.circle")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            Text("\(selectedMode.title) · \(selectedDestinationScope.title)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+    }
+
+    private var statusText: String {
+        guard let selectedAgent else {
+            return "Choose a destination agent."
+        }
+        if visibleAgentIDs.contains(selectedAgent.id) {
+            return "\(selectedAgent.displayName) already has this capability."
+        }
+        return "Ready to sync to \(selectedAgent.displayName)."
     }
 
     private var selectedAgent: AgentSelection? {
@@ -481,6 +595,58 @@ struct SyncCapabilitySheet: View {
 
     private var destinationScopes: [AgentSyncDestinationScope] {
         capability.scope == .project ? [.project, .user] : [.user]
+    }
+
+    private var capabilityPreviewIcon: String {
+        switch capability.type {
+        case .skill:
+            return "wand.and.stars"
+        case .command:
+            return "terminal"
+        case .agent:
+            return "person.crop.circle"
+        case .plugin:
+            return "shippingbox"
+        case .mcpServer:
+            return "server.rack"
+        case .rule:
+            return "checklist"
+        case .instruction:
+            return "doc.text"
+        case .hook:
+            return "point.3.connected.trianglepath.dotted"
+        case .unknown:
+            return "questionmark.circle"
+        }
+    }
+}
+
+private struct SyncStepHeader: View {
+    let number: Int
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Text("\(number)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(OrbitaTheme.prominentControlForeground)
+                .frame(width: 20, height: 20)
+                .background(OrbitaTheme.prominentControlFill, in: Circle())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Text(detail)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -494,18 +660,13 @@ private struct SyncAgentRow: View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
                 AgentBrandIcon(agent: agent, size: 18)
-                    .frame(width: 34, height: 34)
-                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .strokeBorder(OrbitaTheme.border)
-                    }
+                    .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(agent.displayName)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
-                    Text(isAlreadyVisible ? "Already synced" : "Sync capability here")
+                    Text(isAlreadyVisible ? "Already available" : "Available target")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -513,21 +674,182 @@ private struct SyncAgentRow: View {
 
                 Spacer(minLength: 12)
 
-                Image(systemName: isAlreadyVisible ? "checkmark.circle.fill" : "arrow.right.circle")
+                Image(systemName: trailingSystemImage)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : (isAlreadyVisible ? Color.green : Color.primary))
+                    .foregroundStyle(trailingColor)
                     .frame(width: 24, height: 24)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(isSelected ? OrbitaTheme.elevatedSurface : OrbitaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(isSelected ? OrbitaTheme.strongBorder : OrbitaTheme.border)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(OrbitaTheme.controlFill)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private var trailingSystemImage: String {
+        isSelected ? "checkmark.circle.fill" : isAlreadyVisible ? "checkmark.circle" : "plus.circle"
+    }
+
+    private var trailingColor: Color {
+        if isSelected { return .accentColor }
+        if isAlreadyVisible { return .green }
+        return .secondary
+    }
+}
+
+private struct SyncOptionButton: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground.opacity(0.72) : .secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : Color.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .orbitaControlSurface(selected: isSelected, cornerRadius: 14)
+    }
+}
+
+private struct SyncSummaryRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private extension AgentSyncMode {
+    var title: String {
+        switch self {
+        case .copy:
+            return "Copy"
+        case .symlink:
+            return "Symlink"
+        }
+    }
+
+    var summaryTitle: String {
+        switch self {
+        case .copy:
+            return "Copies are independent"
+        case .symlink:
+            return "Symlinks follow the source"
+        }
+    }
+
+    var summaryDetail: String {
+        switch self {
+        case .copy:
+            return "Future edits to the original will not update this target automatically."
+        case .symlink:
+            return "The target points back to the original capability on disk."
+        }
+    }
+
+    var summarySystemImage: String {
+        switch self {
+        case .copy:
+            return "doc.on.doc"
+        case .symlink:
+            return "link"
+        }
+    }
+}
+
+private extension AgentSyncDestinationScope {
+    var title: String {
+        switch self {
+        case .project:
+            return "Project"
+        case .user:
+            return "Global"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .project:
+            return "Install into this project only."
+        case .user:
+            return "Install for local projects on this Mac."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .project:
+            return "folder"
+        case .user:
+            return "desktopcomputer"
+        }
+    }
+
+    var summaryTitle: String {
+        switch self {
+        case .project:
+            return "Installs into the project"
+        case .user:
+            return "Installs globally"
+        }
+    }
+
+    var summaryDetail: String {
+        switch self {
+        case .project:
+            return "Only this project gets the synced capability."
+        case .user:
+            return "The selected agent can use it across local projects."
         }
     }
 }
@@ -551,22 +873,12 @@ struct ScopedCapabilityActionSheet: View {
                 systemImage: headerSystemImage
             )
 
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: messageSystemImage)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(messageColor)
-                    .frame(width: 24, height: 24)
-
-                Text(displayedMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 0)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .orbitaCard(cornerRadius: 16, shadowRadius: 6, shadowY: 3)
+            ActionImpactPanel(
+                title: impactTitle,
+                message: displayedMessage,
+                systemImage: messageSystemImage,
+                tint: messageColor
+            )
 
             HStack(spacing: 10) {
                 AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
@@ -612,6 +924,13 @@ struct ScopedCapabilityActionSheet: View {
 
     private var messageColor: Color {
         isDestructive ? .red : .secondary
+    }
+
+    private var impactTitle: String {
+        if isShowingSecondaryConfirmation {
+            return "Linked targets will be removed"
+        }
+        return isDestructive ? "Permanent delete" : "Capability will be disabled"
     }
 
     private var showsContinueButton: Bool {
@@ -680,6 +999,46 @@ private struct ScopedActionButton: View {
 
     private var borderColor: Color {
         isDestructive ? Color.red.opacity(0.24) : OrbitaTheme.border
+    }
+}
+
+private struct ActionImpactPanel: View {
+    let title: String
+    let message: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(tint.opacity(0.12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(tint.opacity(0.22))
+                    }
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                    .lineLimit(1)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
     }
 }
 
@@ -809,6 +1168,8 @@ private struct CategorySheetHeader: View {
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)

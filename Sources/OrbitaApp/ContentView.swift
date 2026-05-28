@@ -280,6 +280,31 @@ struct ContentView: View {
                                     markdownPreviewDocument = document
                                 }
                             },
+                            onBeginNativeMutation: { mutation, capability in
+                                withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08)) {
+                                    let token = store.beginOptimisticMutation(mutation, capability: capability)
+                                    if mutation == .delete {
+                                        selectedCapability = nil
+                                    } else if let updatedCapability = store.capability(id: capability.id) {
+                                        selectedCapability = updatedCapability
+                                    }
+                                    return token
+                                }
+                            },
+                            onNativeMutationSucceeded: { mutation, capability, token in
+                                store.finishOptimisticMutation(mutation, capability: capability, token: token)
+                                if mutation == .delete {
+                                    selectedCapability = nil
+                                } else if let updatedCapability = store.capability(id: capability.id) {
+                                    selectedCapability = updatedCapability
+                                }
+                            },
+                            onNativeMutationFailed: { capability, token, message in
+                                store.failOptimisticMutation(token, message: message)
+                                if let restoredCapability = store.capability(id: capability.id) {
+                                    selectedCapability = restoredCapability
+                                }
+                            },
                             onNativePluginChanged: {
                                 store.reload(force: true)
                             }
