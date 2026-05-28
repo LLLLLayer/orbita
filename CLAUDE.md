@@ -47,7 +47,7 @@ swift run orbita doctor   [--project-root <path>]
 swift run orbita plan     --project-root <path> --merge|--rollback|--clean|--enable <id>|--disable <id>|--delete <id> [--apply] [--json]
 ```
 
-`--no-user-scope` restricts scanning to the project. `plan` without `--apply` prints a dry run; with `--apply` it returns completed/failed/pending operations.
+`--no-user-scope` restricts scanning to the project. `--project-root <path>` and `--project <path>` are synonyms; the path can also be a positional argument. `plan` without `--apply` prints a dry run; with `--apply` it returns completed/failed/pending operations.
 
 ## Architecture (read this before changing scanner/apply behavior)
 

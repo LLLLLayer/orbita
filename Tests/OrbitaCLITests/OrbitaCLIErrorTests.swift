@@ -47,6 +47,20 @@ final class OrbitaCLIErrorTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("- exec:"))
     }
 
+    func testProjectRootAndProjectFlagsAreEquivalent() throws {
+        let root = fixtureURL("MixedProject")
+
+        let viaProjectRoot = OrbitaCLI.runForTesting(arguments: ["scan", "--project-root", root.path, "--no-user-scope"])
+        let viaProject = OrbitaCLI.runForTesting(arguments: ["scan", "--project", root.path, "--no-user-scope"])
+        let viaPositional = OrbitaCLI.runForTesting(arguments: ["scan", root.path, "--no-user-scope"])
+
+        XCTAssertEqual(viaProjectRoot.exitCode, 0)
+        XCTAssertEqual(viaProject.exitCode, 0)
+        XCTAssertEqual(viaPositional.exitCode, 0)
+        XCTAssertEqual(viaProjectRoot.stdout, viaPositional.stdout)
+        XCTAssertEqual(viaProject.stdout, viaPositional.stdout)
+    }
+
     func testMissingProjectRootReturnsJSONErrorAndNonZeroExit() throws {
         let result = OrbitaCLI.runForTesting(arguments: ["scan", "/tmp/orbita-missing-\(UUID().uuidString)", "--json"])
 

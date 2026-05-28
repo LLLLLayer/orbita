@@ -414,8 +414,8 @@ struct ParsedCommand {
                 guard index + 1 < arguments.count else { throw CLIError.missingValue("--delete") }
                 parsedDeleteCapabilityID = arguments[index + 1]
                 index += 2
-            case "--project":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--project") }
+            case "--project", "--project-root":
+                guard index + 1 < arguments.count else { throw CLIError.missingValue(argument) }
                 explicitProject = arguments[index + 1]
                 index += 2
             default:

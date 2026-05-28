@@ -90,7 +90,7 @@ swift run orbita doctor   [--project-root <path>]
 swift run orbita plan     --project-root <path> --merge|--rollback|--clean|--enable <id>|--disable <id>|--delete <id> [--apply] [--json]
 ```
 
-`--no-user-scope` 限制只扫描项目作用域。`plan` 不带 `--apply` 是干跑；带 `--apply` 后返回 completed / failed / pending 操作集。
+`--no-user-scope` 限制只扫描项目作用域。`--project-root <path>` 与 `--project <path>` 是同义写法，路径也可以作为位置参数直接传。`plan` 不带 `--apply` 是干跑；带 `--apply` 后返回 completed / failed / pending 操作集。
 
 ## 目录结构
 
