@@ -1,6 +1,5 @@
 import SwiftUI
 import OrbitaCore
-import UniformTypeIdentifiers
 
 enum OrbitaLayoutMetrics {
     static let sidebarWidth: CGFloat = 224
@@ -22,8 +21,10 @@ struct OrbitaSidebarView: View {
     let onMoveProjects: (IndexSet, Int) -> Void
     let onOpenSettings: () -> Void
 
-    @State private var isEditingProjects = false
-    @State private var draggedProjectPath: String?
+    @State private var draggingProjectPath: String?
+    @State private var projectRowFrames: [String: CGRect] = [:]
+
+    private let projectListCoordinateSpace = "orbita.project-sidebar.projects"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -58,30 +59,13 @@ struct OrbitaSidebarView: View {
                 SidebarSection(
                     title: "Projects",
                     trailing: {
-                        HStack(spacing: 4) {
-                            if !projects.isEmpty {
-                                Button {
-                                    withAnimation(.snappy(duration: 0.18)) {
-                                        isEditingProjects.toggle()
-                                    }
-                                } label: {
-                                    Image(systemName: "arrow.up.arrow.down")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .frame(width: 22, height: 20)
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(isEditingProjects ? .primary : .secondary)
-                                .help(isEditingProjects ? "Done reordering" : "Reorder projects")
-                            }
-
-                            Button(action: onAddProject) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .frame(width: 22, height: 20)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Open project")
+                        Button(action: onAddProject) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(width: 22, height: 20)
                         }
+                        .buttonStyle(.plain)
+                        .help("Open project")
                     },
                     content: {
                         if projects.isEmpty {
@@ -95,52 +79,37 @@ struct OrbitaSidebarView: View {
                         } else {
                             VStack(spacing: 4) {
                                 ForEach(projects) { project in
-                                    if isEditingProjects {
-                                        ProjectSidebarRow(
-                                            project: project,
-                                            isSelected: selection == project.path,
-                                            isEditing: true,
-                                            canPin: project.path != projects.first?.path,
-                                            onSelect: {},
-                                            onPin: {
-                                                onPinProject(project)
-                                            },
-                                            onRemove: {
-                                                onRemoveProject(project)
-                                            }
-                                        )
-                                        .onDrag {
-                                            draggedProjectPath = project.path
-                                            return NSItemProvider(object: project.path as NSString)
+                                    ProjectSidebarRow(
+                                        project: project,
+                                        isSelected: selection == project.path,
+                                        isDragging: draggingProjectPath == project.path,
+                                        canPin: project.path != projects.first?.path,
+                                        onSelect: {
+                                            selection = project.path
+                                            onSelectProject(project)
+                                        },
+                                        onPin: {
+                                            onPinProject(project)
+                                        },
+                                        onRemove: {
+                                            onRemoveProject(project)
                                         }
-                                        .onDrop(
-                                            of: [UTType.text],
-                                            delegate: ProjectReorderDropDelegate(
-                                                project: project,
-                                                projects: projects,
-                                                draggedProjectPath: $draggedProjectPath,
-                                                onMoveProjects: onMoveProjects
+                                    )
+                                    .background {
+                                        GeometryReader { proxy in
+                                            Color.clear.preference(
+                                                key: ProjectRowFramePreferenceKey.self,
+                                                value: [project.path: proxy.frame(in: .named(projectListCoordinateSpace))]
                                             )
-                                        )
-                                    } else {
-                                        ProjectSidebarRow(
-                                            project: project,
-                                            isSelected: selection == project.path,
-                                            isEditing: false,
-                                            canPin: project.path != projects.first?.path,
-                                            onSelect: {
-                                                selection = project.path
-                                                onSelectProject(project)
-                                            },
-                                            onPin: {
-                                                onPinProject(project)
-                                            },
-                                            onRemove: {
-                                                onRemoveProject(project)
-                                            }
-                                        )
+                                        }
                                     }
+                                    .simultaneousGesture(projectReorderGesture(for: project))
+                                    .help("Long press and drag to reorder")
                                 }
+                            }
+                            .coordinateSpace(name: projectListCoordinateSpace)
+                            .onPreferenceChange(ProjectRowFramePreferenceKey.self) { frames in
+                                projectRowFrames = frames
                             }
                         }
                     }
@@ -160,6 +129,68 @@ struct OrbitaSidebarView: View {
         .frame(width: OrbitaLayoutMetrics.sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(OrbitaTheme.sidebarBackground)
+    }
+
+    private func projectReorderGesture(for project: ProjectRecord) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.28)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(projectListCoordinateSpace)))
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    if draggingProjectPath == nil {
+                        draggingProjectPath = project.path
+                    }
+                case .second(true, let drag):
+                    if draggingProjectPath == nil {
+                        draggingProjectPath = project.path
+                    }
+                    guard let drag else { return }
+                    moveProject(project.path, to: drag.location)
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                draggingProjectPath = nil
+            }
+    }
+
+    private func moveProject(_ projectPath: String, to location: CGPoint) {
+        guard let fromIndex = projects.firstIndex(where: { $0.path == projectPath }),
+              let targetPath = targetProjectPath(at: location),
+              targetPath != projectPath,
+              let toIndex = projects.firstIndex(where: { $0.path == targetPath })
+        else {
+            return
+        }
+
+        withAnimation(.snappy(duration: 0.16)) {
+            onMoveProjects(IndexSet(integer: fromIndex), toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
+    }
+
+    private func targetProjectPath(at location: CGPoint) -> String? {
+        let orderedFrames = projects.compactMap { project -> (path: String, frame: CGRect)? in
+            guard let frame = projectRowFrames[project.path] else { return nil }
+            return (project.path, frame)
+        }
+        guard let first = orderedFrames.first,
+              let last = orderedFrames.last
+        else {
+            return nil
+        }
+        if location.y <= first.frame.minY {
+            return first.path
+        }
+        if location.y >= last.frame.maxY {
+            return last.path
+        }
+        if let containing = orderedFrames.first(where: { location.y >= $0.frame.minY && location.y <= $0.frame.maxY }) {
+            return containing.path
+        }
+        return orderedFrames.min {
+            abs($0.frame.midY - location.y) < abs($1.frame.midY - location.y)
+        }?.path
     }
 }
 
@@ -194,29 +225,6 @@ struct OrbitaSidebarRail: View {
         .frame(width: OrbitaLayoutMetrics.sidebarRailWidth)
         .frame(maxHeight: .infinity)
         .background(OrbitaTheme.sidebarBackground)
-    }
-}
-
-private struct ProjectReorderDropDelegate: DropDelegate {
-    let project: ProjectRecord
-    let projects: [ProjectRecord]
-    @Binding var draggedProjectPath: String?
-    let onMoveProjects: (IndexSet, Int) -> Void
-
-    func dropEntered(info: DropInfo) {
-        guard let draggedProjectPath,
-              draggedProjectPath != project.path,
-              let fromIndex = projects.firstIndex(where: { $0.path == draggedProjectPath }),
-              let toIndex = projects.firstIndex(where: { $0.path == project.path })
-        else {
-            return
-        }
-        onMoveProjects(IndexSet(integer: fromIndex), toIndex > fromIndex ? toIndex + 1 : toIndex)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggedProjectPath = nil
-        return true
     }
 }
 
@@ -255,31 +263,22 @@ private struct SidebarSection<Content: View, Trailing: View>: View {
 private struct ProjectSidebarRow: View {
     let project: ProjectRecord
     let isSelected: Bool
-    let isEditing: Bool
+    let isDragging: Bool
     let canPin: Bool
     let onSelect: () -> Void
     let onPin: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            if isEditing {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
-                    .padding(.leading, 14)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-            SidebarNavigationRow(
-                title: project.name,
-                subtitle: project.path,
-                systemImage: "folder",
-                isSelected: isSelected,
-                action: onSelect
-            )
-            .disabled(isEditing)
-        }
+        SidebarNavigationRow(
+            title: project.name,
+            subtitle: project.path,
+            systemImage: "folder",
+            isSelected: isSelected,
+            action: onSelect
+        )
+        .opacity(isDragging ? 0.68 : 1)
+        .scaleEffect(isDragging ? 0.985 : 1, anchor: .center)
         .contextMenu {
             Button(action: onPin) {
                 Label("Pin to Top", systemImage: "pin")
@@ -290,7 +289,15 @@ private struct ProjectSidebarRow: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-        .animation(.snappy(duration: 0.16), value: isEditing)
+        .animation(.snappy(duration: 0.16), value: isDragging)
+    }
+}
+
+private struct ProjectRowFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
     }
 }
 
