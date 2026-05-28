@@ -299,9 +299,6 @@ public final class ApplyPlanBuilder {
             }
         }
 
-        operations.append(contentsOf: adapterPreviewOperations(
-            graph: graphWithProjectedIntent(capabilityIDs: capabilities.map(\.id), status: action == .enable ? .enabled : .disabled, graph: graph)
-        ))
         if capabilities.count == 1 {
             operations.append(logOperation(action: action, capability: primaryCapability, agentsRoot: agentsRoot))
         } else {
@@ -493,9 +490,6 @@ public final class ApplyPlanBuilder {
             )
         })
 
-        operations.append(contentsOf: adapterPreviewOperations(
-            graph: graphWithProjectedIntent(capabilityID: capabilityID, status: .disabled, graph: graph)
-        ))
         operations.append(logOperation(action: .delete, capability: capability, agentsRoot: agentsRoot))
 
         return ApplyPlan(
@@ -609,10 +603,6 @@ public final class ApplyPlanBuilder {
             )
         })
 
-        let projected = capabilities.reduce(graph) { partialGraph, capability in
-            graphWithProjectedIntent(capabilityID: capability.id, status: .disabled, graph: partialGraph)
-        }
-        operations.append(contentsOf: adapterPreviewOperations(graph: projected))
         operations.append(ApplyOperation(
             kind: .appendLog,
             path: agentsRoot.appendingPathComponent("logs/apply.log").path,
@@ -760,10 +750,6 @@ public final class ApplyPlanBuilder {
             }
         }
 
-        let projectedStatus: CapabilityStatus = inverseAction == .enable ? .enabled : .disabled
-        operations.append(contentsOf: adapterPreviewOperations(
-            graph: graphWithProjectedIntent(capabilityID: capability.id, status: projectedStatus, graph: graph)
-        ))
         operations.append(ApplyOperation(
             kind: .appendLog,
             path: logPath,
@@ -853,19 +839,6 @@ public final class ApplyPlanBuilder {
             }
         }
 
-        for agent in AgentID.allCases {
-            let preview = AdapterPreviewBuilder().preview(for: agent, graph: graph)
-            for generatedFile in preview.generatedFiles {
-                operations.append(ApplyOperation(
-                    kind: .writeFile,
-                    path: generatedFile.path,
-                    content: generatedFile.content,
-                    risk: .write,
-                    description: "Write \(agent.rawValue) adapter preview"
-                ))
-            }
-        }
-
         operations.append(ApplyOperation(
             kind: .appendLog,
             path: agentsRoot.appendingPathComponent("logs/apply.log").path,
@@ -885,7 +858,9 @@ public final class ApplyPlanBuilder {
     }
 
     public func planClean(graph: CapabilityGraph) throws -> ApplyPlan {
-        let agentsRoot = URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".agents")
+        let projectRoot = URL(fileURLWithPath: graph.projectRoot)
+        let agentsRoot = projectRoot.appendingPathComponent(".agents")
+        let orbitaRoot = projectRoot.appendingPathComponent(".orbita")
         var operations = graph.capabilities
             .filter { $0.statuses.contains(.broken) && $0.source.kind == "agents-symlink" }
             .map { capability in
@@ -904,8 +879,11 @@ public final class ApplyPlanBuilder {
             }
             .map(\.id))
         operations.append(contentsOf: staleAdapterCleanOperations(
-            agentsRoot: agentsRoot,
+            adaptersRoot: orbitaRoot.appendingPathComponent("adapters"),
             activeCapabilityIDs: activeCapabilityIDs
+        ))
+        operations.append(contentsOf: legacyAdapterCleanOperations(
+            adaptersRoot: agentsRoot.appendingPathComponent("adapters")
         ))
 
         let removalCount = operations.count
@@ -927,20 +905,6 @@ public final class ApplyPlanBuilder {
             requiresConfirmation: removalCount > 0,
             operations: operations
         )
-    }
-
-    private func adapterPreviewOperations(graph: CapabilityGraph) -> [ApplyOperation] {
-        AgentID.allCases.flatMap { agent in
-            AdapterPreviewBuilder().preview(for: agent, graph: graph).generatedFiles.map { generatedFile in
-                ApplyOperation(
-                    kind: .writeFile,
-                    path: generatedFile.path,
-                    content: generatedFile.content,
-                    risk: .write,
-                    description: "Write \(agent.rawValue) adapter preview"
-                )
-            }
-        }
     }
 
     private func graphWithProjectedIntent(capabilityID: String, status: CapabilityStatus, graph: CapabilityGraph) -> CapabilityGraph {
@@ -972,18 +936,8 @@ public final class ApplyPlanBuilder {
         }
     }
 
-    private func staleAdapterCleanOperations(agentsRoot: URL, activeCapabilityIDs: Set<String>) -> [ApplyOperation] {
-        let adaptersRoot = agentsRoot.appendingPathComponent("adapters")
-        guard let agentDirectories = try? FileManager.default.contentsOfDirectory(
-            at: adaptersRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        return agentDirectories.compactMap { agentDirectory in
-            let file = agentDirectory.appendingPathComponent("capabilities.json")
+    private func staleAdapterCleanOperations(adaptersRoot: URL, activeCapabilityIDs: Set<String>) -> [ApplyOperation] {
+        adapterFiles(in: adaptersRoot).compactMap { file in
             guard FileManager.default.fileExists(atPath: file.path) else {
                 return nil
             }
@@ -999,9 +953,34 @@ public final class ApplyPlanBuilder {
         }
     }
 
+    private func legacyAdapterCleanOperations(adaptersRoot: URL) -> [ApplyOperation] {
+        adapterFiles(in: adaptersRoot).compactMap { file in
+            guard isOrbitaAdapterFile(file) else {
+                return nil
+            }
+            return ApplyOperation(
+                kind: .removePath,
+                path: file.path,
+                risk: .write,
+                description: "Remove legacy .agents adapter preview; Orbita stores adapter previews in .orbita"
+            )
+        }
+    }
+
+    private func adapterFiles(in adaptersRoot: URL) -> [URL] {
+        guard let agentDirectories = try? FileManager.default.contentsOfDirectory(
+            at: adaptersRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return agentDirectories.map { $0.appendingPathComponent("capabilities.json") }
+    }
+
     private func adapterFileReferencesOnlyActiveCapabilities(_ file: URL, activeCapabilityIDs: Set<String>) -> Bool {
-        guard let data = try? Data(contentsOf: file),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let object = adapterObject(file) else {
             return false
         }
 
@@ -1009,6 +988,24 @@ public final class ApplyPlanBuilder {
         let mappingIDs = ids(in: object["mappings"], key: "capabilityID")
         let referencedIDs = capabilityIDs.union(mappingIDs)
         return referencedIDs.allSatisfy { activeCapabilityIDs.contains($0) }
+    }
+
+    private func isOrbitaAdapterFile(_ file: URL) -> Bool {
+        guard let object = adapterObject(file) else {
+            return false
+        }
+        return object["schemaVersion"] != nil
+            && object["agent"] is String
+            && object["capabilities"] != nil
+            && object["mappings"] != nil
+    }
+
+    private func adapterObject(_ file: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: file),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object
     }
 
     private func ids(in value: Any?, key: String) -> Set<String> {
@@ -1832,8 +1829,7 @@ public final class ApplyPlanExecutor {
             || components.contains(".codex")
             || components.contains(".claude")
             || components.contains(".cursor")
-            || components.contains(".trae")
-            || components.contains(".trae-cn") {
+            || components.contains(".trae") {
             return true
         }
         return SkillsAgentCatalog.agents.contains { agent in
