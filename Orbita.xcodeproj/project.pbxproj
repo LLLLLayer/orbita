@@ -40,6 +40,7 @@
 		200000000000000000001017 /* UserDirectoryAccessPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000017 /* UserDirectoryAccessPreflight.swift */; };
 		200000000000000000001018 /* MarkdownPreviewPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000018 /* MarkdownPreviewPage.swift */; };
 		200000000000000000001019 /* AgentBrandIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000019 /* AgentBrandIcon.swift */; };
+		200000000000000000001026 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000026 /* Localization.swift */; };
 		200000000000000000001020 /* claude.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000020 /* claude.svg */; };
 		200000000000000000001021 /* codex.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000021 /* codex.svg */; };
 		200000000000000000001022 /* cursor.svg in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000022 /* cursor.svg */; };
@@ -96,6 +97,7 @@
 		200000000000000000000017 /* UserDirectoryAccessPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDirectoryAccessPreflight.swift; sourceTree = "<group>"; };
 		200000000000000000000018 /* MarkdownPreviewPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewPage.swift; sourceTree = "<group>"; };
 		200000000000000000000019 /* AgentBrandIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBrandIcon.swift; sourceTree = "<group>"; };
+		200000000000000000000026 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		200000000000000000000020 /* claude.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = claude.svg; sourceTree = "<group>"; };
 		200000000000000000000021 /* codex.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = codex.svg; sourceTree = "<group>"; };
 		200000000000000000000022 /* cursor.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = cursor.svg; sourceTree = "<group>"; };
@@ -163,6 +165,7 @@
 				200000000000000000000007 /* CapabilitySourceClassifier.swift */,
 				200000000000000000000008 /* ContentView.swift */,
 				200000000000000000000009 /* FullDiskAccessGate.swift */,
+				200000000000000000000026 /* Localization.swift */,
 				200000000000000000000018 /* MarkdownPreviewPage.swift */,
 				200000000000000000000010 /* OrbitaApp.swift */,
 				200000000000000000000011 /* OrbitaSettingsView.swift */,
@@ -358,6 +361,7 @@
 				200000000000000000001007 /* CapabilitySourceClassifier.swift in Sources */,
 				200000000000000000001008 /* ContentView.swift in Sources */,
 				200000000000000000001009 /* FullDiskAccessGate.swift in Sources */,
+				200000000000000000001026 /* Localization.swift in Sources */,
 				200000000000000000001018 /* MarkdownPreviewPage.swift in Sources */,
 				200000000000000000001010 /* OrbitaApp.swift in Sources */,
 				200000000000000000001011 /* OrbitaSettingsView.swift in Sources */,
