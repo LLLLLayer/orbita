@@ -1078,6 +1078,52 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
     }
 
+    func testCodexAgentViewExcludesClaudeNativePlugins() throws {
+        let claudePlugin = Capability(
+            id: "plugin:claude:im-knowledge",
+            name: "Im Knowledge",
+            type: .plugin,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.info],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/cache/marketplace/im-knowledge/1.0.0", packageName: "im-knowledge"),
+            metadata: ["manager": "claude-code"]
+        )
+        let codexPlugin = Capability(
+            id: "plugin:codex:formatter",
+            name: "Formatter",
+            type: .plugin,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.info],
+            source: CapabilitySource(kind: "codex-plugin", path: "/tmp/cache/codex/formatter/1.0.0", packageName: "formatter"),
+            metadata: ["manager": "codex"]
+        )
+        let claudePluginChild = Capability(
+            id: "command:/tmp/cache/marketplace/im-knowledge/1.0.0/commands/explain.md",
+            name: "explain",
+            type: .command,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "claude-plugin-command", path: "/tmp/cache/marketplace/im-knowledge/1.0.0/commands/explain.md", packageName: "im-knowledge"),
+            pluginID: claudePlugin.id,
+            metadata: ["manager": "claude-code"]
+        )
+        let graph = CapabilityGraph(
+            projectRoot: "/tmp/codex-plugin-visibility-test",
+            capabilities: [claudePlugin, codexPlugin, claudePluginChild],
+            issues: []
+        )
+
+        let codexView = AgentViewResolver().view(for: .codex, graph: graph)
+        let codexVisibleIDs = Set(codexView.visibleCapabilities.map { $0.id })
+
+        XCTAssertFalse(codexVisibleIDs.contains(claudePlugin.id), "Codex view must not include Claude-native plugins")
+        XCTAssertFalse(codexVisibleIDs.contains(claudePluginChild.id), "Codex view must not include Claude plugin sub-capabilities")
+        XCTAssertTrue(codexVisibleIDs.contains(codexPlugin.id), "Codex view should still include Codex-native plugins")
+    }
+
     func testClaudeAgentViewShowsEffectivePluginScopeOnly() throws {
         let projectPlugin = Capability(
             id: "plugin:claude:workflow-unicorn-marketplace:project:aweme",

@@ -31,7 +31,9 @@ public final class AgentViewResolver {
             switch capability.type {
             case .skill:
                 return isCodexSkillCapability(capability)
-            case .plugin, .mcpServer, .instruction:
+            case .plugin:
+                return isCodexNativePluginCapability(capability)
+            case .mcpServer, .instruction:
                 return true
             case .agent:
                 return capability.source.kind == "codex-agent"
@@ -72,6 +74,17 @@ public final class AgentViewResolver {
             || capability.source.kind == "claude-plugin"
             || capability.source.kind.hasPrefix("claude-plugin-")
             || sourcePathComponents(for: capability).contains(".claude")
+    }
+
+    /// Codex sees Codex-native plugins and inferred package plugins, but not
+    /// Claude-native ones — even though Claude plugins are also `.plugin` type,
+    /// they are not part of Codex's enable surface.
+    private func isCodexNativePluginCapability(_ capability: Capability) -> Bool {
+        let kind = capability.source.kind
+        if kind == "claude-plugin" || kind.hasPrefix("claude-plugin-") {
+            return false
+        }
+        return true
     }
 
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
