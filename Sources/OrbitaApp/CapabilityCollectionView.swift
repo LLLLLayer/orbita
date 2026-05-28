@@ -575,8 +575,12 @@ private struct CapabilityGroupTile: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            if group.supportsAgentSync {
-                AgentSyncStack(agents: visibleAgents, onSync: onSync)
+            if !visibleAgents.isEmpty || group.supportsAgentSyncButton {
+                AgentVisibilityStack(
+                    agents: visibleAgents,
+                    showsSyncButton: group.supportsAgentSyncButton,
+                    onSync: onSync
+                )
             }
         }
         .padding(12)
@@ -627,8 +631,13 @@ private struct CapabilityGroupTile: View {
 }
 
 private extension CapabilityGroup {
-    var supportsAgentSync: Bool {
-        !capabilities.isEmpty && capabilities.allSatisfy { $0.type.supportsAgentSync }
+    var supportsAgentSyncButton: Bool {
+        switch kind {
+        case .plugin:
+            return false
+        case .mirror, .prefix:
+            return !capabilities.isEmpty && capabilities.allSatisfy { $0.type.supportsAgentSync }
+        }
     }
 
     var tileTitle: String {
@@ -739,8 +748,12 @@ private struct CapabilityTile: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            if capability.type.supportsAgentSync {
-                AgentSyncStack(agents: visibleAgents, onSync: onSync)
+            if !visibleAgents.isEmpty || capability.type.supportsAgentSync {
+                AgentVisibilityStack(
+                    agents: visibleAgents,
+                    showsSyncButton: capability.type.supportsAgentSync,
+                    onSync: onSync
+                )
             }
         }
         .padding(12)
@@ -969,8 +982,9 @@ private enum AgentAvatarMetrics {
     static let overlapStep: CGFloat = 21
 }
 
-private struct AgentSyncStack: View {
+private struct AgentVisibilityStack: View {
     let agents: [AgentSelection]
+    let showsSyncButton: Bool
     let onSync: () -> Void
 
     private var visibleAgents: [AgentSelection] {
@@ -978,11 +992,15 @@ private struct AgentSyncStack: View {
     }
 
     private var badgeCount: Int {
-        visibleAgents.count + overflowBadgeCount + 1
+        visibleAgents.count + overflowBadgeCount + syncButtonCount
     }
 
     private var overflowBadgeCount: Int {
         agents.count > visibleAgents.count ? 1 : 0
+    }
+
+    private var syncButtonCount: Int {
+        showsSyncButton ? 1 : 0
     }
 
     var body: some View {
@@ -999,9 +1017,11 @@ private struct AgentSyncStack: View {
                     .zIndex(Double(visibleAgents.count))
             }
 
-            AgentSyncButton(action: onSync)
-                .offset(x: syncButtonOffset)
-                .zIndex(Double(badgeCount))
+            if showsSyncButton {
+                AgentSyncButton(action: onSync)
+                    .offset(x: syncButtonOffset)
+                    .zIndex(Double(badgeCount))
+            }
         }
         .frame(width: stackWidth, height: AgentAvatarMetrics.size, alignment: .leading)
         .help(helpText)
@@ -1017,10 +1037,11 @@ private struct AgentSyncStack: View {
     }
 
     private var helpText: String {
-        guard !agents.isEmpty else {
+        if agents.isEmpty {
             return "Sync to another agent"
         }
-        return "\(agents.map(\.displayName).joined(separator: ", ")). Add another agent"
+        let visibleText = "Visible to \(agents.map(\.displayName).joined(separator: ", "))"
+        return showsSyncButton ? "\(visibleText). Sync to another agent" : visibleText
     }
 }
 
