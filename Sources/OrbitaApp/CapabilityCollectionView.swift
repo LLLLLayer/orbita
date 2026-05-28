@@ -7,6 +7,7 @@ struct CapabilityCollectionView: View {
     let sections: [CapabilityCollectionSection]
     let graph: CapabilityGraph?
     let agentOptions: [AgentSelection]
+    let selectedAgent: AgentSelection?
     @Binding var selectedCapability: Capability?
     @Binding var expandedGroupIDs: Set<String>
     let availableWidth: CGFloat
@@ -85,6 +86,7 @@ struct CapabilityCollectionView: View {
                                 group: group,
                                 agentOptions: agentOptions,
                                 agentVisibilityIndex: agentVisibilityIndex,
+                                selectedAgent: selectedAgent,
                                 selectedCapability: $selectedCapability,
                                 columns: columns,
                                 onSyncCapability: onSyncCapability
@@ -178,6 +180,9 @@ struct CapabilityCollectionView: View {
     private func visibleAgents(for item: CapabilityDisplayItem, in agentVisibilityIndex: AgentVisibilityIndex) -> [AgentSelection] {
         let capabilityIDs = Set(item.capabilities.map(\.id))
         return agentOptions.filter { agent in
+            if agent.id == selectedAgent?.id {
+                return false
+            }
             guard let visibleIDs = agentVisibilityIndex[agent.id] else {
                 return false
             }
@@ -321,6 +326,7 @@ private struct ExpandedCapabilityGroupShelf: View {
     let group: CapabilityGroup
     let agentOptions: [AgentSelection]
     let agentVisibilityIndex: AgentVisibilityIndex
+    let selectedAgent: AgentSelection?
     @Binding var selectedCapability: Capability?
     let columns: [GridItem]
     let onSyncCapability: (Capability) -> Void
@@ -397,6 +403,9 @@ private struct ExpandedCapabilityGroupShelf: View {
     private func visibleAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
         let capabilityIDs = Set(item.capabilities.map(\.id))
         return agentOptions.filter { agent in
+            if agent.id == selectedAgent?.id {
+                return false
+            }
             guard let visibleIDs = agentVisibilityIndex[agent.id] else {
                 return false
             }

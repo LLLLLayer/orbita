@@ -83,6 +83,7 @@ struct CapabilityMainView: View {
                                     sections: displaySections,
                                     graph: graphForAgentVisibility,
                                     agentOptions: agentOptions,
+                                    selectedAgent: selectedAgent,
                                     selectedCapability: $selectedCapability,
                                     expandedGroupIDs: $expandedGroupIDs,
                                     availableWidth: contentWidth,
