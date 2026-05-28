@@ -4,6 +4,10 @@ import OrbitaCore
 private typealias AgentVisibilityIndex = [String: Set<String>]
 
 private extension AgentSelection {
+    var visibilityIdentity: String {
+        skillsInstallAgentID.map { "skills:\($0)" } ?? id
+    }
+
     func representsSameAgent(as selectedAgent: AgentSelection?) -> Bool {
         guard let selectedAgent else {
             return false
@@ -17,6 +21,23 @@ private extension AgentSelection {
             return false
         }
         return agentID == selectedAgentID
+    }
+}
+
+private func orderedVisibleAgentBadges(
+    _ agents: [AgentSelection],
+    selectedAgent: AgentSelection?
+) -> [AgentSelection] {
+    var ordered: [AgentSelection] = []
+    if let selectedAgent,
+       agents.contains(where: { $0.representsSameAgent(as: selectedAgent) }) {
+        ordered.append(selectedAgent)
+    }
+    ordered.append(contentsOf: agents.filter { !$0.representsSameAgent(as: selectedAgent) })
+
+    var seenIdentities = Set<String>()
+    return ordered.filter { agent in
+        seenIdentities.insert(agent.visibilityIdentity).inserted
     }
 }
 
@@ -196,15 +217,13 @@ struct CapabilityCollectionView: View {
 
     private func visibleAgents(for item: CapabilityDisplayItem, in agentVisibilityIndex: AgentVisibilityIndex) -> [AgentSelection] {
         let capabilityIDs = Set(item.capabilities.map(\.id))
-        return agentOptions.filter { agent in
-            if agent.representsSameAgent(as: selectedAgent) {
-                return false
-            }
+        let visibleAgents = agentOptions.filter { agent in
             guard let visibleIDs = agentVisibilityIndex[agent.id] else {
                 return false
             }
             return !capabilityIDs.isDisjoint(with: visibleIDs)
         }
+        return orderedVisibleAgentBadges(visibleAgents, selectedAgent: selectedAgent)
     }
 
     private func makeAgentVisibilityIndex() -> AgentVisibilityIndex {
@@ -419,15 +438,13 @@ private struct ExpandedCapabilityGroupShelf: View {
 
     private func visibleAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
         let capabilityIDs = Set(item.capabilities.map(\.id))
-        return agentOptions.filter { agent in
-            if agent.representsSameAgent(as: selectedAgent) {
-                return false
-            }
+        let visibleAgents = agentOptions.filter { agent in
             guard let visibleIDs = agentVisibilityIndex[agent.id] else {
                 return false
             }
             return !capabilityIDs.isDisjoint(with: visibleIDs)
         }
+        return orderedVisibleAgentBadges(visibleAgents, selectedAgent: selectedAgent)
     }
 
     private var shelfSections: [ExpandedGroupSection] {
