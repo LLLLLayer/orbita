@@ -558,7 +558,7 @@ private struct CapabilityGroupTile: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            if group.capabilities.contains(where: { $0.type.supportsAgentSync }) {
+            if group.supportsAgentSync {
                 AgentSyncStack(agents: visibleAgents, onSync: onSync)
             }
         }
@@ -610,6 +610,10 @@ private struct CapabilityGroupTile: View {
 }
 
 private extension CapabilityGroup {
+    var supportsAgentSync: Bool {
+        !capabilities.isEmpty && capabilities.allSatisfy { $0.type.supportsAgentSync }
+    }
+
     var tileTitle: String {
         if let title = hookHostSummary {
             return title
