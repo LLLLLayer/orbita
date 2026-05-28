@@ -141,7 +141,7 @@ jobs:
           DMG="Orbita-${{ steps.version.outputs.value }}.dmg"
           UPDATES_DIR="$RUNNER_TEMP/sparkle-updates"
           GENERATE_APPCAST=".build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast"
-          DOWNLOAD_PREFIX="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.value }}"
+          DOWNLOAD_PREFIX="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.value }}/"
 
           mkdir -p "$UPDATES_DIR"
           cp "$DMG" "$UPDATES_DIR/"

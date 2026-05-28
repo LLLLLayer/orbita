@@ -110,7 +110,7 @@ if [[ -n "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
   cp "$DMG" "$UPDATES_DIR/"
   printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$GENERATE_APPCAST" \
     --ed-key-file - \
-    --download-url-prefix "https://github.com/LLLLLayer/orbita/releases/download/${VERSION}" \
+    --download-url-prefix "https://github.com/LLLLLayer/orbita/releases/download/${VERSION}/" \
     "$UPDATES_DIR"
   cp "$UPDATES_DIR/appcast.xml" "dist/appcast.xml"
 fi
