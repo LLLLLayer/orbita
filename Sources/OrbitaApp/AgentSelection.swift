@@ -24,7 +24,7 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
     static let claudeCode = AgentSelection(id: "built-in:claude-code", displayName: "Claude Code", behavior: .claudeSource)
     static let cursor = AgentSelection(id: "built-in:cursor", displayName: "Cursor", behavior: .cursorSource)
     static let trae = AgentSelection(id: "built-in:trae", displayName: "Trae", behavior: .traeSource)
-    static let defaultAgents = [agents, codex, claudeCode, cursor, trae]
+    static let defaultAgents = [agents, codex, claudeCode, trae]
 
     var isBuiltIn: Bool {
         id.hasPrefix("built-in:")
