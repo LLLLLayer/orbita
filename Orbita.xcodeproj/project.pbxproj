@@ -21,6 +21,9 @@
 		100000000000000000001012 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000012 /* Models.swift */; };
 		100000000000000000001013 /* ProjectLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000013 /* ProjectLibraryStore.swift */; };
 		100000000000000000001014 /* SkillsCLICompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000014 /* SkillsCLICompatibility.swift */; };
+		100000000000000000001015 /* AgentSyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000015 /* AgentSyncPolicy.swift */; };
+		100000000000000000001016 /* CapabilityClassification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000016 /* CapabilityClassification.swift */; };
+		100000000000000000001017 /* ClaudePluginResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000017 /* ClaudePluginResolution.swift */; };
 		200000000000000000001001 /* AgentSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* AgentSelection.swift */; };
 		200000000000000000001002 /* AppTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* AppTelemetry.swift */; };
 		200000000000000000001003 /* CapabilityCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* CapabilityCollectionView.swift */; };
@@ -78,6 +81,9 @@
 		100000000000000000000012 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		100000000000000000000013 /* ProjectLibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectLibraryStore.swift; sourceTree = "<group>"; };
 		100000000000000000000014 /* SkillsCLICompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsCLICompatibility.swift; sourceTree = "<group>"; };
+		100000000000000000000015 /* AgentSyncPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSyncPolicy.swift; sourceTree = "<group>"; };
+		100000000000000000000016 /* CapabilityClassification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapabilityClassification.swift; sourceTree = "<group>"; };
+		100000000000000000000017 /* ClaudePluginResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePluginResolution.swift; sourceTree = "<group>"; };
 		200000000000000000000001 /* AgentSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSelection.swift; sourceTree = "<group>"; };
 		200000000000000000000002 /* AppTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTelemetry.swift; sourceTree = "<group>"; };
 		200000000000000000000003 /* CapabilityCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapabilityCollectionView.swift; sourceTree = "<group>"; };
@@ -226,6 +232,9 @@
 				100000000000000000000012 /* Models.swift */,
 				100000000000000000000013 /* ProjectLibraryStore.swift */,
 				100000000000000000000014 /* SkillsCLICompatibility.swift */,
+				100000000000000000000015 /* AgentSyncPolicy.swift */,
+				100000000000000000000016 /* CapabilityClassification.swift */,
+				100000000000000000000017 /* ClaudePluginResolution.swift */,
 			);
 			path = OrbitaCore;
 			sourceTree = "<group>";
@@ -392,6 +401,9 @@
 				100000000000000000001012 /* Models.swift in Sources */,
 				100000000000000000001013 /* ProjectLibraryStore.swift in Sources */,
 				100000000000000000001014 /* SkillsCLICompatibility.swift in Sources */,
+				100000000000000000001015 /* AgentSyncPolicy.swift in Sources */,
+				100000000000000000001016 /* CapabilityClassification.swift in Sources */,
+				100000000000000000001017 /* ClaudePluginResolution.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

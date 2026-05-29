@@ -3,6 +3,19 @@ import XCTest
 import OrbitaCore
 
 final class OrbitaCLIErrorTests: XCTestCase {
+    func testStatusExitsNonZeroWhenAgentsManifestIsMalformed() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCLITests-\(UUID().uuidString)")
+        let manifest = projectRoot.appendingPathComponent(".agents/manifest.json")
+        try fm.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{ this is not valid json".write(to: manifest, atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let result = OrbitaCLI.runForTesting(arguments: ["status", projectRoot.path, "--no-user-scope"])
+        XCTAssertEqual(result.exitCode, 2, "a malformed .agents/manifest.json should make the CLI exit non-zero")
+    }
+
     func testGraphJSONCommandReturnsFixtureSnapshotFields() throws {
         let root = fixtureURL("MixedProject")
 

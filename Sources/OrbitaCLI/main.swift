@@ -28,11 +28,11 @@ struct OrbitaCLI {
         var stderr = ""
         do {
             let command = try ParsedCommand(arguments: arguments)
-            try run(command) { line in
+            let exitCode = try run(command) { line in
                 stdout += line
                 stdout += "\n"
             }
-            return CLIRunResult(exitCode: 0, stdout: stdout, stderr: stderr)
+            return CLIRunResult(exitCode: exitCode, stdout: stdout, stderr: stderr)
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             if arguments.contains("--json") {
@@ -49,10 +49,15 @@ struct OrbitaCLI {
         }
     }
 
-    private static func run(_ command: ParsedCommand, emit: (String) -> Void) throws {
+    private static func run(_ command: ParsedCommand, emit: (String) -> Void) throws -> Int32 {
+        // A resolved graph carrying an `.error` issue (e.g. a malformed `.agents/manifest.json`) means the
+        // user's declared intent could not be honored — exit non-zero so scripts and CI notice, even though
+        // we still print the partial result.
+        var errorExitCode: Int32 = 0
         switch command.name {
         case "scan":
             let result = try scan(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            if result.issues.contains(where: { $0.severity == .error }) { errorExitCode = 2 }
             if command.json {
                 emit(jsonString(result))
             } else {
@@ -60,6 +65,7 @@ struct OrbitaCLI {
             }
         case "status":
             let graph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            if graph.issues.contains(where: { $0.severity == .error }) { errorExitCode = 2 }
             if command.json {
                 emit(jsonString(graph))
             } else {
@@ -67,6 +73,7 @@ struct OrbitaCLI {
             }
         case "graph":
             let graph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            if graph.issues.contains(where: { $0.severity == .error }) { errorExitCode = 2 }
             if command.json {
                 emit(jsonString(graph))
             } else {
@@ -200,6 +207,7 @@ struct OrbitaCLI {
         default:
             throw CLIError.unknownCommand(command.name)
         }
+        return errorExitCode
     }
 
     private static func scan(projectRoot: String, includeUserScope: Bool) throws -> ScanResult {

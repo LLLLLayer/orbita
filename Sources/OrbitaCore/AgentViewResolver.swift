@@ -8,7 +8,7 @@ public final class AgentViewResolver {
             isVisible(capability, to: agent)
         }
         if agent == .claudeCode {
-            visible = claudeEffectiveCapabilities(from: visible)
+            visible = ClaudePluginResolution.effectiveCapabilities(from: visible)
         }
         let visibleIDs = Set(visible.map(\.id))
         let hidden = graph.capabilities.filter { capability in
@@ -143,11 +143,7 @@ public final class AgentViewResolver {
     }
 
     private func isClaudeNativeCapability(_ capability: Capability) -> Bool {
-        capability.source.kind == "claude-skill"
-            || capability.source.kind == "claude-agent"
-            || capability.source.kind == "claude-plugin"
-            || capability.source.kind.hasPrefix("claude-plugin-")
-            || sourcePathComponents(for: capability).contains(".claude")
+        CapabilityClassifier.isClaudeNative(capability)
     }
 
     /// Codex sees Codex-native plugins and inferred package plugins, but not
@@ -162,115 +158,15 @@ public final class AgentViewResolver {
     }
 
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
-        if capability.source.kind == "codex-skill"
-            || capability.source.kind == "agents-skill"
-            || capability.source.kind == "user-skill" {
-            return true
-        }
-        if capability.source.kind == "claude-skill" || capability.source.kind.hasPrefix("claude-plugin-") {
-            return false
-        }
-        if capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents") {
-            return true
-        }
-        return capability.source.kind == "skill" || sourcePathComponents(for: capability).contains(".codex")
+        CapabilityClassifier.isCodexSkill(capability)
     }
 
     private func isCodexPluginBundledCapability(_ capability: Capability) -> Bool {
-        guard capability.pluginID != nil else {
-            return false
-        }
-        return capability.metadata["manager"] == "codex"
-            || capability.pluginID?.hasPrefix("plugin:codex-cache:") == true
+        CapabilityClassifier.isCodexPluginBundled(capability)
     }
 
     private func sourcePathComponents(for capability: Capability) -> [String] {
-        URL(fileURLWithPath: capability.source.path).pathComponents
+        CapabilityClassifier.sourcePathComponents(for: capability)
     }
 
-    private func claudeEffectiveCapabilities(from capabilities: [Capability]) -> [Capability] {
-        let pluginInstalls = capabilities.filter(isClaudePluginInstall)
-        guard !pluginInstalls.isEmpty else {
-            return capabilities
-        }
-
-        // Keep the install Claude would resolve at runtime, not every cached copy.
-        let effectivePlugins = Dictionary(grouping: pluginInstalls) { capability in
-            capability.metadata["pluginSelector"] ?? capability.id
-        }
-        .compactMapValues { installs in
-            installs.min(by: claudePluginPrecedence)
-        }
-
-        let effectivePluginIDs = Set(effectivePlugins.values.map(\.id))
-        let installedPluginIDs = Set(pluginInstalls.map(\.id))
-        let shadowedPluginIDs = installedPluginIDs.subtracting(effectivePluginIDs)
-
-        return capabilities.filter { capability in
-            if shadowedPluginIDs.contains(capability.id) {
-                return false
-            }
-            if let pluginID = capability.pluginID,
-               shadowedPluginIDs.contains(pluginID),
-               isClaudePluginChild(capability) {
-                return false
-            }
-            return true
-        }
-    }
-
-    private func isClaudePluginInstall(_ capability: Capability) -> Bool {
-        capability.type == .plugin
-            && capability.metadata["manager"] == "claude-code"
-            && capability.source.kind == "claude-plugin"
-            && capability.metadata["pluginSelector"] != nil
-    }
-
-    private func isClaudePluginChild(_ capability: Capability) -> Bool {
-        capability.metadata["manager"] == "claude-code"
-            || capability.source.kind.hasPrefix("claude-plugin-")
-    }
-
-    private func claudePluginPrecedence(_ lhs: Capability, _ rhs: Capability) -> Bool {
-        let lhsScopeRank = claudePluginScopeRank(lhs)
-        let rhsScopeRank = claudePluginScopeRank(rhs)
-        if lhsScopeRank != rhsScopeRank {
-            return lhsScopeRank < rhsScopeRank
-        }
-
-        let versionComparison = claudePluginVersion(lhs).compare(
-            claudePluginVersion(rhs),
-            options: [.caseInsensitive, .numeric]
-        )
-        if versionComparison != .orderedSame {
-            return versionComparison == .orderedDescending
-        }
-
-        let lhsUpdated = lhs.metadata["lastUpdated"] ?? lhs.metadata["installedAt"] ?? ""
-        let rhsUpdated = rhs.metadata["lastUpdated"] ?? rhs.metadata["installedAt"] ?? ""
-        if lhsUpdated != rhsUpdated {
-            return lhsUpdated > rhsUpdated
-        }
-
-        return lhs.id < rhs.id
-    }
-
-    private func claudePluginScopeRank(_ capability: Capability) -> Int {
-        switch capability.metadata["managerScope"] ?? capability.scope.rawValue {
-        case "managed":
-            return 0
-        case "local":
-            return 1
-        case "project":
-            return 2
-        case "user":
-            return 3
-        default:
-            return 4
-        }
-    }
-
-    private func claudePluginVersion(_ capability: Capability) -> String {
-        capability.metadata["installedVersion"] ?? ""
-    }
 }

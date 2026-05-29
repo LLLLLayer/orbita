@@ -138,9 +138,14 @@ public struct ApplyPlan: Codable, Identifiable, Sendable {
 
 public final class ApplyPlanBuilder {
     private let fileManager: FileManager
+    private let homeDirectory: URL
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
         self.fileManager = fileManager
+        self.homeDirectory = homeDirectory
     }
 
     public func planEnable(capabilityID: String, graph: CapabilityGraph) throws -> ApplyPlan {
@@ -1363,7 +1368,7 @@ public final class ApplyPlanBuilder {
         destinationScope: AgentSyncDestinationScope,
         graph: CapabilityGraph
     ) -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = homeDirectory
         switch (agentID, destinationScope) {
         case ("codex", .project):
             return URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".codex/commands").standardizedFileURL
@@ -1383,7 +1388,7 @@ public final class ApplyPlanBuilder {
         destinationScope: AgentSyncDestinationScope,
         graph: CapabilityGraph
     ) -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = homeDirectory
         switch (agentID, destinationScope) {
         case ("codex", .project):
             return URL(fileURLWithPath: graph.projectRoot).appendingPathComponent(".codex/agents").standardizedFileURL
@@ -1399,30 +1404,7 @@ public final class ApplyPlanBuilder {
     }
 
     private func isDirectSyncCompatible(capability: Capability, agentID: String) -> Bool {
-        switch capability.type {
-        case .skill:
-            return true
-        case .command:
-            let ext = URL(fileURLWithPath: manifestSourcePath(for: capability)).pathExtension.lowercased()
-            if agentID == "claude-code" {
-                return ext == "md"
-            }
-            if agentID == "codex" {
-                return ["md", "json", "toml"].contains(ext)
-            }
-            return false
-        case .agent:
-            let ext = URL(fileURLWithPath: manifestSourcePath(for: capability)).pathExtension.lowercased()
-            if agentID == "claude-code" {
-                return ext == "md"
-            }
-            if agentID == "codex" {
-                return ["toml", "md", "json"].contains(ext)
-            }
-            return false
-        case .plugin, .mcpServer, .rule, .instruction, .hook, .unknown:
-            return false
-        }
+        AgentSyncPolicy.isCompatible(capability: capability, agentID: agentID)
     }
 
     private func syncDestinationName(for capability: Capability, source: URL) -> String {
@@ -1558,6 +1540,7 @@ public final class ApplyPlanBuilder {
             || components.contains(".codex")
             || components.contains(".claude")
             || components.contains(".cursor")
+            || components.contains(".trae")
     }
 
     private func disabledCachePath(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> String {
@@ -1706,9 +1689,14 @@ public final class ApplyPlanBuilder {
 
 public final class ApplyPlanExecutor {
     private let fileManager: FileManager
+    private let homeDirectory: URL
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
         self.fileManager = fileManager
+        self.homeDirectory = homeDirectory
     }
 
     public func apply(_ plan: ApplyPlan) throws -> ApplyExecutionResult {
@@ -1743,10 +1731,10 @@ public final class ApplyPlanExecutor {
     }
 
     private func bestEffortCompensateExternalWrites(_ completed: [ApplyOperation], agentsRoot: URL, orbitaRoot: URL) {
-        let agentsPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
-        let orbitaPath = normalizedContainmentPath(orbitaRoot.standardizedFileURL.path)
+        let agentsPath = resolvedRootPath(agentsRoot.path)
+        let orbitaPath = resolvedRootPath(orbitaRoot.path)
         func isInternal(_ path: String) -> Bool {
-            let normalized = normalizedContainmentPath(URL(fileURLWithPath: path).standardizedFileURL.path)
+            let normalized = containmentPath(path)
             return normalized == agentsPath || normalized.hasPrefix(agentsPath + "/")
                 || normalized == orbitaPath || normalized.hasPrefix(orbitaPath + "/")
         }
@@ -1869,10 +1857,10 @@ public final class ApplyPlanExecutor {
 
     private func validate(operation: ApplyOperation, action: ApplyAction, agentsRoot: URL, orbitaRoot: URL) throws {
         guard operation.kind != .readSource else { return }
-        let operationPath = normalizedContainmentPath(URL(fileURLWithPath: operation.path).standardizedFileURL.path)
-        let projectRootPath = normalizedContainmentPath(agentsRoot.deletingLastPathComponent().standardizedFileURL.path)
-        let agentsRootPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
-        let orbitaRootPath = normalizedContainmentPath(orbitaRoot.standardizedFileURL.path)
+        let operationPath = containmentPath(operation.path)
+        let projectRootPath = resolvedRootPath(agentsRoot.deletingLastPathComponent().path)
+        let agentsRootPath = resolvedRootPath(agentsRoot.path)
+        let orbitaRootPath = resolvedRootPath(orbitaRoot.path)
         func isProjectPath(_ path: String) -> Bool {
             path == projectRootPath || path.hasPrefix(projectRootPath + "/")
         }
@@ -1902,7 +1890,7 @@ public final class ApplyPlanExecutor {
             guard isAgentStoragePath(operationPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Cache source is outside known agent storage: \(operation.path)")
             }
-            let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
+            let targetPath = containmentPath(target)
             guard targetPath == orbitaRootPath || targetPath.hasPrefix(orbitaRootPath + "/") else {
                 throw OrbitaError.invalidApplyPlan("Cache target is outside .orbita: \(target)")
             }
@@ -1913,7 +1901,7 @@ public final class ApplyPlanExecutor {
             guard operationPath == orbitaRootPath || operationPath.hasPrefix(orbitaRootPath + "/") else {
                 throw OrbitaError.invalidApplyPlan("Restore source is outside .orbita: \(operation.path)")
             }
-            let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
+            let targetPath = containmentPath(target)
             guard isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Restore target is outside known agent storage: \(target)")
             }
@@ -1928,7 +1916,7 @@ public final class ApplyPlanExecutor {
                 let resolvedTargetURL = target.hasPrefix("/")
                     ? URL(fileURLWithPath: target)
                     : URL(fileURLWithPath: operation.path).deletingLastPathComponent().appendingPathComponent(target)
-                let targetPath = normalizedContainmentPath(resolvedTargetURL.standardizedFileURL.path)
+                let targetPath = containmentPath(resolvedTargetURL.path)
                 guard isProjectPath(targetPath) || isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
                     throw OrbitaError.invalidApplyPlan("Symlink target is outside known agent storage: \(target)")
                 }
@@ -1940,7 +1928,7 @@ public final class ApplyPlanExecutor {
             guard isProjectPath(operationPath) || isAgentStoragePath(operationPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Copy source is outside known agent storage: \(operation.path)")
             }
-            let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
+            let targetPath = containmentPath(target)
             guard isInternalProjectStoragePath(targetPath) || isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Copy target is outside known agent storage: \(target)")
             }
@@ -1960,22 +1948,50 @@ public final class ApplyPlanExecutor {
     /// the project's own agent dotdirs, the same dotdirs under the real user home, and the concrete
     /// `globalSkillsDir` roots from SkillsAgentCatalog. A path like /tmp/x/.claude/y no longer passes.
     private func isAgentStoragePath(_ path: String, projectRoot: String) -> Bool {
-        let home = normalizedContainmentPath(FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path)
-        var allowedRoots: [String] = []
+        let home = homeDirectory.path
+        var rawRoots: [String] = []
         for dotDir in [".agents", ".codex", ".claude", ".cursor", ".trae"] {
-            allowedRoots.append(projectRoot + "/" + dotDir)
-            allowedRoots.append(home + "/" + dotDir)
+            rawRoots.append(projectRoot + "/" + dotDir)
+            rawRoots.append(home + "/" + dotDir)
         }
         for agent in SkillsAgentCatalog.agents {
             guard let globalSkillsDir = agent.globalSkillsDir else { continue }
-            allowedRoots.append(normalizedContainmentPath(URL(fileURLWithPath: globalSkillsDir).standardizedFileURL.path))
+            rawRoots.append(globalSkillsDir)
         }
+        // Canonicalize each allow-root (resolving symlinks, incl. a dotdir that is itself a symlink) so the
+        // comparison is against real on-disk locations, matching how `path` was produced.
+        let allowedRoots = rawRoots.map { resolvedRootPath($0) }
         return allowedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
+    /// Containment path for an operation target: resolves symbolic links in the PARENT chain — so an
+    /// ancestor symlink cannot smuggle a write outside an allowed root — while keeping the final path
+    /// component literal, because that leaf may be a symlink we are about to create or remove (both
+    /// `removeItem` and `createSymbolicLink` act on the link itself, never following it). `standardizedFileURL`
+    /// alone is purely lexical (`.`/`..`) and would let `<project>/<symlink-to-/etc>/x` pass as in-project
+    /// while the OS-level file op landed on `/etc/x`.
+    private func containmentPath(_ rawPath: String) -> String {
+        let url = URL(fileURLWithPath: rawPath).standardizedFileURL
+        let leaf = url.lastPathComponent
+        let resolvedParent = url.deletingLastPathComponent().resolvingSymlinksInPath()
+        let combined = leaf.isEmpty ? resolvedParent : resolvedParent.appendingPathComponent(leaf)
+        return normalizedContainmentPath(combined.standardizedFileURL.path)
+    }
+
+    /// Containment path for an allow-root / known directory: fully resolves symbolic links (the root is a
+    /// real directory we are comparing against, so following its own symlink is correct).
+    private func resolvedRootPath(_ rawPath: String) -> String {
+        normalizedContainmentPath(URL(fileURLWithPath: rawPath).resolvingSymlinksInPath().standardizedFileURL.path)
+    }
+
+    /// Maps the macOS `/private` firmlinks back to their conventional form so both sides of a containment
+    /// check agree regardless of which alias a path arrived in. `resolvingSymlinksInPath()` canonicalizes
+    /// `/var`, `/tmp`, and `/etc` to their `/private/...` realpath; strip that prefix uniformly.
     private func normalizedContainmentPath(_ path: String) -> String {
-        if path.hasPrefix("/private/var/") {
-            return String(path.dropFirst("/private".count))
+        for firmlink in ["/private/var/", "/private/tmp/", "/private/etc/"] {
+            if path.hasPrefix(firmlink) {
+                return String(path.dropFirst("/private".count))
+            }
         }
         return path
     }
