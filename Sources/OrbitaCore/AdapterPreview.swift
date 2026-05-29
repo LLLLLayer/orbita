@@ -263,29 +263,15 @@ public final class AdapterPreviewBuilder {
     }
 
     private func isClaudeNativeCapability(_ capability: Capability) -> Bool {
-        capability.source.kind == "claude-skill"
-            || capability.source.kind == "claude-agent"
-            || capability.source.kind == "claude-plugin-agent"
-            || sourcePathComponents(for: capability).contains(".claude")
+        CapabilityClassifier.isClaudeNative(capability)
     }
 
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
-        if capability.source.kind == "codex-skill"
-            || capability.source.kind == "agents-skill"
-            || capability.source.kind == "user-skill" {
-            return true
-        }
-        if capability.source.kind == "claude-skill" || capability.source.kind.hasPrefix("claude-plugin-") {
-            return false
-        }
-        if capability.source.kind.hasPrefix("agents-") || sourcePathComponents(for: capability).contains(".agents") {
-            return true
-        }
-        return capability.source.kind == "skill" || sourcePathComponents(for: capability).contains(".codex")
+        CapabilityClassifier.isCodexSkill(capability)
     }
 
     private func sourcePathComponents(for capability: Capability) -> [String] {
-        URL(fileURLWithPath: capability.source.path).pathComponents
+        CapabilityClassifier.sourcePathComponents(for: capability)
     }
 
     private func cursorMapping(for capability: Capability) -> AdapterCapabilityMapping {
@@ -386,11 +372,7 @@ public final class AdapterPreviewBuilder {
     }
 
     private func isCodexPluginBundledCapability(_ capability: Capability) -> Bool {
-        guard capability.pluginID != nil else {
-            return false
-        }
-        return capability.metadata["manager"] == "codex"
-            || capability.pluginID?.hasPrefix("plugin:codex-cache:") == true
+        CapabilityClassifier.isCodexPluginBundled(capability)
     }
 
     private func capabilitiesJSON(agent: AgentID, capabilities: [Capability], mappings: [AdapterCapabilityMapping]) -> String {

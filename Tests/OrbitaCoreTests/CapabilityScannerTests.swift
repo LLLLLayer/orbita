@@ -953,6 +953,175 @@ final class CapabilityScannerTests: XCTestCase {
         })
     }
 
+    /// Regression for the write-boundary symlink-escape (applysafety-1/-2): a removePath whose ancestor is
+    /// an in-project symlink to an external directory must be rejected before any OS-level delete, because
+    /// `removeItem` would otherwise follow the ancestor symlink and delete a file outside the project.
+    func testApplyExecutorRejectsRemovePathEscapingProjectViaAncestorSymlink() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let externalRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-victim-\(UUID().uuidString)")
+        try fm.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try fm.createDirectory(at: externalRoot, withIntermediateDirectories: true)
+        let victim = externalRoot.appendingPathComponent("victim.txt")
+        try "do not delete".write(to: victim, atomically: true, encoding: .utf8)
+        // An in-project directory symlink pointing OUTSIDE the project tree.
+        let escapeLink = projectRoot.appendingPathComponent("inner")
+        try fm.createSymbolicLink(at: escapeLink, withDestinationURL: externalRoot)
+        defer {
+            try? fm.removeItem(at: projectRoot)
+            try? fm.removeItem(at: externalRoot)
+        }
+
+        let plan = ApplyPlan(
+            projectRoot: projectRoot.path,
+            action: .delete,
+            capabilityID: "test:escape",
+            requiresConfirmation: true,
+            operations: [
+                ApplyOperation(
+                    kind: .removePath,
+                    path: escapeLink.appendingPathComponent("victim.txt").path,
+                    risk: .write,
+                    description: "Hard delete capability source"
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try ApplyPlanExecutor().apply(plan)) { error in
+            let message = (error as? ApplyExecutionError)?.message ?? "\(error)"
+            XCTAssertTrue(message.contains("outside the project"), "unexpected error: \(message)")
+        }
+        XCTAssertTrue(fm.fileExists(atPath: victim.path), "a file outside the project must not be deleted")
+    }
+
+    /// Positive control: the symlink hardening must not over-tighten — a legitimate hard delete of a real
+    /// source physically inside the project (e.g. a node_modules package skill) still applies.
+    func testApplyExecutorAllowsRemovePathForRealInProjectSource() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let packageSkill = projectRoot.appendingPathComponent("node_modules/pkg/skill.md")
+        try fm.createDirectory(at: packageSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "source".write(to: packageSkill, atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let plan = ApplyPlan(
+            projectRoot: projectRoot.path,
+            action: .delete,
+            capabilityID: "test:real",
+            requiresConfirmation: true,
+            operations: [
+                ApplyOperation(
+                    kind: .removePath,
+                    path: packageSkill.path,
+                    risk: .write,
+                    description: "Hard delete capability source"
+                )
+            ]
+        )
+
+        _ = try ApplyPlanExecutor().apply(plan)
+        XCTAssertFalse(fm.fileExists(atPath: packageSkill.path), "an in-project source should be deletable")
+    }
+
+    /// Regression for the view/preview divergence (datamodel-4 / cohesion-8): a Claude-native `claude-plugin`
+    /// capability that the Claude view shows as visible must also be reported `supported` by the adapter
+    /// preview. Before the shared `CapabilityClassifier`, the adapter recognized only `claude-plugin-agent`,
+    /// so such a plugin was view-visible yet `supported: false` in the generated capabilities.json.
+    func testClaudePluginIsBothViewVisibleAndAdapterSupported() throws {
+        let plugin = Capability(
+            id: "claude-plugin:demo",
+            name: "demo",
+            type: .plugin,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.info],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/plugins/demo"),
+            pluginID: "claude:demo",
+            metadata: ["manager": "claude-code", "pluginSelector": "demo@market"]
+        )
+        let graph = CapabilityGraph(projectRoot: "/tmp/proj", capabilities: [plugin], issues: [])
+
+        let view = AgentViewResolver().view(for: .claudeCode, graph: graph)
+        XCTAssertTrue(
+            view.visibleCapabilities.contains { $0.id == plugin.id },
+            "a claude-plugin should be visible in the Claude view"
+        )
+
+        let preview = AdapterPreviewBuilder().preview(for: .claudeCode, graph: graph)
+        let mapping = try XCTUnwrap(preview.capabilityMappings.first { $0.capabilityID == plugin.id })
+        XCTAssertTrue(
+            mapping.supported,
+            "a Claude-native plugin visible in the view must be supported in the adapter preview"
+        )
+        XCTAssertTrue(preview.supportedCapabilities.contains { $0.id == plugin.id })
+    }
+
+    /// End-to-end coverage for the riskiest write — a user-scope fork into a real agent home (testing-3).
+    /// The injectable `homeDirectory` seam lets the builder target, and the executor's write guard allow,
+    /// a temporary home instead of the developer's real `~/.codex`. Without the seam this path was build-
+    /// only: the executor would reject the temp-home write as "outside known agent storage".
+    func testUserScopeCommandForkWritesIntoInjectedHome() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let fakeHome = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-home-\(UUID().uuidString)")
+        let commandSource = projectRoot.appendingPathComponent(".agents/commands/foo.md")
+        try fm.createDirectory(at: commandSource.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: fakeHome, withIntermediateDirectories: true)
+        try "# foo".write(to: commandSource, atomically: true, encoding: .utf8)
+        defer {
+            try? fm.removeItem(at: projectRoot)
+            try? fm.removeItem(at: fakeHome)
+        }
+
+        let command = Capability(
+            id: "command:foo",
+            name: "foo",
+            type: .command,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.info],
+            source: CapabilitySource(kind: "agents-command", path: commandSource.path),
+            metadata: ["sourcePath": commandSource.path]
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [command], issues: [])
+
+        let plan = try ApplyPlanBuilder(homeDirectory: fakeHome).planSyncInstallTarget(
+            capabilityID: command.id,
+            agentID: "codex",
+            graph: graph,
+            mode: .copy,
+            destinationScope: .user
+        )
+        _ = try ApplyPlanExecutor(homeDirectory: fakeHome).apply(plan)
+
+        let forked = fakeHome.appendingPathComponent(".codex/commands/foo.md")
+        XCTAssertTrue(fm.fileExists(atPath: forked.path), "user-scope command fork should land in the injected home")
+        XCTAssertEqual(try String(contentsOf: forked, encoding: .utf8), "# foo")
+    }
+
+    /// errors-2: a malformed `.agents/manifest.json` breaks the user's declared intent and must be surfaced
+    /// as an `.error`-severity issue (previously a `.warning`, indistinguishable from a benign file-count cap).
+    func testMalformedAgentsManifestIsReportedAsError() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let manifest = projectRoot.appendingPathComponent(".agents/manifest.json")
+        try fm.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{ this is not valid json".write(to: manifest, atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let result = try scanProjectOnly(projectRoot)
+        XCTAssertTrue(
+            result.issues.contains { $0.severity == .error && $0.path == manifest.path },
+            "a malformed .agents/manifest.json should be reported as an error-severity issue"
+        )
+    }
+
     func testScansConfiguredUserSkillRootsOnlyWhenEnabled() throws {
         let projectRoot = FileManager.default.temporaryDirectory.standardizedFileURL
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")

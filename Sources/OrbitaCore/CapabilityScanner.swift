@@ -1125,7 +1125,7 @@ public final class CapabilityScanner {
             let data = try Data(contentsOf: url)
             let json = try JSONSerialization.jsonObject(with: data)
             guard let root = json as? [String: Any] else {
-                issues.append(ScanIssue(severity: .warning, path: url.path, message: ".agents manifest is not an object"))
+                issues.append(ScanIssue(severity: .error, path: url.path, message: ".agents manifest is not an object"))
                 return
             }
             guard let entries = root["capabilities"] as? [[String: Any]] else {
@@ -1158,7 +1158,7 @@ public final class CapabilityScanner {
                 ))
             }
         } catch {
-            issues.append(ScanIssue(severity: .warning, path: url.path, message: "Unable to parse .agents manifest: \(error.localizedDescription)"))
+            issues.append(ScanIssue(severity: .error, path: url.path, message: "Unable to parse .agents manifest: \(error.localizedDescription)"))
         }
     }
 

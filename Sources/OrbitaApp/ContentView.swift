@@ -809,30 +809,7 @@ struct ContentView: View {
     }
 
     private func syncCapability(_ capability: Capability, isCompatibleWith agentID: String) -> Bool {
-        switch capability.type {
-        case .skill:
-            return true
-        case .command:
-            let ext = URL(fileURLWithPath: capability.metadata["sourcePath"] ?? capability.source.path).pathExtension.lowercased()
-            if agentID == "claude-code" {
-                return ext == "md"
-            }
-            if agentID == "codex" {
-                return ["md", "json", "toml"].contains(ext)
-            }
-            return false
-        case .agent:
-            let ext = URL(fileURLWithPath: capability.metadata["sourcePath"] ?? capability.source.path).pathExtension.lowercased()
-            if agentID == "claude-code" {
-                return ext == "md"
-            }
-            if agentID == "codex" {
-                return ["md", "json", "toml"].contains(ext)
-            }
-            return false
-        case .plugin, .mcpServer, .rule, .instruction, .hook, .unknown:
-            return false
-        }
+        AgentSyncPolicy.isCompatible(capability: capability, agentID: agentID)
     }
 
     private func capabilityTargetIDs(for capability: Capability) -> Set<String> {
