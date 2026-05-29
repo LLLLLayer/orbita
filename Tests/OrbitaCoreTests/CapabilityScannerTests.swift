@@ -1122,7 +1122,21 @@ final class CapabilityScannerTests: XCTestCase {
             scope: .user,
             statuses: [.enabled],
             risks: [.read],
-            source: CapabilitySource(kind: "skill", path: "/Users/dev/.trae/skills/trae-helper/SKILL.md")
+            source: CapabilitySource(kind: "trae-skill", path: "/Users/dev/.trae/skills/trae-helper/SKILL.md")
+        )
+        let codexPluginSkill = Capability(
+            id: "skill:codex-plugin:build-macos-apps",
+            name: "build-macos-apps",
+            type: .skill,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.read, .global],
+            source: CapabilitySource(
+                kind: "user-skill",
+                path: "/Users/dev/.codex/plugins/cache/openai-curated/build-macos-apps/1.0.0/skills/build-macos-apps/SKILL.md",
+                packageName: "build-macos-apps"
+            ),
+            pluginID: "plugin:codex-cache:openai-curated:build-macos-apps"
         )
         let mcpServer = Capability(
             id: "mcp:project-server",
@@ -1135,7 +1149,7 @@ final class CapabilityScannerTests: XCTestCase {
         )
         let graph = CapabilityGraph(
             projectRoot: "/tmp/project",
-            capabilities: [agentsSkill, codexSkill, claudeSkill, claudePlugin, traeNativeSkill, mcpServer],
+            capabilities: [agentsSkill, codexSkill, claudeSkill, claudePlugin, traeNativeSkill, codexPluginSkill, mcpServer],
             issues: []
         )
 
@@ -1148,6 +1162,54 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(visibleIDs.contains(codexSkill.id), "Trae must not see Codex-native skills")
         XCTAssertFalse(visibleIDs.contains(claudeSkill.id), "Trae must not see Claude-native skills")
         XCTAssertFalse(visibleIDs.contains(claudePlugin.id), "Trae has no plugin surface and should ignore Claude plugins")
+        XCTAssertFalse(visibleIDs.contains(codexPluginSkill.id), "Trae must not surface Codex plugin-bundled skills as Trae data")
+    }
+
+    func testScannerIncludesTraeSkillRootsAsTraeNativeOnly() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaTraeProject-\(UUID().uuidString)")
+        let projectSkill = projectRoot.appendingPathComponent(".trae/skills/project-trae")
+        let userRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaTraeUser-\(UUID().uuidString)")
+            .appendingPathComponent(".trae/skills")
+        let userSkill = userRoot.appendingPathComponent("user-trae")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: userRoot.deletingLastPathComponent().deletingLastPathComponent())
+        }
+
+        try FileManager.default.createDirectory(at: projectSkill, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: userSkill, withIntermediateDirectories: true)
+        try skillText(name: "project-trae", body: "Project Trae skill")
+            .write(to: projectSkill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try skillText(name: "user-trae", body: "User Trae skill")
+            .write(to: userSkill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(
+                includeUserScope: true,
+                userSkillRoots: [userRoot],
+                codexConfigURL: projectRoot.appendingPathComponent("missing-codex-config.toml"),
+                codexPluginCacheRoot: projectRoot.appendingPathComponent("missing-codex-cache"),
+                claudeInstalledPluginsURL: projectRoot.appendingPathComponent("missing-claude-plugins.json"),
+                claudeSettingsURLs: []
+            )
+        )
+
+        let scannedProjectSkill = try XCTUnwrap(result.capabilities.first { $0.name == "project-trae" })
+        let scannedUserSkill = try XCTUnwrap(result.capabilities.first { $0.name == "user-trae" })
+        XCTAssertEqual(scannedProjectSkill.source.kind, "trae-skill")
+        XCTAssertEqual(scannedUserSkill.source.kind, "trae-skill")
+
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: result.capabilities, issues: [])
+        let traeIDs = Set(AgentViewResolver().view(for: .trae, graph: graph).visibleCapabilities.map(\.id))
+        let codexIDs = Set(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.map(\.id))
+
+        XCTAssertTrue(traeIDs.contains(scannedProjectSkill.id))
+        XCTAssertTrue(traeIDs.contains(scannedUserSkill.id))
+        XCTAssertFalse(codexIDs.contains(scannedProjectSkill.id))
+        XCTAssertFalse(codexIDs.contains(scannedUserSkill.id))
     }
 
     func testCodexAgentViewExcludesClaudeNativePlugins() throws {
@@ -1542,6 +1604,37 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(cursorMapping.supported)
         XCTAssertNil(cursorMapping.targetPath)
         XCTAssertTrue(cursorMapping.reason.contains("does not load skill"))
+    }
+
+    func testTraeAdapterPreviewRejectsCodexPluginBundledSkills() throws {
+        let codexPluginSkill = Capability(
+            id: "skill:codex-plugin:build-macos-apps",
+            name: "build-macos-apps",
+            type: .skill,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.read, .global],
+            source: CapabilitySource(
+                kind: "user-skill",
+                path: "/Users/dev/.codex/plugins/cache/openai-curated/build-macos-apps/1.0.0/skills/build-macos-apps/SKILL.md",
+                packageName: "build-macos-apps"
+            ),
+            pluginID: "plugin:codex-cache:openai-curated:build-macos-apps",
+            metadata: ["manager": "codex"]
+        )
+        let graph = CapabilityGraph(
+            projectRoot: "/tmp/project",
+            capabilities: [codexPluginSkill],
+            issues: []
+        )
+
+        let preview = AdapterPreviewBuilder().preview(for: .trae, graph: graph)
+        let mapping = try XCTUnwrap(preview.capabilityMappings.first { $0.capabilityID == codexPluginSkill.id })
+
+        XCTAssertFalse(preview.supportedCapabilities.contains { $0.id == codexPluginSkill.id })
+        XCTAssertFalse(mapping.supported)
+        XCTAssertNil(mapping.targetPath)
+        XCTAssertTrue(mapping.reason.contains("does not load this skill source directly"))
     }
 
     func testAdapterPreviewGeneratedFileContainsMappingJSON() throws {

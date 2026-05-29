@@ -180,9 +180,8 @@ struct ContentView: View {
             if let selectedCapability,
                let updatedCapability = capabilities.first(where: { $0.id == selectedCapability.id }) {
                 self.selectedCapability = updatedCapability
-                return
             }
-            selectedCapability = capabilities.first
+            reconcileSelectedCapabilityWithDisplayedItems()
         }
         .onChange(of: selectedCapability) { _, capability in
             if capability != nil {
@@ -191,9 +190,11 @@ struct ContentView: View {
         }
         .onChange(of: selectedGroup) { _, _ in
             expandedGroupIDs.removeAll()
+            reconcileSelectedCapabilityWithDisplayedItems()
         }
         .onChange(of: selectedAgent) { _, _ in
             expandedGroupIDs.removeAll()
+            reconcileSelectedCapabilityWithDisplayedItems()
         }
         .onChange(of: scanRefreshPolicy) { _, value in
             store.configure(refreshPolicy: value)
@@ -523,6 +524,49 @@ struct ContentView: View {
                 subtitle: "\(sectionItems.count) items",
                 items: sortedSectionItems
             )
+        }
+    }
+
+    private var displayedCapabilityItems: [CapabilityDisplayItem] {
+        capabilityDisplaySections.flatMap { section in
+            section.subsections.flatMap(\.items)
+        }
+    }
+
+    private func reconcileSelectedCapabilityWithDisplayedItems() {
+        let items = displayedCapabilityItems
+        guard let firstItem = items.first else {
+            selectedCapability = nil
+            return
+        }
+
+        if let selectedCapability,
+           let matchingItem = items.first(where: { item in
+               item.id == selectedCapability.id
+                   || item.capabilities.contains { $0.id == selectedCapability.id }
+                   || !capabilityTargetIDs(for: selectedCapability).isDisjoint(with: Set(item.capabilities.map(\.id)))
+           }) {
+            self.selectedCapability = preferredInspectionCapability(for: matchingItem)
+            return
+        }
+
+        selectedCapability = preferredInspectionCapability(for: firstItem)
+    }
+
+    private func preferredInspectionCapability(for item: CapabilityDisplayItem) -> Capability {
+        switch item {
+        case let .capability(capability):
+            return capability
+        case let .group(group):
+            guard group.kind == .mirror,
+                  let selectedAgent,
+                  let graph = displayGraph else {
+                return group.inspectionCapability
+            }
+            return selectedAgent.preferredCapability(
+                from: group.capabilities,
+                visibleCapabilityIDs: selectedAgent.visibleCapabilityIDs(in: graph)
+            ) ?? group.inspectionCapability
         }
     }
 

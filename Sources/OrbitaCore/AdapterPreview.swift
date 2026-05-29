@@ -325,7 +325,10 @@ public final class AdapterPreviewBuilder {
         switch capability.type {
         case .skill:
             let kind = capability.source.kind
-            if kind == "codex-skill" || kind == "claude-skill" || kind.hasPrefix("claude-plugin-") {
+            if isCodexPluginBundledCapability(capability)
+                || kind == "codex-skill"
+                || kind == "claude-skill"
+                || kind.hasPrefix("claude-plugin-") {
                 return AdapterCapabilityMapping(
                     capabilityID: capability.id,
                     supported: false,
@@ -361,6 +364,14 @@ public final class AdapterPreviewBuilder {
                 reason: "Trae does not load \(capability.type.rawValue) capabilities through this adapter."
             )
         }
+    }
+
+    private func isCodexPluginBundledCapability(_ capability: Capability) -> Bool {
+        guard capability.pluginID != nil else {
+            return false
+        }
+        return capability.metadata["manager"] == "codex"
+            || capability.pluginID?.hasPrefix("plugin:codex-cache:") == true
     }
 
     private func capabilitiesJSON(agent: AgentID, capabilities: [Capability], mappings: [AdapterCapabilityMapping]) -> String {

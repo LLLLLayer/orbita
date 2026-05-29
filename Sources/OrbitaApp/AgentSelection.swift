@@ -54,26 +54,27 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
     }
 
     func visibleCapabilities(in graph: CapabilityGraph) -> [Capability] {
+        let capabilities: [Capability]
         switch behavior {
         case .agentsSource:
-            return sourceCapabilities(.agents, in: graph)
+            capabilities = sourceCapabilities(.agents, in: graph)
         case .codexSource:
-            return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeSource:
-            return AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
         case .cursorSource:
-            return AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities
         case .traeSource:
-            return AgentViewResolver().view(for: .trae, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().view(for: .trae, graph: graph).visibleCapabilities
         case .codexLike:
-            return AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
         case .claudeLike:
-            return AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
         case .skillsAgent:
             guard let skillsAgentID else {
                 return []
             }
-            return graph.capabilities
+            capabilities = graph.capabilities
                 .filter { capability in
                     !capability.statuses.contains(.broken)
                         && !capability.statuses.contains(.disabled)
@@ -81,13 +82,25 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
                 }
                 .sorted { $0.id < $1.id }
         case .generic:
-            return graph.capabilities
+            capabilities = graph.capabilities
                 .filter { capability in
                     !capability.statuses.contains(.broken)
                         && !capability.statuses.contains(.disabled)
                 }
                 .sorted { $0.id < $1.id }
         }
+
+        guard let agentID = skillsInstallAgentID else {
+            return capabilities
+        }
+
+        return deduplicatedCapabilities(
+            capabilities + graph.capabilities.filter { capability in
+                !capability.statuses.contains(.broken)
+                    && !capability.statuses.contains(.disabled)
+                    && capability.installedThroughSkillsCLI(for: agentID)
+            }
+        )
     }
 
     func visibleCapabilityIDs(in graph: CapabilityGraph) -> Set<String> {
@@ -140,6 +153,29 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         visibleCapabilityIDs(in: graph).contains(capability.id)
     }
 
+    func preferredCapability(from capabilities: [Capability], visibleCapabilityIDs: Set<String>? = nil) -> Capability? {
+        let candidates = capabilities.filter { capability in
+            visibleCapabilityIDs?.contains(capability.id) ?? true
+        }
+        guard !candidates.isEmpty else {
+            return nil
+        }
+
+        if let agentID = skillsInstallAgentID,
+           let installTargetMatch = candidates.first(where: { $0.hasSkillsInstallTarget(for: agentID) }) {
+            return installTargetMatch
+        }
+
+        if let sourcePathComponent,
+           let directMatch = candidates.first(where: { capability in
+               URL(fileURLWithPath: capability.source.path).pathComponents.contains(sourcePathComponent)
+           }) {
+            return directMatch
+        }
+
+        return candidates.first
+    }
+
     private func sourceCapabilities(
         _ sourceKind: CapabilitySourceClassifier.SourceKind,
         in graph: CapabilityGraph,
@@ -160,6 +196,15 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         Set(graph.capabilities.compactMap { capability in
             CapabilitySourceClassifier.sourceKind(for: capability) == sourceKind ? capability.id : nil
         })
+    }
+
+    private func deduplicatedCapabilities(_ capabilities: [Capability]) -> [Capability] {
+        var seenIDs = Set<String>()
+        var result: [Capability] = []
+        for capability in capabilities where seenIDs.insert(capability.id).inserted {
+            result.append(capability)
+        }
+        return result.sorted { $0.id < $1.id }
     }
 
     var systemImage: String {
@@ -215,6 +260,21 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         }
         return nil
     }
+
+    private var sourcePathComponent: String? {
+        switch skillsInstallAgentID {
+        case "codex":
+            return ".codex"
+        case "claude-code":
+            return ".claude"
+        case "cursor":
+            return ".cursor"
+        case "trae":
+            return ".trae"
+        default:
+            return nil
+        }
+    }
 }
 
 private extension Capability {
@@ -223,6 +283,14 @@ private extension Capability {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .contains(agentID) == true
+    }
+
+    func hasSkillsInstallTarget(for agentID: String) -> Bool {
+        metadata["skillsInstallTargets"]?
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .contains { line in
+                line.hasPrefix("\(agentID)=")
+            } == true
     }
 }
 

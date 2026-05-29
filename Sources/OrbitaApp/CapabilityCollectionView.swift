@@ -7,36 +7,11 @@ private extension AgentSelection {
     var visibilityIdentity: String {
         skillsInstallAgentID.map { "skills:\($0)" } ?? id
     }
-
-    func representsSameAgent(as selectedAgent: AgentSelection?) -> Bool {
-        guard let selectedAgent else {
-            return false
-        }
-        if id == selectedAgent.id {
-            return true
-        }
-        guard let agentID = skillsInstallAgentID,
-              let selectedAgentID = selectedAgent.skillsInstallAgentID
-        else {
-            return false
-        }
-        return agentID == selectedAgentID
-    }
 }
 
-private func orderedVisibleAgentBadges(
-    _ agents: [AgentSelection],
-    selectedAgent: AgentSelection?
-) -> [AgentSelection] {
-    var ordered: [AgentSelection] = []
-    if let selectedAgent,
-       agents.contains(where: { $0.representsSameAgent(as: selectedAgent) }) {
-        ordered.append(selectedAgent)
-    }
-    ordered.append(contentsOf: agents.filter { !$0.representsSameAgent(as: selectedAgent) })
-
+private func orderedVisibleAgentBadges(_ agents: [AgentSelection]) -> [AgentSelection] {
     var seenIdentities = Set<String>()
-    return ordered.filter { agent in
+    return agents.filter { agent in
         seenIdentities.insert(agent.visibilityIdentity).inserted
     }
 }
@@ -177,12 +152,12 @@ struct CapabilityCollectionView: View {
                 selectedCapability = capability
             }
         case let .group(group):
-            let inspectionCapability = group.inspectionCapability
+            let inspectionCapability = inspectionCapability(for: group, in: agentVisibilityIndex)
             CapabilityGroupTile(
                 group: group,
                 visibleAgents: visibleAgents(for: item, in: agentVisibilityIndex),
                 isExpanded: expandedGroupIDs.contains(group.id),
-                isSelected: selectedCapability?.id == inspectionCapability.id,
+                isSelected: isSelected(group: group, inspectionCapability: inspectionCapability),
                 onSync: {
                     onSyncCapability(inspectionCapability)
                 }
@@ -223,7 +198,29 @@ struct CapabilityCollectionView: View {
             }
             return !capabilityIDs.isDisjoint(with: visibleIDs)
         }
-        return orderedVisibleAgentBadges(visibleAgents, selectedAgent: selectedAgent)
+        return orderedVisibleAgentBadges(visibleAgents)
+    }
+
+    private func inspectionCapability(for group: CapabilityGroup, in agentVisibilityIndex: AgentVisibilityIndex) -> Capability {
+        guard group.kind == .mirror,
+              let selectedAgent else {
+            return group.inspectionCapability
+        }
+        return selectedAgent.preferredCapability(
+            from: group.capabilities,
+            visibleCapabilityIDs: agentVisibilityIndex[selectedAgent.id]
+        ) ?? group.inspectionCapability
+    }
+
+    private func isSelected(group: CapabilityGroup, inspectionCapability: Capability) -> Bool {
+        guard let selectedCapability else {
+            return false
+        }
+        guard group.kind == .mirror else {
+            return selectedCapability.id == inspectionCapability.id
+        }
+        return selectedCapability.id == inspectionCapability.id
+            || group.capabilities.contains { $0.id == selectedCapability.id }
     }
 
     private func makeAgentVisibilityIndex() -> AgentVisibilityIndex {
@@ -420,12 +417,12 @@ private struct ExpandedCapabilityGroupShelf: View {
                 selectedCapability = capability
             }
         case let .group(group):
-            let inspectionCapability = group.inspectionCapability
+            let inspectionCapability = inspectionCapability(for: group)
             CapabilityGroupTile(
                 group: group,
                 visibleAgents: visibleAgents(for: item),
                 isExpanded: false,
-                isSelected: selectedCapability?.id == inspectionCapability.id,
+                isSelected: isSelected(group: group, inspectionCapability: inspectionCapability),
                 showsDisclosure: false,
                 onSync: {
                     onSyncCapability(inspectionCapability)
@@ -444,7 +441,29 @@ private struct ExpandedCapabilityGroupShelf: View {
             }
             return !capabilityIDs.isDisjoint(with: visibleIDs)
         }
-        return orderedVisibleAgentBadges(visibleAgents, selectedAgent: selectedAgent)
+        return orderedVisibleAgentBadges(visibleAgents)
+    }
+
+    private func inspectionCapability(for group: CapabilityGroup) -> Capability {
+        guard group.kind == .mirror,
+              let selectedAgent else {
+            return group.inspectionCapability
+        }
+        return selectedAgent.preferredCapability(
+            from: group.capabilities,
+            visibleCapabilityIDs: agentVisibilityIndex[selectedAgent.id]
+        ) ?? group.inspectionCapability
+    }
+
+    private func isSelected(group: CapabilityGroup, inspectionCapability: Capability) -> Bool {
+        guard let selectedCapability else {
+            return false
+        }
+        guard group.kind == .mirror else {
+            return selectedCapability.id == inspectionCapability.id
+        }
+        return selectedCapability.id == inspectionCapability.id
+            || group.capabilities.contains { $0.id == selectedCapability.id }
     }
 
     private var shelfSections: [ExpandedGroupSection] {

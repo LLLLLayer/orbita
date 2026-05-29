@@ -46,6 +46,7 @@ public struct ScanOptions: Sendable {
         return [
             home.appendingPathComponent(".codex/skills"),
             home.appendingPathComponent(".agents/skills"),
+            home.appendingPathComponent(".trae/skills"),
             home.appendingPathComponent(".claude/skills"),
             home.appendingPathComponent(".codex/plugins/cache")
         ]
@@ -161,6 +162,10 @@ public final class CapabilityScanner {
         emitProgress("scan.cursor.start", path: root.appendingPathComponent(".cursor").path, options: options)
         scanCursorRules(at: root, into: &capabilities, issues: &issues)
         emitProgress("scan.cursor.finish", path: root.appendingPathComponent(".cursor").path, count: capabilities.count, options: options)
+
+        emitProgress("scan.trae.start", path: root.appendingPathComponent(".trae").path, options: options)
+        scanTraeWorkspace(at: root, options: options, codexSkillStates: codexSkillStateOverrides, into: &capabilities, issues: &issues)
+        emitProgress("scan.trae.finish", path: root.appendingPathComponent(".trae").path, count: capabilities.count, options: options)
 
         emitProgress("scan.mcp.start", path: root.appendingPathComponent(".mcp.json").path, options: options)
         scanMCPConfig(
@@ -334,6 +339,25 @@ public final class CapabilityScanner {
             issues: &issues,
             scope: .project,
             sourceKind: "claude-agent"
+        )
+    }
+
+    private func scanTraeWorkspace(
+        at root: URL,
+        options: ScanOptions,
+        codexSkillStates: [String: Bool],
+        into capabilities: inout [Capability],
+        issues: inout [ScanIssue]
+    ) {
+        scanSkillFiles(
+            at: root.appendingPathComponent(".trae/skills"),
+            options: options,
+            into: &capabilities,
+            issues: &issues,
+            scope: .project,
+            sourceKind: "trae-skill",
+            projectRoot: root,
+            codexSkillStates: codexSkillStates
         )
     }
 
@@ -1511,6 +1535,9 @@ public final class CapabilityScanner {
         }
         if components.contains(".claude") {
             return "claude-skill"
+        }
+        if components.contains(".trae") {
+            return "trae-skill"
         }
         if containsPathComponentPair(".codex", "skills", in: components) {
             return "codex-skill"

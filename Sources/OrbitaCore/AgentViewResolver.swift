@@ -91,6 +91,9 @@ public final class AgentViewResolver {
             // way other generic agents do, but it does not get Codex- or
             // Claude-native ones.
             let kind = capability.source.kind
+            if isCodexPluginBundledCapability(capability) {
+                return false
+            }
             if kind == "codex-skill" || kind == "claude-skill" || kind.hasPrefix("claude-plugin-") {
                 return false
             }
@@ -137,6 +140,14 @@ public final class AgentViewResolver {
             return true
         }
         return capability.source.kind == "skill" || sourcePathComponents(for: capability).contains(".codex")
+    }
+
+    private func isCodexPluginBundledCapability(_ capability: Capability) -> Bool {
+        guard capability.pluginID != nil else {
+            return false
+        }
+        return capability.metadata["manager"] == "codex"
+            || capability.pluginID?.hasPrefix("plugin:codex-cache:") == true
     }
 
     private func sourcePathComponents(for capability: Capability) -> [String] {
