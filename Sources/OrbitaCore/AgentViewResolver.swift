@@ -64,9 +64,43 @@ public final class AgentViewResolver {
                 return false
             }
         case .cursor:
-            return [.rule, .mcpServer, .instruction].contains(capability.type)
+            return isVisibleToCursor(capability)
         case .trae:
             return isVisibleToTrae(capability)
+        }
+    }
+
+    /// Cursor loads SKILL.md-based skills, MCP servers, Instructions and Rules. Like Trae, it additionally
+    /// surfaces anything installed via `npx skills` for the cursor agent ID and anything physically under
+    /// `.cursor/`, so its view matches the SkillsAgentCatalog claim (and the App's skills-CLI union) that
+    /// Cursor loads `.agents/skills` / `~/.cursor/skills` — keeping core and App in agreement after a fork.
+    private func isVisibleToCursor(_ capability: Capability) -> Bool {
+        if capability.metadata["skillsInstalledAgentIDs"]?
+            .split(separator: ",")
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .contains("cursor") == true {
+            return true
+        }
+        if sourcePathComponents(for: capability).contains(".cursor") {
+            return true
+        }
+        switch capability.type {
+        case .skill:
+            let kind = capability.source.kind
+            if isCodexPluginBundledCapability(capability) {
+                return false
+            }
+            if kind == "codex-skill" || kind == "claude-skill" || kind.hasPrefix("claude-plugin-") {
+                return false
+            }
+            return kind == "agents-skill"
+                || kind == "user-skill"
+                || kind == "skill"
+                || sourcePathComponents(for: capability).contains(".agents")
+        case .mcpServer, .instruction, .rule:
+            return true
+        case .plugin, .agent, .hook, .command, .unknown:
+            return false
         }
     }
 

@@ -135,6 +135,31 @@ struct OrbitaCLI {
             } else if command.clean {
                 let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
                 plan = try ApplyPlanBuilder().planClean(graph: resolvedGraph)
+            } else if let syncID = command.syncCapabilityID {
+                guard let agentID = command.agent else { throw CLIError.missingValue("--agent") }
+                let mode: AgentSyncMode
+                if let rawMode = command.syncMode {
+                    guard let parsed = AgentSyncMode(rawValue: rawMode) else { throw CLIError.invalidValue("--mode", rawMode) }
+                    mode = parsed
+                } else {
+                    mode = .symlink
+                }
+                let scope: AgentSyncDestinationScope?
+                if let rawScope = command.syncScope {
+                    guard let parsed = AgentSyncDestinationScope(rawValue: rawScope) else { throw CLIError.invalidValue("--scope", rawScope) }
+                    scope = parsed
+                } else {
+                    scope = nil
+                }
+                let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+                let capability = try resolveCapability(syncID, in: resolvedGraph)
+                plan = try ApplyPlanBuilder().planSyncInstallTarget(
+                    capabilityID: capability.id,
+                    agentID: agentID,
+                    graph: resolvedGraph,
+                    mode: mode,
+                    destinationScope: scope
+                )
             } else {
                 throw CLIError.missingPlanCapabilityID
             }
@@ -356,6 +381,9 @@ struct ParsedCommand {
     var enableCapabilityID: String?
     var disableCapabilityID: String?
     var deleteCapabilityID: String?
+    var syncCapabilityID: String?
+    var syncMode: String?
+    var syncScope: String?
     var apply: Bool
     var rollback: Bool
     var merge: Bool
@@ -376,6 +404,9 @@ struct ParsedCommand {
         var parsedEnableCapabilityID: String?
         var parsedDisableCapabilityID: String?
         var parsedDeleteCapabilityID: String?
+        var parsedSyncCapabilityID: String?
+        var parsedSyncMode: String?
+        var parsedSyncScope: String?
         var parsedApply = false
         var parsedRollback = false
         var parsedMerge = false
@@ -414,6 +445,18 @@ struct ParsedCommand {
                 guard index + 1 < arguments.count else { throw CLIError.missingValue("--delete") }
                 parsedDeleteCapabilityID = arguments[index + 1]
                 index += 2
+            case "--sync":
+                guard index + 1 < arguments.count else { throw CLIError.missingValue("--sync") }
+                parsedSyncCapabilityID = arguments[index + 1]
+                index += 2
+            case "--mode":
+                guard index + 1 < arguments.count else { throw CLIError.missingValue("--mode") }
+                parsedSyncMode = arguments[index + 1]
+                index += 2
+            case "--scope":
+                guard index + 1 < arguments.count else { throw CLIError.missingValue("--scope") }
+                parsedSyncScope = arguments[index + 1]
+                index += 2
             case "--project", "--project-root":
                 guard index + 1 < arguments.count else { throw CLIError.missingValue(argument) }
                 explicitProject = arguments[index + 1]
@@ -428,6 +471,9 @@ struct ParsedCommand {
         enableCapabilityID = parsedEnableCapabilityID
         disableCapabilityID = parsedDisableCapabilityID
         deleteCapabilityID = parsedDeleteCapabilityID
+        syncCapabilityID = parsedSyncCapabilityID
+        syncMode = parsedSyncMode
+        syncScope = parsedSyncScope
         apply = parsedApply
         rollback = parsedRollback
         merge = parsedMerge
@@ -460,6 +506,7 @@ enum CLIError: LocalizedError {
     case unknownCommand(String)
     case missingProjectRoot
     case missingValue(String)
+    case invalidValue(String, String)
     case missingCapabilityID
     case missingPlanCapabilityID
     case capabilityNotFound(String)
@@ -474,10 +521,12 @@ enum CLIError: LocalizedError {
             return "Missing project root path."
         case .missingValue(let flag):
             return "Missing value for \(flag)."
+        case let .invalidValue(flag, value):
+            return "Invalid value for \(flag): \(value)."
         case .missingCapabilityID:
             return "Missing capability id."
         case .missingPlanCapabilityID:
-            return "Missing plan action. Use --enable <capability-id>, --disable <capability-id>, --delete <capability-id>, --merge, --rollback, or --clean."
+            return "Missing plan action. Use --enable <capability-id>, --disable <capability-id>, --delete <capability-id>, --sync <capability-id> --agent <id> [--mode copy|symlink] [--scope project|user], --merge, --rollback, or --clean."
         case .capabilityNotFound(let id):
             return "Capability not found: \(id)"
         }

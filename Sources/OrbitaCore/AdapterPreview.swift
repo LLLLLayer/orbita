@@ -290,6 +290,25 @@ public final class AdapterPreviewBuilder {
 
     private func cursorMapping(for capability: Capability) -> AdapterCapabilityMapping {
         switch capability.type {
+        case .skill:
+            let kind = capability.source.kind
+            if isCodexPluginBundledCapability(capability)
+                || kind == "codex-skill"
+                || kind == "claude-skill"
+                || kind.hasPrefix("claude-plugin-") {
+                return AdapterCapabilityMapping(
+                    capabilityID: capability.id,
+                    supported: false,
+                    targetPath: nil,
+                    reason: "Cursor does not load this skill source directly; sync it into .agents/skills or ~/.cursor/skills first."
+                )
+            }
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: true,
+                targetPath: capability.source.path,
+                reason: "Cursor loads SKILL.md-based skills from .agents/skills and ~/.cursor/skills."
+            )
         case .rule:
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,

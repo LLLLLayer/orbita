@@ -541,6 +541,26 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
+    /// Turns a structured ApplyExecutionError into a message that tells the user exactly which step failed
+    /// and how much of a grouped/multi-target plan (e.g. a fork across several agents) was completed vs not
+    /// attempted, instead of collapsing everything to a bare error string.
+    nonisolated static func failureMessage(for error: ApplyExecutionError) -> String {
+        var lines = [error.message]
+        let completed = error.completedOperations.count
+        let pending = error.pendingOperations.count
+        if completed > 0 || pending > 0 {
+            var summary = "Failed at: \(error.failedOperation.description)."
+            if completed > 0 {
+                summary += " \(completed) operation\(completed == 1 ? "" : "s") had already applied."
+            }
+            if pending > 0 {
+                summary += " \(pending) operation\(pending == 1 ? "" : "s") were not attempted."
+            }
+            lines.append(summary)
+        }
+        return lines.joined(separator: "\n")
+    }
+
     @discardableResult
     func apply(_ plan: ApplyPlan) -> Bool {
         let affectedCapabilities = affectedCapabilities(for: plan)
@@ -555,6 +575,8 @@ final class ProjectCapabilityStore: ObservableObject {
                 do {
                     let result = try ApplyPlanExecutor().apply(plan)
                     return ApplyExecutionOutcome.success(result)
+                } catch let executionError as ApplyExecutionError {
+                    return ApplyExecutionOutcome.failure(Self.failureMessage(for: executionError))
                 } catch {
                     return ApplyExecutionOutcome.failure(error.localizedDescription)
                 }

@@ -103,6 +103,14 @@ public final class CapabilityResolver {
         for indices in grouped.values where indices.count > 1 {
             let group = indices.map { capabilities[$0] }
             let relationship = duplicateRelationship(for: group)
+            // A shared name alone is not enough to call two capabilities "conflicting duplicates":
+            // two unrelated skills both named "helper" from different packages legitimately coexist.
+            // Only flag a conflicting group when there is corroborating evidence of a real relationship
+            // (same package, shared resolved path, or shared content hash). Linked/copied mirrors are
+            // corroborated by construction (same path / same hash) and are never suppressed here.
+            if relationship == .conflicting, groupLikelyUnrelated(group) {
+                continue
+            }
             for index in indices {
                 if relationship != .linkedMirror, !capabilities[index].statuses.contains(.duplicate) {
                     capabilities[index].statuses.append(.duplicate)
@@ -136,6 +144,20 @@ public final class CapabilityResolver {
         }
 
         return .conflicting
+    }
+
+    /// True when a same-name group is most likely a coincidental name clash rather than a real
+    /// duplicate/mirror: its members come from two or more distinct packages (pluginIDs) AND share
+    /// neither a resolved source path nor a content hash. Same-package or standalone (no pluginID)
+    /// groups, and any group with a shared path/hash, are treated as genuinely related.
+    private func groupLikelyUnrelated(_ capabilities: [Capability]) -> Bool {
+        let distinctPluginIDs = Set(capabilities.compactMap { $0.pluginID })
+        guard distinctPluginIDs.count >= 2 else { return false }
+        let paths = capabilities.map { resolvedSourcePath($0.source.path) }
+        if Set(paths).count < paths.count { return false }
+        let hashes = capabilities.compactMap { $0.metadata["contentHash"] }.filter { !$0.isEmpty }
+        if Set(hashes).count < hashes.count { return false }
+        return true
     }
 
     private func duplicateDetail(
@@ -332,7 +354,7 @@ public final class CapabilityResolver {
             }
 
             let hashes = Set(indices.compactMap { capabilities[$0].metadata["contentHash"] }.filter { !$0.isEmpty })
-            if hashes.count > 1 {
+            if hashes.count > 1, !groupLikelyUnrelated(indices.map { capabilities[$0] }) {
                 for index in indices {
                     appendStatus(.drifted, to: &capabilities[index])
                 }
