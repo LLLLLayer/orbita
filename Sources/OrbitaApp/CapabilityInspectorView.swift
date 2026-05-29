@@ -88,6 +88,10 @@ struct CapabilityInspectorView: View {
                         InspectorSection {
                             InspectorField("Scope", value: capability.scope.rawValue)
                             InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
+                            if let installedVersion = capability.metadata["installedVersion"],
+                               !installedVersion.isEmpty {
+                                InspectorField("Version", value: installedVersion)
+                            }
                             InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
                             InspectorPathField("Source", path: sourcePath(for: capability))
                             if let canonicalPath = canonicalPathToDisplay(for: capability) {
@@ -1408,9 +1412,9 @@ private struct NativePluginAction: Identifiable {
     static func actions(for capability: Capability) -> [NativePluginAction] {
         guard let manager = capability.metadata["manager"] else { return [] }
         var actions: [NativePluginAction] = []
-        if let command = capability.metadata["checkCommand"] {
-            actions.append(NativePluginAction(id: "check", title: "Check", systemImage: "magnifyingglass", command: command, manager: manager, kind: .check))
-        }
+        // The installed version is shown by default as a "Version" field, so the
+        // manual "Check" action (checkCommand) is intentionally not surfaced —
+        // updates/installs are left to the user via Update / Reinstall.
         if let command = capability.metadata["installCommand"] {
             actions.append(NativePluginAction(id: "install", title: "Reinstall", systemImage: "arrow.down.doc", command: command, manager: manager, kind: .install))
         }

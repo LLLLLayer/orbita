@@ -1232,6 +1232,22 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(view.visibleCapabilities.contains { $0.type == .rule })
     }
 
+    func testVisibleCapabilitiesFastPathMatchesFullView() throws {
+        let root = try fixtureURL("MixedProject")
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+        let resolver = AgentViewResolver()
+
+        // The visible-only fast path used by the App's tab views must return
+        // exactly the same list (same order) as view(for:graph:).visibleCapabilities.
+        for agent in [AgentID.codex, .claudeCode, .cursor, .trae] {
+            XCTAssertEqual(
+                resolver.visibleCapabilities(for: agent, graph: graph).map(\.id),
+                resolver.view(for: agent, graph: graph).visibleCapabilities.map(\.id),
+                "fast path diverged from full view for \(agent)"
+            )
+        }
+    }
+
     func testAgentViewsRespectClientSpecificCommandSources() throws {
         let root = try fixtureURL("MixedProject")
         let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
@@ -1425,6 +1441,49 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(codexVisibleIDs.contains(claudePlugin.id), "Codex view must not include Claude-native plugins")
         XCTAssertFalse(codexVisibleIDs.contains(claudePluginChild.id), "Codex view must not include Claude plugin sub-capabilities")
         XCTAssertTrue(codexVisibleIDs.contains(codexPlugin.id), "Codex view should still include Codex-native plugins")
+    }
+
+    /// A marketplace plugin installed for BOTH Codex and Claude Code is not a
+    /// conflict — they are independent plugin ecosystems. A same-named
+    /// `codex-plugin` and `claude-plugin` must therefore not be flagged as
+    /// duplicates/shadows of each other.
+    func testCodexAndClaudePluginsWithSameNameAreNotDuplicates() throws {
+        let claudePlugin = Capability(
+            id: "plugin:claude:im-knowledge",
+            name: "Im Knowledge",
+            type: .plugin,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "claude-plugin", path: "/Users/me/.claude/plugins/cache/unicorn-marketplace/im-knowledge/1.5.5", packageName: "im-knowledge"),
+            metadata: ["manager": "claude-code", "installedVersion": "1.5.5"]
+        )
+        let codexPlugin = Capability(
+            id: "plugin:codex:im-knowledge",
+            name: "Im Knowledge",
+            type: .plugin,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "codex-plugin", path: "/Users/me/.codex/plugins/cache/unicorn-marketplace/im-knowledge", packageName: "im-knowledge"),
+            metadata: ["manager": "codex", "installedVersion": "1.5.5"]
+        )
+
+        let graph = CapabilityResolver().resolve(scanResult: ScanResult(
+            projectRoot: "/tmp/cross-ecosystem-plugin-test",
+            capabilities: [claudePlugin, codexPlugin],
+            issues: []
+        ))
+
+        let claude = try XCTUnwrap(graph.capabilities.first { $0.id == claudePlugin.id })
+        let codex = try XCTUnwrap(graph.capabilities.first { $0.id == codexPlugin.id })
+
+        XCTAssertFalse(claude.statuses.contains(.duplicate), "Claude plugin must not duplicate a same-named Codex plugin")
+        XCTAssertFalse(codex.statuses.contains(.duplicate), "Codex plugin must not duplicate a same-named Claude plugin")
+        XCTAssertFalse(claude.statuses.contains(.shadowed))
+        XCTAssertFalse(codex.statuses.contains(.shadowed))
+        XCTAssertNil(claude.metadata["duplicateRelationship"])
+        XCTAssertNil(codex.metadata["duplicateRelationship"])
     }
 
     func testClaudeAgentViewShowsEffectivePluginScopeOnly() throws {

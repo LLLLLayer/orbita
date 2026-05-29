@@ -42,7 +42,7 @@ final class ProjectCapabilityStore: ObservableObject {
     private let snapshotStore: CapabilitySnapshotStore
     private let projectLibraryStore: ProjectLibraryStore
     private let iso8601Formatter = ISO8601DateFormatter()
-    private var graphRevision = 0
+    private(set) var graphRevision = 0
 
     init(
         projectRoot: URL? = nil,

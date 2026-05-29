@@ -3,6 +3,14 @@ import OrbitaCore
 
 private typealias AgentVisibilityIndex = [String: Set<String>]
 
+/// Memoization box for CapabilityCollectionView's per-agent visibility index,
+/// held in `@State` so it survives re-renders; recomputed only when `key`
+/// (graphRevision + agent ids) changes.
+private final class AgentVisibilityIndexCache {
+    var key: String?
+    var index: AgentVisibilityIndex = [:]
+}
+
 private extension AgentSelection {
     var visibilityIdentity: String {
         skillsInstallAgentID.map { "skills:\($0)" } ?? id
@@ -19,6 +27,7 @@ private func orderedVisibleAgentBadges(_ agents: [AgentSelection]) -> [AgentSele
 struct CapabilityCollectionView: View {
     let sections: [CapabilityCollectionSection]
     let graph: CapabilityGraph?
+    let graphRevision: Int
     let agentOptions: [AgentSelection]
     let selectedAgent: AgentSelection?
     @Binding var selectedCapability: Capability?
@@ -28,13 +37,14 @@ struct CapabilityCollectionView: View {
 
     @State private var expandedGroupOrder: [String] = []
     @State private var collapsedSectionIDs: Set<String> = []
+    @State private var agentVisibilityCache = AgentVisibilityIndexCache()
 
     private let itemMinWidth: CGFloat = 118
     private let itemTargetWidth: CGFloat = 142
     private let itemSpacing: CGFloat = 18
 
     var body: some View {
-        let agentVisibilityIndex = makeAgentVisibilityIndex()
+        let agentVisibilityIndex = ensureAgentVisibilityIndex()
         VStack(alignment: .leading, spacing: 24) {
             ForEach(sectionRows) { section in
                 VStack(alignment: .leading, spacing: 12) {
@@ -221,6 +231,20 @@ struct CapabilityCollectionView: View {
         }
         return selectedCapability.id == inspectionCapability.id
             || group.capabilities.contains { $0.id == selectedCapability.id }
+    }
+
+    /// The per-agent visible-ID index drives the avatar stack on every tile.
+    /// It depends only on the graph + the agent list, NOT on the selected tab,
+    /// so it must not be recomputed on a tab switch. Cached by graphRevision +
+    /// agent ids; previously this ran one AgentViewResolver pass per agent on
+    /// every body eval — a major per-switch cost.
+    private func ensureAgentVisibilityIndex() -> AgentVisibilityIndex {
+        let key = "\(graphRevision)|" + agentOptions.map(\.id).joined(separator: ",")
+        if agentVisibilityCache.key != key {
+            agentVisibilityCache.key = key
+            agentVisibilityCache.index = makeAgentVisibilityIndex()
+        }
+        return agentVisibilityCache.index
     }
 
     private func makeAgentVisibilityIndex() -> AgentVisibilityIndex {
@@ -657,7 +681,7 @@ private struct CapabilityGroupTile: View {
         case .plugin:
             return CapabilityType.plugin.protocolDescription
         case .prefix:
-            return "前缀为 \(group.name)-* 聚合的内容"
+            return String(format: L("group.prefix.subtitle"), group.name)
         }
     }
 
@@ -871,6 +895,7 @@ private extension Capability {
         type == .hook ? hookHostTitle : name
     }
 
+    @MainActor
     var tileSubtitle: String {
         if type == .hook {
             return hookTimingDescription(for: hookTimingLabel)
@@ -942,12 +967,13 @@ private extension CapabilityType {
     }
 }
 
+@MainActor
 private func hookTimingDescription(for timing: String) -> String {
     let trimmed = timing.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty, trimmed != "Hook timing" else {
-        return "Hook timing"
+        return L("hook.timing")
     }
-    return "Hook \(trimmed) 时机"
+    return String(format: L("hook.timing.format"), trimmed)
 }
 
 private func uniquePreservingOrder(_ values: [String]) -> [String] {

@@ -142,7 +142,15 @@ enum LocalizationCatalog {
         // Sort
         "sort.name": "Name",
         "sort.modifiedNewest": "Modified newest",
-        "sort.modifiedOldest": "Modified oldest"
+        "sort.modifiedOldest": "Modified oldest",
+
+        // Capability tiles
+        "group.prefix.subtitle": "Grouped by the %@-* prefix",
+        "hook.timing": "Hook timing",
+        "hook.timing.format": "%@ hook timing",
+
+        // Toast
+        "toast.comingSoon": "Coming soon"
     ]
 
     static let simplifiedChinese: [String: String] = [
@@ -204,7 +212,13 @@ enum LocalizationCatalog {
 
         "sort.name": "名称",
         "sort.modifiedNewest": "最近修改优先",
-        "sort.modifiedOldest": "最早修改优先"
+        "sort.modifiedOldest": "最早修改优先",
+
+        "group.prefix.subtitle": "前缀为 %@-* 聚合的内容",
+        "hook.timing": "Hook 时机",
+        "hook.timing.format": "Hook %@ 时机",
+
+        "toast.comingSoon": "敬请期待"
     ]
 
     static let traditionalChinese: [String: String] = [
@@ -266,6 +280,12 @@ enum LocalizationCatalog {
 
         "sort.name": "名稱",
         "sort.modifiedNewest": "最近修改優先",
-        "sort.modifiedOldest": "最早修改優先"
+        "sort.modifiedOldest": "最早修改優先",
+
+        "group.prefix.subtitle": "前綴為 %@-* 彙整的內容",
+        "hook.timing": "Hook 時機",
+        "hook.timing.format": "Hook %@ 時機",
+
+        "toast.comingSoon": "敬請期待"
     ]
 }

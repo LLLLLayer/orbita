@@ -166,6 +166,10 @@ struct OrbitaSettingsView: View {
         SettingsPageStack {
             SettingsHeader(title: L("settings.page.general"), subtitle: L("settings.general.subtitle"))
             SettingsCard(title: L("settings.general.preferences"), systemImage: "slider.horizontal.3") {
+                // Each preference is a stacked block — title + subtitle, then the
+                // control on its own line sharing the card's leading edge. This
+                // removes the old ragged trailing-float of three mismatched-width
+                // controls and the dead zone between each subtitle and its control.
                 SettingsPreferenceRow(
                     title: L("settings.general.refresh.title"),
                     subtitle: L("settings.general.refresh.subtitle")
@@ -177,7 +181,7 @@ struct OrbitaSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 360)
+                    .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
                 }
 
                 SettingsDivider()
@@ -193,7 +197,7 @@ struct OrbitaSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .frame(width: 190)
+                    .fixedSize()
                 }
 
                 SettingsDivider()
@@ -209,7 +213,7 @@ struct OrbitaSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 320)
+                    .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
                 }
             }
         }
@@ -499,6 +503,14 @@ private struct SettingsDivider: View {
     }
 }
 
+private enum SettingsLayout {
+    /// Shared upper bound for the General-page segmented pickers. Wide enough to
+    /// fit the longest localized option set ("30 minutes | 1 hour | Automatic |
+    /// Manual" and "30 分钟 | 1 小时 | 自动 | 手动") without stretching to the
+    /// content clamp, and identical for both bars so they read as one set.
+    static let segmentedMaxWidth: CGFloat = 460
+}
+
 private struct SettingsPreferenceRow<Control: View>: View {
     let title: String
     let subtitle: String
@@ -515,7 +527,7 @@ private struct SettingsPreferenceRow<Control: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+        VStack(alignment: .leading, spacing: 9) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.callout.weight(.semibold))
@@ -526,9 +538,14 @@ private struct SettingsPreferenceRow<Control: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            // Control sits on its own line at the card's leading edge — segmented
+            // bars size to their localized labels (capped), the menu hugs content.
             control()
                 .tint(OrbitaTheme.prominentControlFill)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
     }
 }
 

@@ -4,22 +4,31 @@ public final class AgentViewResolver {
     public init() {}
 
     public func view(for agent: AgentID, graph: CapabilityGraph) -> AgentView {
+        let visible = visibleCapabilities(for: agent, graph: graph)
+        let visibleIDs = Set(visible.map(\.id))
+        let hidden = graph.capabilities
+            .filter { !visibleIDs.contains($0.id) }
+            .sorted { $0.id < $1.id }
+        return AgentView(
+            projectRoot: graph.projectRoot,
+            agent: agent,
+            visibleCapabilities: visible,
+            hiddenCapabilities: hidden
+        )
+    }
+
+    /// Visible-only fast path. The App's per-agent tabs only ever consume the
+    /// visible list, so this skips computing and sorting the (unused) hidden
+    /// set — roughly halving the per-call cost on the tab-switch hot path.
+    /// `view(for:graph:)` reuses this for the visible half.
+    public func visibleCapabilities(for agent: AgentID, graph: CapabilityGraph) -> [Capability] {
         var visible = graph.capabilities.filter { capability in
             isVisible(capability, to: agent)
         }
         if agent == .claudeCode {
             visible = ClaudePluginResolution.effectiveCapabilities(from: visible)
         }
-        let visibleIDs = Set(visible.map(\.id))
-        let hidden = graph.capabilities.filter { capability in
-            !visibleIDs.contains(capability.id)
-        }
-        return AgentView(
-            projectRoot: graph.projectRoot,
-            agent: agent,
-            visibleCapabilities: visible.sorted { $0.id < $1.id },
-            hiddenCapabilities: hidden.sorted { $0.id < $1.id }
-        )
+        return visible.sorted { $0.id < $1.id }
     }
 
     private func isVisible(_ capability: Capability, to agent: AgentID) -> Bool {

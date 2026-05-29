@@ -18,6 +18,7 @@ struct CapabilityMainView: View {
     let categoryOptions: [CapabilityCategory]
     let displaySections: [CapabilityCollectionSection]
     let graphForAgentVisibility: CapabilityGraph?
+    let graphRevision: Int
     @Binding var hideMacScope: Bool
     let showHideMacScopeToggle: Bool
     @Binding var selectedCapability: Capability?
@@ -82,6 +83,7 @@ struct CapabilityMainView: View {
                                 CapabilityCollectionView(
                                     sections: displaySections,
                                     graph: graphForAgentVisibility,
+                                    graphRevision: graphRevision,
                                     agentOptions: agentOptions,
                                     selectedAgent: selectedAgent,
                                     selectedCapability: $selectedCapability,

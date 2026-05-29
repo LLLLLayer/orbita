@@ -2,6 +2,18 @@ import SwiftUI
 import UniformTypeIdentifiers
 import OrbitaCore
 
+/// Memoization scratch space for ContentView's per-agent derived display.
+/// A reference type held in `@State` so it survives re-renders without itself
+/// triggering invalidation; its contents are recomputed only when `key`
+/// (graphRevision + agent + group + sort + hideMacScope) changes.
+private final class DisplayDerivationCache {
+    var key: String?
+    var displayGraph: CapabilityGraph?
+    var visible: [Capability] = []
+    var visibleIDs: Set<String> = []
+    var sections: [CapabilityCollectionSection] = []
+}
+
 struct ContentView: View {
     @StateObject private var store = ProjectCapabilityStore()
     @StateObject private var fullDiskAccess = FullDiskAccessGate()
@@ -35,6 +47,7 @@ struct ContentView: View {
     @State private var userDirectoryAccessMessage: String?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
+    @State private var displayCache = DisplayDerivationCache()
 
     var body: some View {
         Group {
@@ -234,6 +247,7 @@ struct ContentView: View {
                         categoryOptions: categoryOptions,
                         displaySections: capabilityDisplaySections,
                         graphForAgentVisibility: store.graph,
+                        graphRevision: store.graphRevision,
                         hideMacScope: $hideMacScopeInProject,
                         showHideMacScopeToggle: store.hasProject,
                         selectedCapability: $selectedCapability,
@@ -430,7 +444,7 @@ struct ContentView: View {
         let token = UUID()
         toastToken = token
         withAnimation(.snappy(duration: 0.18)) {
-            toastMessage = "敬请期待"
+            toastMessage = L("toast.comingSoon")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             guard toastToken == token else { return }
@@ -467,28 +481,49 @@ struct ContentView: View {
         }
     }
 
-    private var filteredCapabilities: [Capability] {
-        visibleCapabilities.filter { selectedGroup.matches($0) }
+    // MARK: - Derived display state (memoized)
+    //
+    // The per-agent visible list and the grouped display sections used to be
+    // plain computed properties chained off `visibleCapabilities`, so every
+    // read re-ran AgentViewResolver + grouping + sorts. On a single agent-tab
+    // switch the chain fired 3-4x (body reading `capabilityDisplaySections`,
+    // the `selectedAgent` onChange -> reconcile, and preferredInspectionCapability),
+    // all synchronously on the main thread — the source of the switch stutter.
+    // They are now computed ONCE per (graphRevision, agent, group, sort,
+    // hideMacScope) and cached, so duplicate reads within a switch are free.
+
+    private var displayCacheKey: String {
+        let agentKey = selectedAgent?.id ?? "__overview__"
+        let hideMac = (hideMacScopeInProject && store.hasProject) ? "1" : "0"
+        return "\(store.graphRevision)|\(agentKey)|\(selectedGroup.rawValue)|\(capabilitySortOption)|\(hideMac)"
     }
 
-    private var sortedCapabilities: [Capability] {
-        filteredCapabilities.sorted(by: currentSortOption.comparator)
-    }
-
-    private var displayGroupingCapabilities: [Capability] {
-        if selectedGroup == .plugin {
-            return visibleCapabilities.sorted(by: currentSortOption.comparator)
-        }
-        return sortedCapabilities
-    }
-
-    private var visibleCapabilities: [Capability] {
-        guard let graph = displayGraph else { return [] }
-        guard let selectedAgent else { return graph.capabilities }
-        return selectedAgent.visibleCapabilities(in: graph)
+    private func derivedDisplay() -> DisplayDerivationCache {
+        let key = displayCacheKey
+        guard displayCache.key != key else { return displayCache }
+        let graph = computeDisplayGraph()
+        let visible = computeVisibleCapabilities(in: graph)
+        displayCache.key = key
+        displayCache.displayGraph = graph
+        displayCache.visible = visible
+        displayCache.visibleIDs = Set(visible.map(\.id))
+        displayCache.sections = computeDisplaySections(from: visible)
+        return displayCache
     }
 
     private var displayGraph: CapabilityGraph? {
+        derivedDisplay().displayGraph
+    }
+
+    private var visibleCapabilities: [Capability] {
+        derivedDisplay().visible
+    }
+
+    private var capabilityDisplaySections: [CapabilityCollectionSection] {
+        derivedDisplay().sections
+    }
+
+    private func computeDisplayGraph() -> CapabilityGraph? {
         guard let graph = store.graph else { return nil }
         guard hideMacScopeInProject, store.hasProject else { return graph }
         var filtered = graph
@@ -496,10 +531,24 @@ struct ContentView: View {
         return filtered
     }
 
-    private var capabilityDisplaySections: [CapabilityCollectionSection] {
+    private func computeVisibleCapabilities(in graph: CapabilityGraph?) -> [Capability] {
+        guard let graph else { return [] }
+        guard let selectedAgent else { return graph.capabilities }
+        return selectedAgent.visibleCapabilities(in: graph)
+    }
+
+    private func computeDisplaySections(from visible: [Capability]) -> [CapabilityCollectionSection] {
+        let grouping: [Capability]
+        if selectedGroup == .plugin {
+            grouping = visible.sorted(by: currentSortOption.comparator)
+        } else {
+            grouping = visible
+                .filter { selectedGroup.matches($0) }
+                .sorted(by: currentSortOption.comparator)
+        }
         let items = CapabilityDisplayGrouper()
             .items(
-                for: displayGroupingCapabilities,
+                for: grouping,
                 preservesInputOrder: true,
                 groupsPluginChildren: selectedGroup == .all || selectedGroup == .plugin
             )
@@ -558,14 +607,14 @@ struct ContentView: View {
         case let .capability(capability):
             return capability
         case let .group(group):
-            guard group.kind == .mirror,
-                  let selectedAgent,
-                  let graph = displayGraph else {
+            guard group.kind == .mirror, let selectedAgent else {
                 return group.inspectionCapability
             }
+            // Reuse the memoized visible-ID set instead of running the resolver
+            // again — for the selected agent it equals visibleCapabilityIDs(in:).
             return selectedAgent.preferredCapability(
                 from: group.capabilities,
-                visibleCapabilityIDs: selectedAgent.visibleCapabilityIDs(in: graph)
+                visibleCapabilityIDs: derivedDisplay().visibleIDs
             ) ?? group.inspectionCapability
         }
     }

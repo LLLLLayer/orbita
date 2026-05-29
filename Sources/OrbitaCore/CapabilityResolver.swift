@@ -95,9 +95,30 @@ public final class CapabilityResolver {
         case conflicting = "conflicting"
     }
 
+    /// Grouping key for duplicate / shadow detection. Codex and Claude Code run
+    /// independent native plugin systems, so the same marketplace plugin
+    /// installed for each agent is expected — not a conflict. Native plugins are
+    /// therefore scoped by ecosystem, so a `codex-plugin` and a `claude-plugin`
+    /// sharing a name are never treated as duplicates/shadows of each other.
+    /// Skills are genuinely shared across agents via `.agents` (linked/copied
+    /// mirrors), so every non-plugin type keeps cross-agent grouping.
+    private func duplicateGroupingKey(for capability: Capability) -> String {
+        let base = "\(capability.type.rawValue):\(normalized(capability.name))"
+        guard capability.type == .plugin else { return base }
+        return "\(pluginEcosystem(for: capability)):\(base)"
+    }
+
+    private func pluginEcosystem(for capability: Capability) -> String {
+        let kind = capability.source.kind
+        if kind.hasPrefix("codex") { return "codex" }
+        if kind.hasPrefix("claude") { return "claude" }
+        if let manager = capability.metadata["manager"], !manager.isEmpty { return manager }
+        return "plugin"
+    }
+
     private func markDuplicates(in capabilities: inout [Capability]) {
         let grouped = Dictionary(grouping: capabilities.indices) { index in
-            "\(capabilities[index].type.rawValue):\(normalized(capabilities[index].name))"
+            duplicateGroupingKey(for: capabilities[index])
         }
 
         for indices in grouped.values where indices.count > 1 {
@@ -252,7 +273,7 @@ public final class CapabilityResolver {
 
     private func markShadowedAndDrifted(in capabilities: inout [Capability]) {
         let grouped = Dictionary(grouping: capabilities.indices) { index in
-            "\(capabilities[index].type.rawValue):\(normalized(capabilities[index].name))"
+            duplicateGroupingKey(for: capabilities[index])
         }
 
         for indices in grouped.values where indices.count > 1 {

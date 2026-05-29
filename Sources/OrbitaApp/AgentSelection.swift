@@ -59,17 +59,17 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         case .agentsSource:
             capabilities = sourceCapabilities(.agents, in: graph)
         case .codexSource:
-            capabilities = AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().visibleCapabilities(for: .codex, graph: graph)
         case .claudeSource:
-            capabilities = AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().visibleCapabilities(for: .claudeCode, graph: graph)
         case .cursorSource:
-            capabilities = AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().visibleCapabilities(for: .cursor, graph: graph)
         case .traeSource:
-            capabilities = AgentViewResolver().view(for: .trae, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().visibleCapabilities(for: .trae, graph: graph)
         case .codexLike:
-            capabilities = AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().visibleCapabilities(for: .codex, graph: graph)
         case .claudeLike:
-            capabilities = AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities
+            capabilities = AgentViewResolver().visibleCapabilities(for: .claudeCode, graph: graph)
         case .skillsAgent:
             guard let skillsAgentID else {
                 return []
@@ -109,17 +109,17 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         case .agentsSource:
             ids = sourceCapabilityIDs(.agents, in: graph)
         case .codexSource:
-            ids = Set(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.map(\.id))
+            ids = Set(AgentViewResolver().visibleCapabilities(for: .codex, graph: graph).map(\.id))
         case .claudeSource:
-            ids = Set(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.map(\.id))
+            ids = Set(AgentViewResolver().visibleCapabilities(for: .claudeCode, graph: graph).map(\.id))
         case .cursorSource:
-            ids = Set(AgentViewResolver().view(for: .cursor, graph: graph).visibleCapabilities.map(\.id))
+            ids = Set(AgentViewResolver().visibleCapabilities(for: .cursor, graph: graph).map(\.id))
         case .traeSource:
-            ids = Set(AgentViewResolver().view(for: .trae, graph: graph).visibleCapabilities.map(\.id))
+            ids = Set(AgentViewResolver().visibleCapabilities(for: .trae, graph: graph).map(\.id))
         case .codexLike:
-            ids = Set(AgentViewResolver().view(for: .codex, graph: graph).visibleCapabilities.map(\.id))
+            ids = Set(AgentViewResolver().visibleCapabilities(for: .codex, graph: graph).map(\.id))
         case .claudeLike:
-            ids = Set(AgentViewResolver().view(for: .claudeCode, graph: graph).visibleCapabilities.map(\.id))
+            ids = Set(AgentViewResolver().visibleCapabilities(for: .claudeCode, graph: graph).map(\.id))
         case .skillsAgent:
             guard let skillsAgentID else {
                 ids = []
