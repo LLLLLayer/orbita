@@ -96,7 +96,7 @@ final class OrbitaCLIErrorTests: XCTestCase {
         XCTAssertEqual(overview.schemaVersion, 1)
         XCTAssertEqual(overview.agentSummaries.count, AgentID.allCases.count)
         XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .codex && $0.visibleCount > 0 })
-        XCTAssertTrue(overview.differences.contains { $0.capabilityName == "lark-doc" && Set($0.visibleAgents) == Set([.codex, .trae]) })
+        XCTAssertTrue(overview.differences.contains { $0.capabilityName == "lark-doc" && Set($0.visibleAgents) == Set([.codex, .trae, .cursor]) })
     }
 
     func testOverviewTextPrintsAgentDifferenceSummary() throws {
@@ -151,6 +151,28 @@ final class OrbitaCLIErrorTests: XCTestCase {
         XCTAssertEqual(plan.action, .disable)
         XCTAssertTrue(plan.operations.contains { $0.kind == .writeFile && $0.path.hasSuffix("/.agents/manifest.json") && ($0.content ?? "").contains(CapabilityStatus.disabled.rawValue) })
         XCTAssertFalse(plan.operations.contains { $0.kind == .removePath && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+    }
+
+    func testPlanSyncBuildsAgentSyncPlan() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--sync", "lark-doc", "--agent", "codex", "--no-user-scope", "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let plan = try JSONDecoder().decode(ApplyPlan.self, from: data)
+        XCTAssertEqual(plan.action, .enable)
+        XCTAssertTrue(plan.operations.contains { $0.kind == .createSymlink && $0.path.hasSuffix("/.agents/skills/lark-doc") })
+    }
+
+    func testPlanSyncRejectsInvalidMode() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--sync", "lark-doc", "--agent", "codex", "--mode", "bogus", "--no-user-scope", "--json"])
+
+        XCTAssertNotEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stdout.contains("Invalid value for --mode"))
     }
 
     func testPlanTextPrintsOperationDescriptionsAndRisks() throws {

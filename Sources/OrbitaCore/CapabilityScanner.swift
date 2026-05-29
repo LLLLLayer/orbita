@@ -1073,6 +1073,8 @@ public final class CapabilityScanner {
         }
 
         let skillsRoot = agentsRoot.appendingPathComponent("skills")
+        // scanSkillFiles emits both live skills and (for dangling symlinks directly under a skills root)
+        // a [.broken] tile — for .agents this keeps the historical "agents-symlink" source.kind.
         scanSkillFiles(
             at: skillsRoot,
             options: options,
@@ -1086,36 +1088,32 @@ public final class CapabilityScanner {
             codexConfigPath: options.codexConfigURL.path,
             codexSkillStates: codexSkillStates
         )
+    }
 
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: skillsRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return
-        }
-
-        do {
-            let entries = try fileManager.contentsOfDirectory(at: skillsRoot, includingPropertiesForKeys: [.isSymbolicLinkKey])
-            for entry in entries {
-                let values = try entry.resourceValues(forKeys: [.isSymbolicLinkKey])
-                guard values.isSymbolicLink == true else { continue }
-                let destination = try fileManager.destinationOfSymbolicLink(atPath: entry.path)
-                let resolved = resolveSymlink(destination: destination, from: entry.deletingLastPathComponent())
-                if !fileManager.fileExists(atPath: resolved.path) {
-                    capabilities.append(Capability(
-                        id: stableID(type: .skill, path: entry.path),
-                        name: entry.lastPathComponent,
-                        type: .skill,
-                        scope: .project,
-                        statuses: [.broken],
-                        risks: [.read],
-                        source: CapabilitySource(kind: "agents-symlink", path: entry.path),
-                        summary: "Broken symlink",
-                        metadata: ["target": destination]
-                    ))
-                }
-            }
-        } catch {
-            issues.append(ScanIssue(severity: .warning, path: skillsRoot.path, message: "Unable to inspect .agents skills: \(error.localizedDescription)"))
-        }
+    /// Builds a `[.broken]` skill capability for a dangling symlink found directly under a dedicated skills
+    /// root (any agent home, not just `.agents`). Returns nil when the symlink resolves, when it is not a
+    /// dedicated skills root (sourceKind not `*-skill`), or when the target cannot be read. The `.agents`
+    /// case keeps the legacy `agents-symlink` source.kind so reverse-op grouping (ApplyPlan) is unaffected;
+    /// other roots get `<agent>-symlink`.
+    private func brokenSkillSymlinkCapability(at url: URL, scope: CapabilityScope, sourceKind: String) -> Capability? {
+        guard sourceKind.hasSuffix("-skill") else { return nil }
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else { return nil }
+        let resolved = resolveSymlink(destination: destination, from: url.deletingLastPathComponent())
+        guard !fileManager.fileExists(atPath: resolved.path) else { return nil }
+        let symlinkKind = sourceKind == "agents-skill"
+            ? "agents-symlink"
+            : String(sourceKind.dropLast("-skill".count)) + "-symlink"
+        return Capability(
+            id: stableID(type: .skill, path: url.path),
+            name: url.lastPathComponent,
+            type: .skill,
+            scope: scope,
+            statuses: [.broken],
+            risks: scope == .user ? [.read, .global] : [.read],
+            source: CapabilitySource(kind: symlinkKind, path: url.path),
+            summary: "Broken symlink",
+            metadata: ["target": destination]
+        )
     }
 
     private func isInternalEnvironmentRoot(_ root: URL) -> Bool {
@@ -1378,6 +1376,11 @@ public final class CapabilityScanner {
                         inheritedEnabled: inheritedEnabled,
                         metadata: baseMetadata
                     ))
+                } else if url.deletingLastPathComponent().standardizedFileURL.path == root.standardizedFileURL.path,
+                          let broken = brokenSkillSymlinkCapability(at: url, scope: scope, sourceKind: sourceKind) {
+                    // A dangling skill symlink directly under a dedicated skills root (e.g. a fork whose
+                    // canonical source was deleted). Surface it as [.broken] for ANY agent root, not only .agents.
+                    capabilities.append(broken)
                 }
                 enumerator.skipDescendants()
                 continue
@@ -1577,6 +1580,11 @@ public final class CapabilityScanner {
         let packageInfo = forcedPackageInfo ?? inferredPackageInfo
         let codexCacheInfo = forcedPackageInfo == nil ? codexPluginCacheInfo(for: url) : nil
         var metadata = fileMetadata(for: url, merging: frontmatter)
+        // A skill is a directory (SKILL.md + bundled scripts/assets). copy-mode forks duplicate the whole
+        // directory, so drift/copiedMirror classification must hash the directory, not just SKILL.md.
+        if let directoryHash = skillDirectoryContentHash(for: url.deletingLastPathComponent()) {
+            metadata["contentHash"] = directoryHash
+        }
         for (key, value) in baseMetadata where !value.isEmpty {
             metadata[key] = value
         }
@@ -2243,15 +2251,8 @@ public final class CapabilityScanner {
                 currentPlugin = nil
                 continue
             }
-            guard let plugin = currentPlugin, line.hasPrefix("enabled") else { continue }
-            let value = line.split(separator: "=", maxSplits: 1).dropFirst().first?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            if value == "true" {
-                states[plugin] = true
-            } else if value == "false" {
-                states[plugin] = false
-            }
+            guard let plugin = currentPlugin, line.hasPrefix("enabled"), let enabled = tomlBoolValue(from: line) else { continue }
+            states[plugin] = enabled
         }
         return states
     }
@@ -2304,7 +2305,7 @@ public final class CapabilityScanner {
 
     private func tomlStringValue(from line: String) -> String? {
         guard let value = line.split(separator: "=", maxSplits: 1).dropFirst().first else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = stripTOMLInlineComment(String(value)).trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.count >= 2,
            let first = trimmed.first,
            let last = trimmed.last,
@@ -2316,7 +2317,7 @@ public final class CapabilityScanner {
 
     private func tomlBoolValue(from line: String) -> Bool? {
         guard let value = line.split(separator: "=", maxSplits: 1).dropFirst().first else { return nil }
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        switch stripTOMLInlineComment(String(value)).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "true":
             return true
         case "false":
@@ -2324,6 +2325,26 @@ public final class CapabilityScanner {
         default:
             return nil
         }
+    }
+
+    /// Drops an unquoted trailing `# comment` from a TOML value substring, preserving any `#`
+    /// that lives inside a single- or double-quoted string (e.g. a path that contains `#`).
+    private func stripTOMLInlineComment(_ value: String) -> String {
+        var inSingle = false
+        var inDouble = false
+        var result = ""
+        for character in value {
+            if character == "#", !inSingle, !inDouble {
+                break
+            }
+            if character == "\"", !inSingle {
+                inDouble.toggle()
+            } else if character == "'", !inDouble {
+                inSingle.toggle()
+            }
+            result.append(character)
+        }
+        return result
     }
 
     private func scanClaudeInstalledPlugins(
@@ -2359,13 +2380,36 @@ public final class CapabilityScanner {
                     continue
                 }
                 guard let installPath = install["installPath"] as? String else { continue }
-                guard fileManager.fileExists(atPath: installPath) else {
-                    issues.append(ScanIssue(severity: .warning, path: installPath, message: "Claude plugin registry points to a missing install path"))
-                    continue
-                }
                 let enabled = enabledPlugins[selector]
                 let pluginName = selector.split(separator: "@", maxSplits: 1).first.map(String.init) ?? selector
                 let marketplace = selector.split(separator: "@", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
+                guard fileManager.fileExists(atPath: installPath) else {
+                    // Registry rot: the plugin is still listed but its install dir is gone. Surface it as a
+                    // first-class [.broken] tile (mirroring the .agents dangling-symlink handling) so the user
+                    // can remediate the stale registry entry from the graph, not just from the scan issues.
+                    issues.append(ScanIssue(severity: .warning, path: installPath, message: "Claude plugin registry points to a missing install path"))
+                    let brokenPluginID = "plugin:claude:\(normalized(selector)):\(scopeValue):\(normalized(projectPath ?? "global"))"
+                    capabilities.append(Capability(
+                        id: brokenPluginID,
+                        name: pluginDisplayName(pluginName),
+                        type: .plugin,
+                        scope: scope,
+                        statuses: [.broken],
+                        risks: scope == .user ? [.info, .read, .global] : [.info, .read],
+                        source: CapabilitySource(kind: "claude-plugin", path: installPath, packageName: pluginName),
+                        summary: "Missing install path",
+                        metadata: [
+                            "manager": "claude-code",
+                            "pluginSelector": selector,
+                            "marketplace": marketplace,
+                            "managerScope": scopeValue,
+                            "projectPath": projectPath ?? "",
+                            "deleteCommand": "claude plugin remove \(shellQuoted(selector)) --scope \(shellQuoted(scopeValue)) -y",
+                            "lifecycleNote": "Claude plugin registry references an install directory that no longer exists; remove the stale registry entry."
+                        ].filter { !$0.value.isEmpty }
+                    ))
+                    continue
+                }
                 var metadata: [String: String] = [
                     "manager": "claude-code",
                     "pluginSelector": selector,
@@ -2594,6 +2638,38 @@ public final class CapabilityScanner {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Deterministic digest over an entire skill directory: every regular file's repo-relative path plus
+    /// its own SHA256, folded in sorted-path order. Two copies that diverge only in a bundled script/asset
+    /// therefore hash differently, so the resolver can flag them `.conflicting`/`.drifted` instead of a
+    /// false `.copiedMirror` "in sync". Returns nil if the directory has no readable files.
+    private func skillDirectoryContentHash(for directory: URL) -> String? {
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return contentHash(for: directory.appendingPathComponent("SKILL.md"))
+        }
+        let basePath = directory.standardizedFileURL.path
+        var entries: [(relativePath: String, hash: String)] = []
+        for case let fileURL as URL in enumerator {
+            guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            guard let fileHash = contentHash(for: fileURL) else { continue }
+            var relative = fileURL.standardizedFileURL.path
+            if relative.hasPrefix(basePath + "/") {
+                relative = String(relative.dropFirst(basePath.count + 1))
+            }
+            entries.append((relative, fileHash))
+        }
+        guard !entries.isEmpty else { return contentHash(for: directory.appendingPathComponent("SKILL.md")) }
+        entries.sort { $0.relativePath < $1.relativePath }
+        var hasher = SHA256()
+        for entry in entries {
+            hasher.update(data: Data("\(entry.relativePath)\u{0}\(entry.hash)\n".utf8))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private func parseFrontmatter(_ text: String) -> [String: String] {

@@ -1401,9 +1401,10 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .cursor && $0.visibleCount > 0 && $0.hiddenCount > 0 })
 
         let larkDoc = try XCTUnwrap(overview.differences.first { $0.capabilityName == "lark-doc" })
-        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae]))
+        // Cursor loads SKILL.md skills like Trae, so it sees this shared skill too.
+        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae, .cursor]))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
-        XCTAssertTrue(larkDoc.hiddenAgents.contains(.cursor))
+        XCTAssertFalse(larkDoc.hiddenAgents.contains(.cursor))
     }
 
     func testCapabilityExplanationIncludesAgentVisibility() throws {
@@ -1417,10 +1418,10 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(explanation.capability.id, skill.id)
         XCTAssertTrue(explanation.visibleAgents.contains(.codex))
         XCTAssertTrue(explanation.visibleAgents.contains(.trae))
+        XCTAssertTrue(explanation.visibleAgents.contains(.cursor))
         XCTAssertFalse(explanation.visibleAgents.contains(.claudeCode))
-        XCTAssertFalse(explanation.visibleAgents.contains(.cursor))
         XCTAssertTrue(explanation.hiddenAgents.contains(.claudeCode))
-        XCTAssertTrue(explanation.hiddenAgents.contains(.cursor))
+        XCTAssertFalse(explanation.hiddenAgents.contains(.cursor))
     }
 
     func testResolverExplainsGlobalAgentsAndClaudeSkillDuplicates() throws {
@@ -1600,10 +1601,12 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(codexMapping.targetPath, skill.source.path)
         XCTAssertTrue(codexMapping.reason.contains("Codex loads repo skills"))
 
+        // Cursor loads SKILL.md skills (catalog + App skills-CLI union agree), so the adapter preview must
+        // too — core and App now give one answer about whether Cursor sees a forked/shared skill.
         let cursorMapping = try XCTUnwrap(cursorPreview.capabilityMappings.first { $0.capabilityID == skill.id })
-        XCTAssertFalse(cursorMapping.supported)
-        XCTAssertNil(cursorMapping.targetPath)
-        XCTAssertTrue(cursorMapping.reason.contains("does not load skill"))
+        XCTAssertTrue(cursorMapping.supported)
+        XCTAssertEqual(cursorMapping.targetPath, skill.source.path)
+        XCTAssertTrue(cursorMapping.reason.contains("Cursor loads SKILL.md-based skills"))
     }
 
     func testTraeAdapterPreviewRejectsCodexPluginBundledSkills() throws {
@@ -1656,9 +1659,9 @@ final class CapabilityScannerTests: XCTestCase {
         let report = DriftReportBuilder().report(graph: graph)
 
         let larkDoc = try XCTUnwrap(report.items.first { $0.capabilityName == "lark-doc" })
-        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae]))
+        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae, .cursor]))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
-        XCTAssertTrue(larkDoc.hiddenAgents.contains(.cursor))
+        XCTAssertFalse(larkDoc.hiddenAgents.contains(.cursor))
         XCTAssertTrue(larkDoc.reasons.contains { $0.contains("visible to codex") })
     }
 
@@ -2148,10 +2151,12 @@ final class CapabilityScannerTests: XCTestCase {
             mode: .symlink,
             destinationScope: .project
         )
+        // Project-scope symlink forks use a target relative to the link's own directory so the committed
+        // link survives a repo move/clone (.claude/commands/review.md -> ../../.codex/commands/review.md).
         XCTAssertTrue(commandPlan.operations.contains {
             $0.kind == .createSymlink
                 && $0.path == projectRoot.appendingPathComponent(".claude/commands/review.md").path
-                && $0.target == command.path
+                && $0.target == "../../.codex/commands/review.md"
         })
 
         let agentPlan = try ApplyPlanBuilder().planSyncInstallTarget(
@@ -3451,6 +3456,261 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("claude-code=symlink") == true)
         XCTAssertTrue(scannedSkill.metadata["skillsInstalledAgentIDs"]?.contains("codex") == true)
         XCTAssertTrue(scannedSkill.metadata["skillsInstallTargets"]?.contains("codex=canonical") == true)
+    }
+
+    // MARK: - Agent sync (fork): executor on disk + collision/type/agent gates
+
+    private func makeForkSourceSkill(in projectRoot: URL, name: String, extraFiles: [String: String] = [:]) throws -> Capability {
+        let sourceDir = projectRoot.appendingPathComponent("lib/\(name)")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        try skillText(name: name, body: "Body for \(name)")
+            .write(to: sourceDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        for (file, contents) in extraFiles {
+            try contents.write(to: sourceDir.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        }
+        let skillMd = sourceDir.appendingPathComponent("SKILL.md")
+        return Capability(
+            id: "skill:\(skillMd.path)",
+            name: name,
+            type: .skill,
+            scope: .project,
+            source: CapabilitySource(kind: "skill", path: skillMd.path)
+        )
+    }
+
+    func testSyncSymlinkPlanExecutorLinksOnDiskResolvingToSource() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let plan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .symlink, destinationScope: .project
+        )
+        _ = try ApplyPlanExecutor().apply(plan)
+
+        let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
+        XCTAssertNotNil(try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path), "fork should create a symlink on disk")
+        XCTAssertEqual(
+            destination.resolvingSymlinksInPath().path,
+            projectRoot.appendingPathComponent("lib/foo").resolvingSymlinksInPath().path,
+            "the on-disk symlink must resolve back to the canonical source"
+        )
+    }
+
+    func testSyncCopyPlanExecutorCopiesDirectoryOnDisk() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        let plan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .copy, destinationScope: .project
+        )
+        _ = try ApplyPlanExecutor().apply(plan)
+
+        let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path), "a copy fork must not be a symlink")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appendingPathComponent("SKILL.md").path), "the copied skill directory must contain SKILL.md")
+    }
+
+    func testSyncPlanExecutorRejectsDestinationOutsideAgentStorage() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+
+        let plan = ApplyPlan(
+            projectRoot: projectRoot.path,
+            action: .enable,
+            capabilityID: "x",
+            requiresConfirmation: false,
+            operations: [
+                ApplyOperation(
+                    kind: .createSymlink,
+                    path: projectRoot.appendingPathComponent("outside/foo").path,
+                    target: projectRoot.appendingPathComponent("lib/foo").path,
+                    risk: .write,
+                    description: "Out-of-boundary symlink"
+                )
+            ]
+        )
+        XCTAssertThrowsError(try ApplyPlanExecutor().apply(plan)) { error in
+            XCTAssertTrue("\(error)".contains("outside known agent storage"))
+        }
+    }
+
+    func testSyncCopyPlannerRefusesPreexistingForeignDestination() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let foreign = projectRoot.appendingPathComponent(".claude/skills/foo")
+        try FileManager.default.createDirectory(at: foreign, withIntermediateDirectories: true)
+        try "not the same skill".write(to: foreign.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        XCTAssertThrowsError(try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .copy, destinationScope: .project
+        )) { error in
+            XCTAssertTrue("\(error)".contains("Target already exists"))
+        }
+    }
+
+    func testSyncSymlinkIsIdempotentForExistingSameSourceLink() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: destination.path, withDestinationPath: projectRoot.appendingPathComponent("lib/foo").path)
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        XCTAssertThrowsError(try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .symlink, destinationScope: .project
+        )) { error in
+            XCTAssertTrue("\(error)".contains("already has this"), "re-syncing an identical link should be a no-op, not a clobber")
+        }
+    }
+
+    func testSyncSymlinkPlannerRefusesForeignFileAtDestination() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        XCTAssertThrowsError(try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .symlink, destinationScope: .project
+        )) { error in
+            XCTAssertTrue("\(error)".contains("Target already exists"))
+        }
+    }
+
+    func testSyncRejectsIncompatibleTypesAndAgents() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let hook = Capability(id: "hook:h", name: "h", type: .hook, scope: .project,
+                              source: CapabilitySource(kind: "claude-settings", path: "/tmp/x/.claude/settings.json"))
+        let tomlCommand = Capability(id: "command:c", name: "c", type: .command, scope: .project,
+                                     source: CapabilitySource(kind: "codex-command", path: "/tmp/x/.codex/commands/c.toml"))
+        let mdCommand = Capability(id: "command:m", name: "m", type: .command, scope: .project,
+                                   source: CapabilitySource(kind: "claude-command", path: "/tmp/x/.claude/commands/m.md"))
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill, hook, tomlCommand, mdCommand], issues: [])
+        let builder = ApplyPlanBuilder()
+
+        // hook is not a syncable type at all
+        XCTAssertThrowsError(try builder.planSyncInstallTarget(capabilityID: hook.id, agentID: "claude-code", graph: graph, mode: .symlink, destinationScope: .project))
+        // a .toml command cannot be loaded by Claude Code
+        XCTAssertThrowsError(try builder.planSyncInstallTarget(capabilityID: tomlCommand.id, agentID: "claude-code", graph: graph, mode: .symlink, destinationScope: .project)) { error in
+            XCTAssertTrue("\(error)".contains("cannot directly load"))
+        }
+        // commands cannot be forked into cursor at all
+        XCTAssertThrowsError(try builder.planSyncInstallTarget(capabilityID: mdCommand.id, agentID: "cursor", graph: graph, mode: .symlink, destinationScope: .project)) { error in
+            XCTAssertTrue("\(error)".contains("cannot directly load"))
+        }
+        // an unknown agent id is rejected outright
+        XCTAssertThrowsError(try builder.planSyncInstallTarget(capabilityID: skill.id, agentID: "nope", graph: graph, mode: .symlink, destinationScope: .project)) { error in
+            XCTAssertTrue("\(error)".contains("Unknown Skills CLI agent"))
+        }
+    }
+
+    func testCommandForkReverseDeleteGivesActionableOneWayError() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let command = Capability(id: "command:c", name: "c", type: .command, scope: .project,
+                                 source: CapabilitySource(kind: "codex-command", path: "/tmp/x/.codex/commands/c.md"))
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [command], issues: [])
+        XCTAssertThrowsError(try ApplyPlanBuilder().planDeleteSkillInstallTarget(capabilityID: command.id, agentID: "codex", graph: graph)) { error in
+            XCTAssertTrue("\(error)".contains("one-way"))
+        }
+    }
+
+    // MARK: - Scanner fixes
+
+    func testBrokenSkillSymlinkIsReportedForNonAgentsRoots() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaBrokenFork-\(UUID().uuidString)")
+        let skillsRoot = projectRoot.appendingPathComponent(".trae/skills")
+        try FileManager.default.createDirectory(at: skillsRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        try FileManager.default.createSymbolicLink(
+            atPath: skillsRoot.appendingPathComponent("ghost").path,
+            withDestinationPath: projectRoot.appendingPathComponent("does-not-exist/ghost").path
+        )
+
+        let scan = try CapabilityScanner().scan(projectRoot: projectRoot, options: ScanOptions(includeUserScope: false, userSkillRoots: []))
+        let broken = scan.capabilities.first { $0.name == "ghost" }
+        XCTAssertNotNil(broken, "a dangling skill symlink in .trae/skills should be surfaced")
+        XCTAssertEqual(broken?.statuses, [.broken])
+        XCTAssertEqual(broken?.source.kind, "trae-symlink")
+    }
+
+    func testCodexSkillStateParsesTrailingComment() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaTomlComment-\(UUID().uuidString)")
+        let configRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaTomlConfig-\(UUID().uuidString)")
+        let skill = projectRoot.appendingPathComponent(".agents/skills/review-helper/SKILL.md")
+        let config = configRoot.appendingPathComponent("config.toml")
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: configRoot)
+        }
+        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configRoot, withIntermediateDirectories: true)
+        try skillText(name: "review-helper", body: "Review.").write(to: skill, atomically: true, encoding: .utf8)
+        try """
+        [[skills.config]]
+        path = "\(skill.path)"
+        enabled = false # turned off while iterating
+        """.write(to: config, atomically: true, encoding: .utf8)
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: false, userSkillRoots: [], codexConfigURL: config)
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+        let capability = try XCTUnwrap(graph.capabilities.first { $0.name == "review-helper" && $0.source.kind == "agents-skill" })
+        XCTAssertEqual(capability.metadata["codexSkillEnabled"], "false", "enabled = false # comment must parse as false, not fall back to default")
+    }
+
+    func testUnrelatedSameNameSkillsFromDifferentPackagesAreNotFlagged() throws {
+        let a = Capability(
+            id: "skill:a", name: "helper", type: .skill, scope: .project,
+            source: CapabilitySource(kind: "skill", path: "/tmp/pkgA/skills/helper/SKILL.md", packageName: "pkgA"),
+            pluginID: "plugin:pkga", metadata: ["contentHash": "aaaa"]
+        )
+        let b = Capability(
+            id: "skill:b", name: "helper", type: .skill, scope: .project,
+            source: CapabilitySource(kind: "skill", path: "/tmp/pkgB/skills/helper/SKILL.md", packageName: "pkgB"),
+            pluginID: "plugin:pkgb", metadata: ["contentHash": "bbbb"]
+        )
+        let graph = CapabilityResolver().resolve(scanResult: ScanResult(projectRoot: "/tmp", capabilities: [a, b], issues: []))
+        for cap in graph.capabilities where cap.name == "helper" && cap.type == .skill {
+            XCTAssertFalse(cap.statuses.contains(.duplicate), "coincidental same-name skills from different packages must not be flagged duplicate")
+            XCTAssertFalse(cap.statuses.contains(.drifted), "…nor drifted")
+        }
+    }
+
+    func testCopyForkDriftDetectedViaWholeDirectoryHash() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaDirHash-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        // Same SKILL.md in both copies, but a bundled script diverges. SKILL.md-only hashing would call
+        // these a clean copied-mirror; whole-directory hashing must flag drift.
+        _ = try makeDirSkill(in: projectRoot, subdir: "a", name: "helper", script: "echo v1")
+        _ = try makeDirSkill(in: projectRoot, subdir: "b", name: "helper", script: "echo v2")
+
+        let scan = try CapabilityScanner().scan(projectRoot: projectRoot, options: ScanOptions(includeUserScope: false, userSkillRoots: []))
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+        let helpers = graph.capabilities.filter { $0.name == "helper" && $0.type == .skill }
+        XCTAssertEqual(helpers.count, 2)
+        XCTAssertTrue(helpers.contains { $0.statuses.contains(.drifted) }, "copies diverging only in a bundled file must be detected as drifted")
+    }
+
+    private func makeDirSkill(in projectRoot: URL, subdir: String, name: String, script: String) throws -> URL {
+        let dir = projectRoot.appendingPathComponent("\(subdir)/\(name)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try skillText(name: name, body: "Shared body.").write(to: dir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try script.write(to: dir.appendingPathComponent("run.sh"), atomically: true, encoding: .utf8)
+        return dir
     }
 
     private func fixtureURL(_ name: String) throws -> URL {

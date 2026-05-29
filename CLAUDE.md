@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Orbita is a macOS console for managing Coding Agent capabilities (Skills, Plugins, Commands, Hooks, MCP servers, Rules, Instructions) across Codex Desktop, Claude Code, Cursor, and the cross-agent `.agents` workspace. The repository ships three things from one SwiftPM package: a core library, a `orbita` CLI, and a SwiftUI macOS app.
+Orbita is a macOS console for managing Coding Agent capabilities (Skills, Plugins, Commands, Hooks, MCP servers, Rules, Instructions) across Codex Desktop, Claude Code, Cursor, Trae, and the cross-agent `.agents` workspace. The repository ships three things from one SwiftPM package: a core library, a `orbita` CLI, and a SwiftUI macOS app.
+
+The canonical agent list is the `AgentID` enum in `Models.swift`: `codex`, `claude-code`, `cursor`, `trae`. The App's default tab strip (`AgentSelection.defaultAgents`) is `.agents`, Codex, Claude Code, Trae — Cursor is still a fully scannable/resolvable agent but is intentionally omitted from the default tabs.
 
 Targets:
 
@@ -40,11 +42,12 @@ swift run orbita status   --project-root <path> [--json]
 swift run orbita graph    --project-root <path> [--json]
 swift run orbita overview --project-root <path> [--json]
 swift run orbita drift    --project-root <path>
-swift run orbita agent    --project-root <path> --agent codex|claude-code|cursor
+swift run orbita agent    --project-root <path> --agent codex|claude-code|cursor|trae
 swift run orbita explain  --project-root <path> <capability-id>
 swift run orbita preview  --project-root <path> --agent <id>
 swift run orbita doctor   [--project-root <path>]
 swift run orbita plan     --project-root <path> --merge|--rollback|--clean|--enable <id>|--disable <id>|--delete <id> [--apply] [--json]
+swift run orbita plan     --project-root <path> --sync <id> --agent <id> [--mode copy|symlink] [--scope project|user] [--apply] [--json]
 ```
 
 `--no-user-scope` restricts scanning to the project. `--project-root <path>` and `--project <path>` are synonyms; the path can also be a positional argument. `plan` without `--apply` prints a dry run; with `--apply` it returns completed/failed/pending operations.
@@ -62,11 +65,11 @@ Core data model is in `Sources/OrbitaCore/Models.swift`: `Capability` (id/name/t
 
 ### Invariants to preserve
 
-- **Apply Plan write boundary.** Apply only writes inside the project's `.agents/`. The executor handles the macOS `/var` ↔ `/private/var` symlink case explicitly — do not bypass that check. Anything else (`~/.codex/config.toml`, `~/.claude/settings.json`, plugin caches) must be expressed as an emitted shell command for the user/native CLI, not a direct write.
+- **Apply Plan write boundary.** Apply writes inside the project's `.agents/` and `.orbita/`, **plus** — for agent-sync (fork) only — the destination agent's own skills/commands/agents directories in the project and under the user's agent home (validated against the project root, the user-home agent dotdirs, and the `SkillsAgentCatalog` global roots; the guard is anchored, not a "path contains `.codex`" membership test). This carve-out exists because synced `skill`/`command`/`agent` files have no native enable-state. The executor handles the macOS `/var` ↔ `/private/var` symlink case explicitly — do not bypass that check. Everything else (`~/.codex/config.toml`, `~/.claude/settings.json`, plugin caches) must be expressed as an emitted shell command for the user/native CLI, not a direct write. See `docs/capability-lifecycle.md` (Agent sync) for the exact allowed write set.
 - **Three layers, three locations.** Source = real files / cache / package; Intent = `.agents/manifest.json`; Visibility = per-agent. Don't conflate them. A `.agents` "disable" hides the capability via intent; the source file stays where it is.
 - **Source of truth = native client.** For Codex enablement the truth lives in `~/.codex/config.toml` and the plugin cache; for Claude it's `~/.claude/settings.json` + `installed_plugins.json`. Lifecycle mutations on those go through `codex plugin …` / `claude plugin …`. See `docs/capability-lifecycle.md` for the full per-agent table.
 - **Hooks are flattened per handler.** A `settings.json` or `hooks.json` registers many handlers; the scanner emits one capability per `event → matcher group → hooks[]` entry, keyed by `<source>:<event>:<matcherIdx>:<handlerIdx>`. Claude has no per-hook disable, so the only Apply action on a single hook is delete. See `docs/hook-logic.md`.
-- **Skills CLI is read-only here.** Orbita reads `skills-lock.json` / `.skill-lock.json` and exposes `npx skills …` commands in the inspector — it does not run installs/updates itself.
+- **Skills CLI is read-only here.** Orbita reads `skills-lock.json` / `.skill-lock.json` and exposes `npx skills …` commands in the inspector — it does not run installs/updates itself. The one exception is agent-sync (fork), which physically copies/symlinks a skill into an agent's dir as a deliberately **lock-less, Orbita-managed** install: it never runs `npx skills` and never writes a skills-lock file, so the lock files stay read-only.
 - **Skip nested `Tests/**/Fixtures`.** Scanner ignores fixture dependencies during broad project Skill discovery so the repo's own test fixtures aren't surfaced as live capabilities.
 
 ## Tests and fixtures

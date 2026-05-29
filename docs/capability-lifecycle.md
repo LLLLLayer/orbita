@@ -48,9 +48,20 @@ Orbita implementation:
 - Surface Skills CLI source metadata on each locked skill, including source, source type, ref, skill path, update hash, canonical path, and inferred agent install targets.
 - Use the Skills CLI agent path catalog for read-only install-target inference and for the Add Agent preset list.
 - Generate adapter previews under `<repo>/.agents/adapters/<agent>/capabilities.json`.
-- Apply writes only inside project `.agents` for merge/enable/disable/delete/clean/rollback.
+- Apply writes inside project `.agents`/`.orbita` for merge/enable/disable/delete/clean/rollback, plus the agent-sync (fork) write set described below.
 - Expose `.agents` skill check, reinstall, update, and remove commands in the inspector while leaving installation and update execution to `npx skills`.
 - Skip nested `Tests/**/Fixtures` directories during broad project Skill discovery so Orbita does not treat its own or a repository's fixture dependencies as active project capabilities.
+
+### Agent sync (fork)
+
+Agent sync ("fork") copies or symlinks a portable capability (`skill`, `command`, or `agent` — never `plugin`/`mcpServer`/`rule`/`instruction`/`hook`) into another agent's own directory so that agent loads it. These types are plain files with no native enable-state, so the "express it as a shell command for the native CLI" rule (which exists to keep native lifecycle authoritative for plugins/hooks/MCP) does not apply; fork is a sanctioned direct-write action.
+
+- Allowed write set: the destination agent's project skills/commands/agents directory (`<repo>/<agent.projectSkillsDir>`, e.g. `.agents/skills`, `.codex/commands`, `.claude/agents`) and, for user-scope, the agent's `globalSkillsDir` / `~/.codex|.claude/commands|agents`. The executor's write guard is anchored to the project root, the user-home agent dotdirs, and the SkillsAgentCatalog `globalSkillsDir` roots — not any path that merely contains a `.codex`/`.claude` component.
+- Write = re-scan: user-scope skill forks are only allowed into a `globalSkillsDir` the scanner actually re-reads (`ScanOptions.defaultUserSkillRoots()`), so every fork stays discoverable and reversible. A fork into an unscanned global dir is refused rather than left as a write-only phantom.
+- Modes: `symlink` (default) links back to the canonical source — project-scope links use a target relative to the link's own directory so a committed link survives a repo move/clone; `copy` duplicates the directory and is refused at both plan and execute time if a foreign file already occupies the destination. Copy forks are flagged `copiedMirror`/`drifted` via a whole-directory content hash.
+- Fork-created installs are intentionally lock-less and Orbita-managed: fork never runs `npx skills` and never writes `skills-lock.json`/`.skill-lock.json`, keeping the Skills CLI's lock files read-only here.
+- Round-trip: skill forks are fully reconciled — the canonical `.agents/skills` tile records each agent install target, generic delete cascades to symlink-to-canonical forks, and a dangling fork in any scanned skills root surfaces as `broken`. Command/agent forks are intentionally one-way (no install-target tracking or agent-scoped reverse delete); delete the source capability or remove the forked file directly.
+- Surfaces: agent sync is available in the app and as `orbita plan --sync <capability-id> --agent <id> [--mode copy|symlink] [--scope project|user] [--apply]`.
 
 ## Codex Desktop
 

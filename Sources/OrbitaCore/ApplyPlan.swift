@@ -403,7 +403,12 @@ public final class ApplyPlanBuilder {
                     return ApplyOperation(
                         kind: .createSymlink,
                         path: target.destination.path,
-                        target: target.source.path,
+                        target: symlinkTarget(
+                            source: target.source,
+                            destination: target.destination,
+                            destinationScope: destinationScope,
+                            graph: graph
+                        ),
                         risk: .write,
                         description: "Link \(target.capability.name) into \(agent.displayName)"
                     )
@@ -425,6 +430,8 @@ public final class ApplyPlanBuilder {
             capabilityID: planCapabilityID,
             affectedCapabilityIDs: syncTargets.count > 1 ? syncTargets.map { $0.capability.id } : nil,
             appliesChanges: false,
+            // The interactive sync picker (agent + mode + scope) is itself the explicit confirmation gate
+            // for a fork, so no secondary prompt is required.
             requiresConfirmation: false,
             operations: operations
         )
@@ -472,6 +479,15 @@ public final class ApplyPlanBuilder {
                 agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path,
                 description: "Remove project skill link"
             )
+            // Cascade to symlink-to-canonical forks in other agent homes so deleting the source does not
+            // orphan dangling links. Copies and foreign symlinks are intentionally left (they are
+            // independent on-disk artifacts, not links into this source).
+            for target in skillInstallTargets(for: capability) where target.isSymlinkToCanonical {
+                registerRemoval(
+                    target.path,
+                    description: "Remove \(target.agentID) symlink fork linked to \(capability.name)"
+                )
+            }
         }
         if let managedPath = managedCapabilityPath(for: capability, agentsRoot: agentsRoot),
            managedPath != agentsRoot.appendingPathComponent("manifest.json").path {
@@ -660,6 +676,11 @@ public final class ApplyPlanBuilder {
             return removals
         }
         guard !targets.isEmpty else {
+            // Only skill forks carry round-trip install-target metadata. Command/agent forks are
+            // intentionally one-way; give an actionable error instead of the misleading skill-only message.
+            if capabilities.contains(where: { $0.type != .skill }) {
+                throw OrbitaError.invalidApplyPlan("Agent-scoped delete is only tracked for skill forks; \(syncKindDescription(for: capabilities)) forks are one-way — delete the source capability or remove the forked file directly")
+            }
             throw OrbitaError.invalidApplyPlan("No agent-specific skill install target for \(agentID)")
         }
 
@@ -1282,14 +1303,59 @@ public final class ApplyPlanBuilder {
         graph: CapabilityGraph
     ) throws -> URL {
         if destinationScope == .user {
-            if let globalSkillsDir = agent.globalSkillsDir {
-                return URL(fileURLWithPath: globalSkillsDir).standardizedFileURL
+            guard let globalSkillsDir = agent.globalSkillsDir else {
+                throw OrbitaError.invalidApplyPlan("\(agent.displayName) does not expose a global skills directory")
             }
-            throw OrbitaError.invalidApplyPlan("\(agent.displayName) does not expose a global skills directory")
+            let root = URL(fileURLWithPath: globalSkillsDir).standardizedFileURL
+            // Invariant: Orbita may only write where it can re-scan. A user-scope skill fork is allowed
+            // only into a global skills dir the scanner actually re-reads (defaultUserSkillRoots), so the
+            // fork stays discoverable and reversible. Otherwise it would be a write-only phantom install.
+            let resolvedRoot = root.resolvingSymlinksInPath().path
+            let rescannable = ScanOptions.defaultUserSkillRoots().contains {
+                $0.standardizedFileURL.resolvingSymlinksInPath().path == resolvedRoot
+            }
+            guard rescannable else {
+                throw OrbitaError.invalidApplyPlan("\(agent.displayName)'s global skills directory is not re-scanned by Orbita, so a user-scope skill fork there cannot be tracked or undone")
+            }
+            return root
         }
         return URL(fileURLWithPath: graph.projectRoot)
             .appendingPathComponent(agent.projectSkillsDir)
             .standardizedFileURL
+    }
+
+    /// Symlink target for a fork. For project-scope forks where both endpoints live under the project
+    /// root, emit a path RELATIVE to the link's own directory so the committed link survives a repo
+    /// move/clone. User-scope / cross-tree forks keep an absolute target (relativity is meaningless).
+    private func symlinkTarget(
+        source: URL,
+        destination: URL,
+        destinationScope: AgentSyncDestinationScope,
+        graph: CapabilityGraph
+    ) -> String {
+        guard destinationScope == .project else { return source.path }
+        let projectRootPath = URL(fileURLWithPath: graph.projectRoot).standardizedFileURL.path
+        let sourcePath = source.standardizedFileURL.path
+        let destinationPath = destination.standardizedFileURL.path
+        guard sourcePath == projectRootPath || sourcePath.hasPrefix(projectRootPath + "/"),
+              destinationPath == projectRootPath || destinationPath.hasPrefix(projectRootPath + "/") else {
+            return source.path
+        }
+        return relativePath(from: destination.deletingLastPathComponent(), to: source)
+    }
+
+    private func relativePath(from base: URL, to target: URL) -> String {
+        let baseComponents = base.standardizedFileURL.pathComponents
+        let targetComponents = target.standardizedFileURL.pathComponents
+        var commonPrefix = 0
+        while commonPrefix < baseComponents.count,
+              commonPrefix < targetComponents.count,
+              baseComponents[commonPrefix] == targetComponents[commonPrefix] {
+            commonPrefix += 1
+        }
+        var components = Array(repeating: "..", count: baseComponents.count - commonPrefix)
+        components.append(contentsOf: targetComponents[commonPrefix...])
+        return components.isEmpty ? "." : components.joined(separator: "/")
     }
 
     private func commandSyncDestinationRoot(
@@ -1656,6 +1722,12 @@ public final class ApplyPlanExecutor {
                 try perform(operation)
                 completed.append(operation)
             } catch {
+                // A grouped fork writes copies/links into several external agent homes. On a mid-plan
+                // failure, best-effort undo the writes that already landed OUTSIDE the project's .agents/
+                // .orbita (i.e. the fork footprint) so the user isn't left with a half-applied scatter.
+                // Internal .agents/.orbita ops are intentionally left in place (idempotent; some plans rely
+                // on partial-state + rescan reconciliation).
+                bestEffortCompensateExternalWrites(completed, agentsRoot: agentsRoot, orbitaRoot: orbitaRoot)
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 throw ApplyExecutionError(
                     projectRoot: plan.projectRoot,
@@ -1668,6 +1740,37 @@ public final class ApplyPlanExecutor {
         }
 
         return ApplyExecutionResult(projectRoot: plan.projectRoot, completedOperations: completed)
+    }
+
+    private func bestEffortCompensateExternalWrites(_ completed: [ApplyOperation], agentsRoot: URL, orbitaRoot: URL) {
+        let agentsPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
+        let orbitaPath = normalizedContainmentPath(orbitaRoot.standardizedFileURL.path)
+        func isInternal(_ path: String) -> Bool {
+            let normalized = normalizedContainmentPath(URL(fileURLWithPath: path).standardizedFileURL.path)
+            return normalized == agentsPath || normalized.hasPrefix(agentsPath + "/")
+                || normalized == orbitaPath || normalized.hasPrefix(orbitaPath + "/")
+        }
+        for operation in completed.reversed() {
+            switch operation.kind {
+            case .createSymlink:
+                guard !isInternal(operation.path),
+                      (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) != nil else { continue }
+                try? fileManager.removeItem(atPath: operation.path)
+            case .copyPath:
+                guard let target = operation.target, !isInternal(target),
+                      fileManager.fileExists(atPath: target) else { continue }
+                try? fileManager.removeItem(atPath: target)
+            case .createDirectory:
+                // Only remove a directory this plan created if we left it empty — never delete a
+                // pre-existing populated agent home.
+                guard !isInternal(operation.path),
+                      let contents = try? fileManager.contentsOfDirectory(atPath: operation.path),
+                      contents.isEmpty else { continue }
+                try? fileManager.removeItem(atPath: operation.path)
+            default:
+                continue
+            }
+        }
     }
 
     private func perform(_ operation: ApplyOperation) throws {
@@ -1716,7 +1819,10 @@ public final class ApplyPlanExecutor {
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing copy target for \(operation.path)")
             }
-            try copyReplacingItem(from: operation.path, to: target)
+            // Fork copies into real agent homes: re-assert the planner's no-clobber rule at write time so a
+            // file that appeared after the plan was built (TOCTOU) or a stale re-applied plan cannot silently
+            // delete a user's existing skill/command/agent. Only a same-source managed link may be replaced.
+            try copyReplacingItem(from: operation.path, to: target, refuseForeignDestination: true)
         case .cachePath, .restorePath:
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing target for \(operation.path)")
@@ -1732,27 +1838,37 @@ public final class ApplyPlanExecutor {
         }
     }
 
-    private func copyReplacingItem(from sourcePath: String, to destinationPath: String) throws {
+    private func copyReplacingItem(from sourcePath: String, to destinationPath: String, refuseForeignDestination: Bool = false) throws {
         guard fileManager.fileExists(atPath: sourcePath) || (try? fileManager.destinationOfSymbolicLink(atPath: sourcePath)) != nil else {
             throw OrbitaError.invalidApplyPlan("Source does not exist: \(sourcePath)")
         }
         let destinationURL = URL(fileURLWithPath: destinationPath)
         let parent = destinationURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: destinationPath) || (try? fileManager.destinationOfSymbolicLink(atPath: destinationPath)) != nil {
+        let destinationExists = fileManager.fileExists(atPath: destinationPath) || (try? fileManager.destinationOfSymbolicLink(atPath: destinationPath)) != nil
+        if destinationExists {
+            if refuseForeignDestination, !destinationResolvesToSameSource(destinationPath, sourcePath: sourcePath) {
+                throw OrbitaError.invalidApplyPlan("Path already exists and is not a managed link to the same source: \(destinationPath)")
+            }
             try fileManager.removeItem(atPath: destinationPath)
         }
         try fileManager.copyItem(atPath: sourcePath, toPath: destinationPath)
     }
 
+    /// True only when `destinationPath` is a symlink resolving to the same on-disk source — the one case
+    /// the planner permits replacing. Used to keep the sync copy path from clobbering an unrelated file.
+    private func destinationResolvesToSameSource(_ destinationPath: String, sourcePath: String) -> Bool {
+        guard let existing = try? fileManager.destinationOfSymbolicLink(atPath: destinationPath) else { return false }
+        let parent = URL(fileURLWithPath: destinationPath).deletingLastPathComponent()
+        let resolved = existing.hasPrefix("/")
+            ? URL(fileURLWithPath: existing)
+            : parent.appendingPathComponent(existing)
+        return resolved.standardizedFileURL.resolvingSymlinksInPath().path
+            == URL(fileURLWithPath: sourcePath).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
     private func validate(operation: ApplyOperation, action: ApplyAction, agentsRoot: URL, orbitaRoot: URL) throws {
         guard operation.kind != .readSource else { return }
-        if action == .delete, operation.kind == .removePath {
-            return
-        }
-        if action == .disable, operation.kind == .removePath {
-            return
-        }
         let operationPath = normalizedContainmentPath(URL(fileURLWithPath: operation.path).standardizedFileURL.path)
         let projectRootPath = normalizedContainmentPath(agentsRoot.deletingLastPathComponent().standardizedFileURL.path)
         let agentsRootPath = normalizedContainmentPath(agentsRoot.standardizedFileURL.path)
@@ -1766,12 +1882,24 @@ public final class ApplyPlanExecutor {
                 || path == orbitaRootPath
                 || path.hasPrefix(orbitaRootPath + "/")
         }
+        // Delete/disable removals are bounded to the project tree or known agent storage. Legitimate
+        // hard-deletes target a source inside the project (e.g. node_modules package skills) or a fork in
+        // an agent home; this still closes the "trust whatever path the metadata held" hole for a path that
+        // is outside BOTH the project and every known agent root (e.g. a hand-edited skillsInstallTargets).
+        if operation.kind == .removePath, action == .delete || action == .disable {
+            guard isProjectPath(operationPath)
+                || isInternalProjectStoragePath(operationPath)
+                || isAgentStoragePath(operationPath, projectRoot: projectRootPath) else {
+                throw OrbitaError.invalidApplyPlan("Delete target is outside the project and known agent storage: \(operation.path)")
+            }
+            return
+        }
         switch operation.kind {
         case .cachePath:
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing cache target for \(operation.path)")
             }
-            guard isAgentStoragePath(operationPath) else {
+            guard isAgentStoragePath(operationPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Cache source is outside known agent storage: \(operation.path)")
             }
             let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
@@ -1786,18 +1914,22 @@ public final class ApplyPlanExecutor {
                 throw OrbitaError.invalidApplyPlan("Restore source is outside .orbita: \(operation.path)")
             }
             let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
-            guard isAgentStoragePath(targetPath) else {
+            guard isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Restore target is outside known agent storage: \(target)")
             }
         case .createDirectory, .createSymlink:
-            let destinationIsAllowed = isInternalProjectStoragePath(operationPath) || isAgentStoragePath(operationPath)
+            let destinationIsAllowed = isInternalProjectStoragePath(operationPath) || isAgentStoragePath(operationPath, projectRoot: projectRootPath)
             guard destinationIsAllowed else {
                 throw OrbitaError.invalidApplyPlan("Operation is outside known agent storage: \(operation.path)")
             }
             if operation.kind == .createSymlink,
                let target = operation.target {
-                let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
-                guard isProjectPath(targetPath) || isAgentStoragePath(targetPath) else {
+                // Relative targets (project-scope forks) resolve against the link's own directory, not CWD.
+                let resolvedTargetURL = target.hasPrefix("/")
+                    ? URL(fileURLWithPath: target)
+                    : URL(fileURLWithPath: operation.path).deletingLastPathComponent().appendingPathComponent(target)
+                let targetPath = normalizedContainmentPath(resolvedTargetURL.standardizedFileURL.path)
+                guard isProjectPath(targetPath) || isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
                     throw OrbitaError.invalidApplyPlan("Symlink target is outside known agent storage: \(target)")
                 }
             }
@@ -1805,11 +1937,11 @@ public final class ApplyPlanExecutor {
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing copy target for \(operation.path)")
             }
-            guard isProjectPath(operationPath) || isAgentStoragePath(operationPath) else {
+            guard isProjectPath(operationPath) || isAgentStoragePath(operationPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Copy source is outside known agent storage: \(operation.path)")
             }
             let targetPath = normalizedContainmentPath(URL(fileURLWithPath: target).standardizedFileURL.path)
-            guard isInternalProjectStoragePath(targetPath) || isAgentStoragePath(targetPath) else {
+            guard isInternalProjectStoragePath(targetPath) || isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Copy target is outside known agent storage: \(target)")
             }
         default:
@@ -1823,22 +1955,22 @@ public final class ApplyPlanExecutor {
         }
     }
 
-    private func isAgentStoragePath(_ path: String) -> Bool {
-        let components = Set(URL(fileURLWithPath: path).standardizedFileURL.pathComponents)
-        if components.contains(".agents")
-            || components.contains(".codex")
-            || components.contains(".claude")
-            || components.contains(".cursor")
-            || components.contains(".trae") {
-            return true
+    /// Agent-sync (fork) is allowed to write into agent storage. To keep the guard a true last line of
+    /// defense (not merely "some path component is literally named .codex"), the allowed set is anchored:
+    /// the project's own agent dotdirs, the same dotdirs under the real user home, and the concrete
+    /// `globalSkillsDir` roots from SkillsAgentCatalog. A path like /tmp/x/.claude/y no longer passes.
+    private func isAgentStoragePath(_ path: String, projectRoot: String) -> Bool {
+        let home = normalizedContainmentPath(FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path)
+        var allowedRoots: [String] = []
+        for dotDir in [".agents", ".codex", ".claude", ".cursor", ".trae"] {
+            allowedRoots.append(projectRoot + "/" + dotDir)
+            allowedRoots.append(home + "/" + dotDir)
         }
-        return SkillsAgentCatalog.agents.contains { agent in
-            guard let globalSkillsDir = agent.globalSkillsDir else {
-                return false
-            }
-            let root = normalizedContainmentPath(URL(fileURLWithPath: globalSkillsDir).standardizedFileURL.path)
-            return path == root || path.hasPrefix(root + "/")
+        for agent in SkillsAgentCatalog.agents {
+            guard let globalSkillsDir = agent.globalSkillsDir else { continue }
+            allowedRoots.append(normalizedContainmentPath(URL(fileURLWithPath: globalSkillsDir).standardizedFileURL.path))
         }
+        return allowedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
     private func normalizedContainmentPath(_ path: String) -> String {
