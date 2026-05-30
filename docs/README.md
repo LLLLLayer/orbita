@@ -1,7 +1,7 @@
 ---
 created_at: 2026-05-23
 created_by: Codex
-updated_at: 2026-05-27
+updated_at: 2026-05-30
 updated_by: Codex
 tags:
   - docs
@@ -13,31 +13,31 @@ version: 0.1.0
 
 # Orbita 文档
 
-Orbita 是一个 CLI-first 的 macOS 工具方向，用于统一管理 Coding Agent 的能力，包括 Skills、Plugins、MCP servers、项目本地配置，以及通过包管理器安装的扩展。
+Orbita 是一个已发布的 macOS 能力管理产品，用于统一管理 Coding Agent 的能力，包括 Skills、Plugins、Commands、Hooks、MCP servers、Rules、Instructions，以及通过包管理器安装的扩展。它由一个 SwiftPM 包同时产出三件事：`OrbitaCore` 库、`orbita` CLI 和 `OrbitaApp`（SwiftUI macOS App）。CLI 是正统的产品面，App 是同一份 Core 之上的可视化层。
 
-当前工程采用 SwiftPM 组织，并提供 `Orbita.xcworkspace` 作为 Xcode 入口：
+三个 target 的职责（Xcode 入口见下文「Xcode 入口」一节）：
 
 - `OrbitaCore`：扫描、解析、聚合、Agent view、Agent overview、adapter preview、adapter mapping、drift report、doctor、解释、drift/shadowed 状态和 Apply Plan 的核心库。
 - `orbita`：命令行产品面，先跑通诊断、overview 差异摘要、JSON 输出、doctor checks 和显式 `.agents` merge/enable/disable/rollback/clean 写入；enable/disable 支持 capability id 或能力名，enable、disable、merge 和 rollback 会同步 adapter preview，clean 会清理 broken skill symlink 和引用 missing/disabled 能力的 stale adapter，Apply 失败会返回 completed/failed/pending 操作。
 - `OrbitaApp`：复用 `OrbitaCore` 的 SwiftUI macOS App shell，支持项目打开、搜索、Overview 差异摘要、状态概览、能力级 Apply Plan sheet；Apply Plan 会展示每个操作的 path、target、risk 和说明。
 
-当前 scanner 已覆盖 Codex、Claude Code、Cursor 的主要项目级入口，包括 `.codex/commands`、`.codex/hooks`、`.claude/commands`、`.claude/settings.json`、`.cursor/rules`、legacy `.cursorrules`、`.mcp.json` 和项目 instructions。
+当前 scanner 已覆盖 Codex、Claude Code、Trae、Cursor 的主要项目级入口，包括 `.codex/commands`、`.codex/hooks`、`.claude/commands`、`.claude/settings.json`、`.trae/skills`、`.cursor/rules`、legacy `.cursorrules`、`.mcp.json` 和项目 instructions。正式支持的 Agent 是 `codex`、`claude-code`、`cursor`、`trae`。
 
 Hook 解析规则见 `docs/hook-logic.md`：Orbita 按具体 handler 建模 Hook，而不是把 `settings.json` 或 `hooks.json` 当成单个 Hook。
 
 Resolver 会回读 `.agents/manifest.json` 的 enabled/disabled intent；当能力在 `.agents` 中 disabled 但原始来源仍能被扫描到时，会标记为 drifted 并在 Drift Report 中解释原因。Agent view 和 adapter preview 会把 disabled capability 视为 hidden，而不是继续暴露为可见能力。单能力 enable、disable 和 rollback 会保留 manifest 中其他能力的 intent。
 
-Apply Plan 只允许写入项目 `.agents` 内部。`--apply` 执行 remove/create symlink 时会处理断链 symlink，并在 macOS `/var` 与 `/private/var` 路径等价场景下保持 `.agents` 写入边界校验。
+Apply Plan 默认只允许写入项目的 `.agents/` 和 `.orbita/` 内部；唯一的例外是 agent-sync（fork）—— 它会把 skill/command/agent 物理 copy/symlink 进目标 Agent 自己的 skills/commands/agents 目录（这些目标目录会针对项目根、用户级 Agent 主目录和 `SkillsAgentCatalog` 全局根做锚定校验）。其余一切（`~/.codex/config.toml`、`~/.claude/settings.json`、插件缓存等）都以 shell 命令形式输出，而非直接写盘。`--apply` 执行 remove/create symlink 时会处理断链 symlink，并在 macOS `/var` 与 `/private/var` 路径等价场景下保持写入边界校验。
 
 ## Xcode 入口
 
-双击或用命令打开 workspace：
+双击或用命令打开工程：
 
 ```bash
-open Orbita.xcworkspace
+open Orbita.xcodeproj
 ```
 
-在 Xcode 中选择 `OrbitaApp` scheme 可构建和调试当前 SwiftUI App target。命令行 Xcode 验证使用：
+在 Xcode 中选择 `Orbita` scheme 可构建和调试 SwiftUI App target（仓库里也有一个 `Orbita.xcworkspace`）。命令行 Xcode 验证使用：
 
 ```bash
 ./script/xcode_build.sh list
@@ -65,20 +65,12 @@ Codex app 的 Run action 已指向同一个脚本。
 
 ## 内部资料
 
-内部调研和产品规划资料放在 `docs/internal/` 目录下。
-
-`docs/internal/` 目录 **MUST NOT** 被提交到 Git。仓库根目录的 `.gitignore` 已经忽略该路径。
-
-当前内部文档包括：
-
-- `docs/internal/research-and-goals.md`：市场调研、差异化策略和项目目标。
-- `docs/internal/product-design.md`：Git-like macOS 能力管理器的产品形态、`.agents` 工作区和 MVP 切分。
-- `docs/internal/capability-model.md`：`.agents` 工作区、启停、清理、Codex 适配、添加和升级规则。
-- `docs/internal/external-validation.md`：基于外部生态和竞品的校准结论。
-- `docs/internal/mvp-architecture.md`：MVP 架构、Resolver、Adapter、Apply Plan、Trust Model 和交付切片。
-- `docs/internal/development-plan.md`：开发计划、技术选型、里程碑、批次、测试策略和风险决策。
-- `docs/internal/cli-design.md`：CLI-first 架构、命令设计、输出协议和 App 边界。
+内部调研和产品规划资料放在 `docs/internal/` 目录下。该目录 **MUST NOT** 被提交到 Git —— 仓库根目录的 `.gitignore` 已忽略该路径，因此这里不再逐一列出其文件。
 
 ## 生命周期规范
 
 - `docs/capability-lifecycle.md`：记录 `.agents`、Codex Desktop、Claude Code 在电脑维度和项目维度的启用、禁用、更新检查、更新触发和 GitHub 自动发版逻辑。
+
+## 扩展机制调研
+
+- `docs/agent-extension-landscape.zh-CN.md`：面向公开的调研参考，讲清 Codex、Claude Code、Cursor、Trae 各自如何在磁盘上**发现**扩展组件、各类型的**禁用**策略，以及 `npm` / `npx skills` 生态与 `.agents/` 目录的关系（区分官方规范与社区约定）。同时说明 Orbita 如何用「三层、三处位置」模型协调这一切，并明确标注与官方文档的已知分歧及待核实项。

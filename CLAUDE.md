@@ -12,7 +12,7 @@ Targets:
 
 - `OrbitaCore` — scan/resolve/agent-view/overview/adapter-preview/drift/doctor/apply-plan logic. All semantics live here.
 - `OrbitaCLI` — produces the `orbita` executable. Thin wrapper that calls into `OrbitaCore` and prints text or `--json`.
-- `OrbitaApp` — SwiftUI macOS app. Reuses `OrbitaCore` and adds Sparkle update integration. `OrbitaApp` is the Xcode scheme name; the CLI scheme is `Orbita`/`orbita` via SwiftPM.
+- `OrbitaApp` — SwiftUI macOS app. Reuses `OrbitaCore` and adds Sparkle (auto-update) and Textual (in-app Markdown rendering). `OrbitaApp` is the SwiftPM executable product name; the Xcode scheme that builds the app is **`Orbita`** (`script/xcode_build.sh` sets `APP_SCHEME="Orbita"`), and the CLI is the `orbita` SwiftPM executable.
 
 Platform: macOS 15+, Swift 6 (Xcode with `swift-tools-version: 6.0`).
 
@@ -56,12 +56,20 @@ swift run orbita plan     --project-root <path> --sync <id> --agent <id> [--mode
 
 Pipeline is one-directional and lives in `Sources/OrbitaCore/`:
 
-1. **Scan** — `CapabilityScanner` walks user-scope and project-scope sources (Codex plugin cache, `~/.codex/config.toml`, `~/.claude/...`, project `.codex/`, `.claude/`, `.cursor/`, `.cursorrules`, `.mcp.json`, `.agents/`, package skills, etc.) and emits raw `Capability` records plus `ScanIssue`s. The scanner is large by design (~2.7k lines) — each agent's discovery rules are concentrated here.
+1. **Scan** — `CapabilityScanner` walks user-scope and project-scope sources (Codex plugin cache, `~/.codex/config.toml`, `~/.claude/...`, project `.codex/`, `.claude/`, `.cursor/`, `.cursorrules`, `.mcp.json`, `.agents/`, package skills, etc.) and emits raw `Capability` records plus `ScanIssue`s. The scanner is large by design (~2.8k lines) — each agent's discovery rules are concentrated here.
 2. **Resolve** — `CapabilityResolver` overlays `.agents/manifest.json` intent onto scanned capabilities, infers virtual plugin tiles from package metadata, and marks `duplicate`/`shadowed`/`drifted`. The resolver consumes a `ScanResult` and returns a `CapabilityGraph`.
-3. **Project layers** — `AgentViewResolver` produces per-agent visible/hidden views; `AgentOverviewBuilder` summarizes diffs across agents; `AdapterPreviewBuilder` produces the `<repo>/.agents/adapters/<agent>/capabilities.json` previews; `DriftReportBuilder` and `DoctorReportBuilder` produce diagnostics; `CapabilityExplainer` answers "why does agent X see capability Y."
+3. **Project layers** — `AgentViewResolver` produces per-agent visible/hidden views; `AgentOverviewBuilder` summarizes diffs across agents; `AdapterPreviewBuilder` produces the `<repo>/.orbita/adapters/<agent>/capabilities.json` previews; `DriftReportBuilder` and `DoctorReportBuilder` produce diagnostics; `CapabilityExplainer` answers "why does agent X see capability Y."
 4. **Apply** — `ApplyPlanBuilder` builds a typed `ApplyPlan` (`enable | disable | delete | merge | rollback | clean`) of `ApplyOperation`s. `ApplyPlanExecutor` is the only thing that mutates disk.
 
 Core data model is in `Sources/OrbitaCore/Models.swift`: `Capability` (id/name/type/scope/statuses[]/risks[]/source/pluginID/metadata) is the single shape passed between layers. A capability can hold multiple `CapabilityStatus` values simultaneously (e.g. `[disabled, drifted]`).
+
+### App layer (SwiftUI over Core)
+
+The App never reimplements pipeline logic — it drives `OrbitaCore` and renders the result. Three things to know before changing App code:
+
+- **`ProjectCapabilityStore`** is the central `@MainActor` view-model: it runs the scan→resolve→view pipeline for the selected project and publishes the graph/views to SwiftUI. Most App features hang off this store.
+- **Orbita's own state lives in `~/.orbita/`** (distinct from the agent dotdirs it manages): `CapabilitySnapshotStore` persists scan snapshots (`CapabilitySnapshot`, schema-versioned), and `ProjectLibraryStore` persists the recent-projects list. Bump the schema version when changing those shapes.
+- **Real in-app i18n** via `LocalizationManager.shared` (English, Simplified Chinese, Traditional Chinese). User-facing strings go through `L("key")` / `String.localized("key")` with a key added to all three dictionaries; missing keys fall back to English then the raw key. The three `README.*.md` files mirror these languages.
 
 ### Invariants to preserve
 
@@ -71,10 +79,11 @@ Core data model is in `Sources/OrbitaCore/Models.swift`: `Capability` (id/name/t
 - **Hooks are flattened per handler.** A `settings.json` or `hooks.json` registers many handlers; the scanner emits one capability per `event → matcher group → hooks[]` entry, keyed by `<source>:<event>:<matcherIdx>:<handlerIdx>`. Claude has no per-hook disable, so the only Apply action on a single hook is delete. See `docs/hook-logic.md`.
 - **Skills CLI is read-only here.** Orbita reads `skills-lock.json` / `.skill-lock.json` and exposes `npx skills …` commands in the inspector — it does not run installs/updates itself. The one exception is agent-sync (fork), which physically copies/symlinks a skill into an agent's dir as a deliberately **lock-less, Orbita-managed** install: it never runs `npx skills` and never writes a skills-lock file, so the lock files stay read-only.
 - **Skip nested `Tests/**/Fixtures`.** Scanner ignores fixture dependencies during broad project Skill discovery so the repo's own test fixtures aren't surfaced as live capabilities.
+- **Classification predicates live in one place.** Per-agent classification is centralized in two small modules, each created to kill a *drifted duplicate*: `CapabilityClassifier` (`CapabilityClassification.swift`) backs both `AgentViewResolver` visibility and `AdapterPreviewBuilder` mapping, so view-visible and preview-`supported` agree by construction; `AgentSyncPolicy` (`AgentSyncPolicy.swift`) is the single fork-compatibility rule shared by `ApplyPlanBuilder` (enforces, throws on violation) and the App's sync sheet (greys out incompatible agents). The methods left on the resolver/preview/planner are thin delegating wrappers — extend the shared module, do not re-fork the logic into a caller.
 
 ## Tests and fixtures
 
-- `Tests/OrbitaCoreTests/CapabilityScannerTests.swift` is the dominant test file (~3k lines). Most behavioral changes need a new fixture and a new scanner/resolver assertion here. Fixtures live under `Tests/OrbitaCoreTests/Fixtures/` and are copied into the test bundle via the package manifest.
+- `Tests/OrbitaCoreTests/CapabilityScannerTests.swift` is the dominant test file (~4k lines). Most behavioral changes need a new fixture and a new scanner/resolver assertion here. Fixtures live under `Tests/OrbitaCoreTests/Fixtures/` and are copied into the test bundle via the package manifest.
 - `Tests/OrbitaCLITests/OrbitaCLIErrorTests.swift` exercises the CLI argument parser and error-payload shape (`--json` returns a structured `CLIErrorPayload` / `CLIApplyExecutionErrorPayload`).
 - `OrbitaCLI.runForTesting(arguments:)` is the supported entry point for CLI tests — it returns stdout/stderr/exit code without touching real `FileHandle`s.
 
@@ -86,5 +95,6 @@ Logging subsystem is `dev.orbita.app`. Notable categories: `App`, `Scan`, `Apply
 
 - `docs/capability-lifecycle.md` — authoritative per-agent enable/disable/update/delete contract for `.agents`, Codex Desktop, Claude Code, plus release automation. Read before changing lifecycle behavior.
 - `docs/hook-logic.md` — hook scanner contract (event/matcher/handler model, host inference heuristics).
+- `docs/agent-extension-landscape.zh-CN.md` — public research reference (Simplified Chinese): how Codex/Claude Code/Cursor/Trae each *discover* and *disable* extensions, the `npx skills`/`.agents/` convention (official spec vs community), and how Orbita's three-layer model reconciles it. Notes known scanner-vs-official-docs divergences.
 - `docs/release.md` — signing, notarization, DMG, Sparkle appcast checklist.
 - `docs/internal/` — gitignored research/planning notes; do not add internal-only material outside this folder.

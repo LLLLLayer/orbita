@@ -20,6 +20,13 @@ struct CapabilityInspectorView: View {
     @State private var nativeActionResult: NativePluginActionResult?
     @State private var pendingNativeDeleteAction: NativePluginDeleteRequest?
     @AppStorage("nativePluginVersionChecksJSON") private var nativePluginVersionChecksJSON = "{}"
+    @State private var autoCheckInFlight: Set<String> = []
+
+    /// How long an automatic update check is trusted before it re-runs when the
+    /// plugin is selected again. Keeps selection cheap — one background command
+    /// per plugin, then cached — instead of re-querying the marketplace on
+    /// every open.
+    private static let autoUpdateCheckTTL: TimeInterval = 6 * 60 * 60
 
     var body: some View {
         Group {
@@ -34,6 +41,11 @@ struct CapabilityInspectorView: View {
         .onChange(of: capability?.id) { _, _ in
             runningNativeActionID = nil
             nativeActionResult = nil
+        }
+        .task(id: capability?.id) {
+            if let capability {
+                await autoCheckForUpdate(capability)
+            }
         }
     }
 
@@ -527,6 +539,48 @@ struct CapabilityInspectorView: View {
 
     private func shortHash(_ value: String) -> String {
         value.count > 16 ? String(value.prefix(16)) : value
+    }
+
+    /// Auto-check for a newer version when a native plugin is selected. Runs the
+    /// plugin's `checkCommand` once in the background (cached for
+    /// `autoUpdateCheckTTL`) and stores the parsed result, so the "New version
+    /// available" reminder appears without a manual Check button. Applying the
+    /// update stays user-driven via the Update action.
+    private func autoCheckForUpdate(_ capability: Capability) async {
+        guard let manager = capability.metadata["manager"],
+              ["codex", "claude-code"].contains(manager),
+              let command = capability.metadata["checkCommand"],
+              !command.isEmpty else {
+            return
+        }
+        if let existing = nativePluginVersionCheck(for: capability),
+           Date().timeIntervalSince(existing.checkedAt) < Self.autoUpdateCheckTTL {
+            return
+        }
+        guard !autoCheckInFlight.contains(capability.id) else { return }
+        autoCheckInFlight.insert(capability.id)
+        defer { autoCheckInFlight.remove(capability.id) }
+
+        let action = NativePluginAction(
+            id: "auto-check",
+            title: "Check",
+            systemImage: "magnifyingglass",
+            command: command,
+            manager: manager,
+            kind: .check
+        )
+        let workingDirectory = action.workingDirectory(for: capability)
+            ?? FileManager.default.currentDirectoryPath
+        let result = await Task.detached(priority: .utility) {
+            ShellCommandRunner.run(command, workingDirectory: workingDirectory)
+        }.value
+
+        guard self.capability?.id == capability.id else { return }
+        guard result.exitCode == 0,
+              let versionCheck = NativePluginResultSummary(capability: capability, action: action, result: result).versionCheck else {
+            return
+        }
+        saveNativePluginVersionCheck(versionCheck, for: capability)
     }
 
     private func runNativePluginAction(_ action: NativePluginAction, capability: Capability) {

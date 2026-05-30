@@ -47,7 +47,7 @@ Orbita implementation:
 - Read project `skills-lock.json` and the global Skills CLI lock file (`$XDG_STATE_HOME/skills/.skill-lock.json` or `~/.agents/.skill-lock.json`) when present.
 - Surface Skills CLI source metadata on each locked skill, including source, source type, ref, skill path, update hash, canonical path, and inferred agent install targets.
 - Use the Skills CLI agent path catalog for read-only install-target inference and for the Add Agent preset list.
-- Generate adapter previews under `<repo>/.agents/adapters/<agent>/capabilities.json`.
+- Generate adapter previews under `<repo>/.orbita/adapters/<agent>/capabilities.json`.
 - Apply writes inside project `.agents`/`.orbita` for merge/enable/disable/delete/clean/rollback, plus the agent-sync (fork) write set described below.
 - Expose `.agents` skill check, reinstall, update, and remove commands in the inspector while leaving installation and update execution to `npx skills`.
 - Skip nested `Tests/**/Fixtures` directories during broad project Skill discovery so Orbita does not treat its own or a repository's fixture dependencies as active project capabilities.
