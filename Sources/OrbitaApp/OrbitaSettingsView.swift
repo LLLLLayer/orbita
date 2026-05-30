@@ -87,7 +87,9 @@ struct OrbitaSettingsView: View {
     let projectRootPath: String?
     let onRefresh: () -> Void
     let onClose: () -> Void
+    var onShowGuide: (() -> Void)? = nil
 
+    @AppStorage("orbitaOnboardingGuideFrequency") private var guideFrequency = OnboardingGuideFrequency.firstLaunchOnly.rawValue
     @State private var selectedPage = SettingsPage.general
     @State private var commandResult: CommandRunResult?
     @State private var isRunningCommand = false
@@ -147,6 +149,8 @@ struct OrbitaSettingsView: View {
                 switch selectedPage {
                 case .general:
                     generalSettings
+                case .guide:
+                    guideSettings
                 case .plugins:
                     pluginSettings
                 case .release:
@@ -209,6 +213,43 @@ struct OrbitaSettingsView: View {
                     Picker(L("settings.general.language.picker"), selection: $languageCode) {
                         ForEach(OrbitaLanguage.allCases) { language in
                             Text(language.title).tag(language.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var guideSettings: some View {
+        SettingsPageStack {
+            SettingsHeader(title: L("settings.page.guide"), subtitle: L("settings.guide.subtitle"))
+            SettingsCard(title: L("settings.guide.card"), systemImage: "sparkles") {
+                SettingsPreferenceRow(
+                    title: L("settings.guide.replay.title"),
+                    subtitle: L("settings.guide.replay.subtitle")
+                ) {
+                    Button {
+                        onClose()
+                        onShowGuide?()
+                    } label: {
+                        Label(L("settings.guide.replay.button"), systemImage: "play.circle")
+                    }
+                    .controlSize(.large)
+                    .disabled(onShowGuide == nil)
+                }
+
+                SettingsDivider()
+
+                SettingsPreferenceRow(
+                    title: L("settings.guide.frequency.title"),
+                    subtitle: L("settings.guide.frequency.subtitle")
+                ) {
+                    Picker(L("settings.guide.frequency.title"), selection: $guideFrequency) {
+                        ForEach(OnboardingGuideFrequency.allCases) { frequency in
+                            Text(frequency.title).tag(frequency.rawValue)
                         }
                     }
                     .labelsHidden()
@@ -339,6 +380,7 @@ struct OrbitaSettingsView: View {
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
     case general
+    case guide
     case plugins
     case release
 
@@ -348,6 +390,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .general: return L("settings.page.general")
+        case .guide: return L("settings.page.guide")
         case .plugins: return L("settings.page.plugins")
         case .release: return L("settings.page.release")
         }
@@ -356,6 +399,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .general: return "gearshape"
+        case .guide: return "sparkles"
         case .plugins: return "shippingbox"
         case .release: return "arrow.up.circle"
         }

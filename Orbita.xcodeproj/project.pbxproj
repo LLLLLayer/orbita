@@ -33,6 +33,7 @@
 		200000000000000000001007 /* CapabilitySourceClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* CapabilitySourceClassifier.swift */; };
 		200000000000000000001008 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* ContentView.swift */; };
 		200000000000000000001009 /* FullDiskAccessGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* FullDiskAccessGate.swift */; };
+		200000000000000000001040 /* OnboardingGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000040 /* OnboardingGuideView.swift */; };
 		200000000000000000001010 /* OrbitaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* OrbitaApp.swift */; };
 		200000000000000000001011 /* OrbitaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000011 /* OrbitaSettingsView.swift */; };
 		200000000000000000001012 /* OrbitaSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000012 /* OrbitaSheets.swift */; };
@@ -93,6 +94,7 @@
 		200000000000000000000007 /* CapabilitySourceClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapabilitySourceClassifier.swift; sourceTree = "<group>"; };
 		200000000000000000000008 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		200000000000000000000009 /* FullDiskAccessGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessGate.swift; sourceTree = "<group>"; };
+		200000000000000000000040 /* OnboardingGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingGuideView.swift; sourceTree = "<group>"; };
 		200000000000000000000010 /* OrbitaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitaApp.swift; sourceTree = "<group>"; };
 		200000000000000000000011 /* OrbitaSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitaSettingsView.swift; sourceTree = "<group>"; };
 		200000000000000000000012 /* OrbitaSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitaSheets.swift; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 				200000000000000000000007 /* CapabilitySourceClassifier.swift */,
 				200000000000000000000008 /* ContentView.swift */,
 				200000000000000000000009 /* FullDiskAccessGate.swift */,
+				200000000000000000000040 /* OnboardingGuideView.swift */,
 				200000000000000000000026 /* Localization.swift */,
 				200000000000000000000018 /* MarkdownPreviewPage.swift */,
 				200000000000000000000010 /* OrbitaApp.swift */,
@@ -370,6 +373,7 @@
 				200000000000000000001007 /* CapabilitySourceClassifier.swift in Sources */,
 				200000000000000000001008 /* ContentView.swift in Sources */,
 				200000000000000000001009 /* FullDiskAccessGate.swift in Sources */,
+				200000000000000000001040 /* OnboardingGuideView.swift in Sources */,
 				200000000000000000001026 /* Localization.swift in Sources */,
 				200000000000000000001018 /* MarkdownPreviewPage.swift in Sources */,
 				200000000000000000001010 /* OrbitaApp.swift in Sources */,

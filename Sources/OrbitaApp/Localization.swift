@@ -149,6 +149,19 @@ enum LocalizationCatalog {
         "hook.timing": "Hook timing",
         "hook.timing.format": "%@ hook timing",
 
+        // Onboarding guide
+        "settings.page.guide": "Guide",
+        "settings.guide.subtitle": "The quick-start walkthrough and when it appears.",
+        "settings.guide.card": "Quick start",
+        "settings.guide.replay.title": "Replay guide",
+        "settings.guide.replay.subtitle": "Reopen the illustrated walkthrough of scopes, agent tabs, and core actions.",
+        "settings.guide.replay.button": "Show guide",
+        "settings.guide.frequency.title": "Show on launch",
+        "settings.guide.frequency.subtitle": "First launch only is normal. “Every launch” and “Never” are debug conveniences for re-checking the guide without reinstalling.",
+        "settings.guide.frequency.firstLaunch": "First launch",
+        "settings.guide.frequency.always": "Every launch",
+        "settings.guide.frequency.never": "Never",
+
         // Toast
         "toast.comingSoon": "Coming soon"
     ]
@@ -218,6 +231,18 @@ enum LocalizationCatalog {
         "hook.timing": "Hook 时机",
         "hook.timing.format": "Hook %@ 时机",
 
+        "settings.page.guide": "引导",
+        "settings.guide.subtitle": "快速上手引导，以及它的显示时机。",
+        "settings.guide.card": "快速上手",
+        "settings.guide.replay.title": "重看引导",
+        "settings.guide.replay.subtitle": "重新观看关于作用域、Agent 标签页与核心操作的图文引导。",
+        "settings.guide.replay.button": "显示引导",
+        "settings.guide.frequency.title": "启动时显示",
+        "settings.guide.frequency.subtitle": "“仅首次”为正常模式。“每次启动”和“从不”是调试用选项，方便无需重装即可反复查看引导。",
+        "settings.guide.frequency.firstLaunch": "仅首次",
+        "settings.guide.frequency.always": "每次启动",
+        "settings.guide.frequency.never": "从不",
+
         "toast.comingSoon": "敬请期待"
     ]
 
@@ -285,6 +310,18 @@ enum LocalizationCatalog {
         "group.prefix.subtitle": "前綴為 %@-* 彙整的內容",
         "hook.timing": "Hook 時機",
         "hook.timing.format": "Hook %@ 時機",
+
+        "settings.page.guide": "引導",
+        "settings.guide.subtitle": "快速上手引導，以及它的顯示時機。",
+        "settings.guide.card": "快速上手",
+        "settings.guide.replay.title": "重看引導",
+        "settings.guide.replay.subtitle": "重新觀看關於作用域、Agent 分頁與核心操作的圖文引導。",
+        "settings.guide.replay.button": "顯示引導",
+        "settings.guide.frequency.title": "啟動時顯示",
+        "settings.guide.frequency.subtitle": "「僅首次」為正常模式。「每次啟動」和「從不」是除錯用選項，方便無需重裝即可反覆查看引導。",
+        "settings.guide.frequency.firstLaunch": "僅首次",
+        "settings.guide.frequency.always": "每次啟動",
+        "settings.guide.frequency.never": "從不",
 
         "toast.comingSoon": "敬請期待"
     ]

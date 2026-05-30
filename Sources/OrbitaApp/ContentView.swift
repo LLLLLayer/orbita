@@ -48,26 +48,45 @@ struct ContentView: View {
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var displayCache = DisplayDerivationCache()
+    @State private var onboardingGuidePresented = false
+
+    // Extracted from `body` so the SwiftUI type-checker resolves the gated
+    // main-vs-permission branch (and the onboarding-guide overlay generic) in
+    // isolation — inlining it into `body`'s long modifier chain pushed the
+    // expression past the type-check timeout under xcodebuild.
+    @ViewBuilder
+    private var gatedContent: some View {
+        if canEnterApp {
+            mainAppLayout
+                .transition(.opacity)
+        } else {
+            FullDiskAccessOnboardingView(
+                status: fullDiskAccess.status,
+                directoryAccessMessage: userDirectoryAccessMessage,
+                isPreflightingDirectoryAccess: isPreflightingUserDirectoryAccess,
+                onOpenSettings: {
+                    fullDiskAccess.openSystemSettings()
+                },
+                onContinueWithoutAccess: {
+                    preflightUserDirectoryAccess()
+                }
+            )
+            .transition(.opacity)
+        }
+    }
+
+    // The guide wraps the WHOLE gated content (not just the main app) so it presents
+    // FIRST on launch — above the Full Disk Access screen — and only reveals the
+    // permission gate / main app once dismissed. The guide is an opaque canvas
+    // overlay, so the screen behind it stays hidden until then.
+    private var rootContent: some View {
+        gatedContent
+            .orbitaOnboardingGuide(forcePresented: $onboardingGuidePresented)
+    }
 
     var body: some View {
         Group {
-            if canEnterApp {
-                mainAppLayout
-                    .transition(.opacity)
-            } else {
-                FullDiskAccessOnboardingView(
-                    status: fullDiskAccess.status,
-                    directoryAccessMessage: userDirectoryAccessMessage,
-                    isPreflightingDirectoryAccess: isPreflightingUserDirectoryAccess,
-                    onOpenSettings: {
-                        fullDiskAccess.openSystemSettings()
-                    },
-                    onContinueWithoutAccess: {
-                        preflightUserDirectoryAccess()
-                    }
-                )
-                .transition(.opacity)
-            }
+            rootContent
         }
         .frame(
             minWidth: OrbitaLayoutMetrics.minimumWindowWidth,
@@ -351,6 +370,9 @@ struct ContentView: View {
             },
             onClose: {
                 settingsPresented = false
+            },
+            onShowGuide: {
+                onboardingGuidePresented = true
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
