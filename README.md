@@ -149,18 +149,24 @@ The App is a viewer over `OrbitaCore`; the `orbita` CLI exercises the same code 
 the canonical product surface. Add `--json` to any command for machine-readable output.
 
 ```bash
+swift run orbita help                                       # or --help / -h / no args
 swift run orbita scan     --project-root <path> [--json]
 swift run orbita status   --project-root <path> [--json]
 swift run orbita graph    --project-root <path> [--json]
 swift run orbita overview --project-root <path> [--json]
-swift run orbita drift    --project-root <path>
-swift run orbita agent    --project-root <path> --agent codex|claude-code|cursor|trae
-swift run orbita explain  --project-root <path> <capability-id>
-swift run orbita preview  --project-root <path> --agent <id>
-swift run orbita doctor   [--project-root <path>]
+swift run orbita drift    --project-root <path> [--json]
+swift run orbita agent    --project-root <path> [--agent codex|claude-code|cursor|trae] [--json]
+swift run orbita explain  --project-root <path> <capability-id> [--json]
+swift run orbita preview  --project-root <path> --agent <id> [--json]
+swift run orbita doctor   [--project-root <path>] [--json]
 swift run orbita plan     --project-root <path> --merge|--rollback|--clean|--enable <id>|--disable <id>|--delete <id> [--apply] [--json]
 swift run orbita plan     --project-root <path> --sync <id> --agent <id> [--mode copy|symlink] [--scope project|user] [--apply] [--json]
 ```
+
+`agent` defaults to `codex` when `--agent` is omitted, and its text output also lists the
+capabilities the agent *hides* (matching the `--json` view). Exit codes: `0` success, `1`
+runtime error (bad path/flag, capability not found), `2` the resolved graph carries an error
+issue (e.g. a malformed `.agents/manifest.json`).
 
 `plan --sync` physically copies (or symlinks, the default) a Skill / command / agent into the
 destination agent's directory as a lock-less, Orbita-managed install.

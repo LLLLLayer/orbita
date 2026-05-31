@@ -239,6 +239,32 @@ final class OrbitaCLIErrorTests: XCTestCase {
         XCTAssertEqual(payload.pendingOperations, [pending])
     }
 
+    func testHelpIsDiscoverableFromNoArgsAndHelpTokens() throws {
+        for arguments in [[], ["help"], ["--help"], ["-h"]] {
+            let result = OrbitaCLI.runForTesting(arguments: arguments)
+            XCTAssertEqual(result.exitCode, 0, "help should exit 0 for \(arguments)")
+            XCTAssertTrue(result.stderr.isEmpty, "help should not write to stderr for \(arguments)")
+            XCTAssertTrue(result.stdout.contains("USAGE"), "help should print usage for \(arguments)")
+            XCTAssertTrue(result.stdout.contains("plan"), "help should list the plan command for \(arguments)")
+            XCTAssertTrue(result.stdout.contains("EXIT CODES"), "help should document exit codes for \(arguments)")
+        }
+    }
+
+    func testAgentTextOutputAlsoListsHiddenCapabilities() throws {
+        let root = fixtureURL("MixedProject")
+
+        let result = OrbitaCLI.runForTesting(arguments: ["agent", root.path, "--agent", "codex", "--no-user-scope"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        // The header reports both counts, and a Claude-only command is surfaced under Hidden so a
+        // text-mode user can see *why* an agent doesn't load it (parity with the --json output).
+        XCTAssertTrue(result.stdout.contains("visible,"))
+        XCTAssertTrue(result.stdout.contains("hidden"))
+        XCTAssertTrue(result.stdout.contains("Hidden (not loaded by codex):"))
+        XCTAssertTrue(result.stdout.contains("- review [command]"))
+    }
+
     private func fixtureURL(_ name: String) -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

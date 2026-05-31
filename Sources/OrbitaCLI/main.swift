@@ -55,6 +55,8 @@ struct OrbitaCLI {
         // we still print the partial result.
         var errorExitCode: Int32 = 0
         switch command.name {
+        case "help":
+            emit(helpText())
         case "scan":
             let result = try scan(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
             if result.issues.contains(where: { $0.severity == .error }) { errorExitCode = 2 }
@@ -102,9 +104,15 @@ struct OrbitaCLI {
             if command.json {
                 emit(jsonString(view))
             } else {
-                emit("\(agent.rawValue) sees \(view.visibleCapabilities.count) capabilities")
+                emit("\(agent.rawValue) sees \(view.visibleCapabilities.count) visible, \(view.hiddenCapabilities.count) hidden")
                 for capability in view.visibleCapabilities {
                     emit("- \(capability.name) [\(capability.type.rawValue)]")
+                }
+                if !view.hiddenCapabilities.isEmpty {
+                    emit("Hidden (not loaded by \(agent.rawValue)):")
+                    for capability in view.hiddenCapabilities {
+                        emit("- \(capability.name) [\(capability.type.rawValue)]")
+                    }
                 }
             }
         case "explain":
@@ -208,6 +216,55 @@ struct OrbitaCLI {
             throw CLIError.unknownCommand(command.name)
         }
         return errorExitCode
+    }
+
+    private static func helpText() -> String {
+        """
+        orbita — manage coding-agent capabilities across Codex, Claude Code, Cursor, Trae, and .agents
+
+        USAGE
+          orbita <command> [<project-path>] [options]
+
+        The project path can be given positionally, or with --project / --project-root.
+        doctor needs no project; help needs no arguments.
+
+        READ-ONLY COMMANDS
+          scan      List raw discovered capabilities and scan issues
+          status    Capability counts by type, status, and risk
+          graph     Resolved capability graph (duplicates/shadows/drift marked)
+          overview  Per-agent visibility summary across all agents
+          drift     Capabilities that differ across agents or locations
+          agent     What a single agent sees (and what it hides) — needs --agent
+          explain   Why an agent sees a capability — needs <capability-id>
+          preview   Adapter preview for an agent — needs --agent
+          doctor    Environment checks (no project required)
+
+        MUTATING COMMANDS
+          plan      Build (and optionally apply) a change. One action required:
+                      --enable <id> | --disable <id> | --delete <id>
+                      --merge | --rollback | --clean
+                      --sync <id> --agent <id> [--mode copy|symlink] [--scope project|user]
+                    Add --apply to execute; without it, prints a dry run.
+
+        OPTIONS
+          --agent <id>       codex | claude-code | cursor | trae (agent commands default to codex)
+          --project <path>   Project root (synonym: --project-root; or pass it positionally)
+          --no-user-scope    Restrict scanning to the project (skip ~/.codex, ~/.claude, etc.)
+          --json             Emit machine-readable JSON (supported by every read command and plan)
+          -h, --help, help   Show this help
+
+        EXIT CODES
+          0  success
+          1  runtime error (missing path, invalid flag/value, capability not found)
+          2  the resolved graph carries an error issue (e.g. malformed .agents/manifest.json)
+
+        EXAMPLES
+          orbita status .
+          orbita agent ~/code/app --agent claude-code
+          orbita drift . --json
+          orbita plan . --disable skill:foo
+          orbita plan . --sync skill:foo --agent trae --mode symlink --apply
+        """
     }
 
     private static func scan(projectRoot: String, includeUserScope: Bool) throws -> ScanResult {
@@ -398,6 +455,29 @@ struct ParsedCommand {
     var clean: Bool
 
     init(arguments: [String]) throws {
+        // Help is discoverable before anything else: no args, `help`, `--help`, or `-h` anywhere
+        // resolves to the help command instead of failing with "Missing project root"/"Missing command".
+        let helpTokens: Set<String> = ["help", "--help", "-h"]
+        if arguments.isEmpty || arguments.contains(where: { helpTokens.contains($0) }) {
+            name = "help"
+            projectRoot = ""
+            json = false
+            includeUserScope = true
+            agent = nil
+            capabilityID = nil
+            enableCapabilityID = nil
+            disableCapabilityID = nil
+            deleteCapabilityID = nil
+            syncCapabilityID = nil
+            syncMode = nil
+            syncScope = nil
+            apply = false
+            rollback = false
+            merge = false
+            clean = false
+            return
+        }
+
         guard let first = arguments.first else {
             throw CLIError.missingCommand
         }
