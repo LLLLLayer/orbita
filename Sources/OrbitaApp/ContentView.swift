@@ -338,6 +338,7 @@ struct ContentView: View {
                         CapabilityInspectorView(
                             capability: selectedCapability,
                             selectedAgent: selectedAgent,
+                            projectRoot: store.graph?.projectRoot ?? "",
                             onClose: {
                                 withAnimation(.snappy(duration: 0.22)) {
                                     inspectorVisible = false

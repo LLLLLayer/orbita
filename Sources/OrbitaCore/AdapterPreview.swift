@@ -86,7 +86,11 @@ public final class AdapterPreviewBuilder {
             .path
     }
 
-    private func mapping(for agent: AgentID, capability: Capability, projectRoot: String) -> AdapterCapabilityMapping {
+    /// Per-capability loadability for a single agent, with the human reason — the same
+    /// mapping used to build the adapter index, exposed so callers (e.g. the App inspector)
+    /// can answer "will agent X load this capability, and why not?" without generating the
+    /// full preview/JSON for every capability.
+    public func mapping(for agent: AgentID, capability: Capability, projectRoot: String) -> AdapterCapabilityMapping {
         guard !capability.statuses.contains(.broken) else {
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,

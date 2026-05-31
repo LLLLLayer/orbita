@@ -7,6 +7,7 @@ struct CapabilityInspectorView: View {
     @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability?
     let selectedAgent: AgentSelection?
+    var projectRoot: String = ""
     let onClose: () -> Void
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
@@ -136,6 +137,8 @@ struct CapabilityInspectorView: View {
                         StatusReasonSection(capability: capability)
 
                         AccessRiskSection(capability: capability)
+
+                        AgentLoadabilitySection(capability: capability, projectRoot: projectRoot)
 
                         DriftLocationsSection(capability: capability)
                     }
@@ -2255,6 +2258,87 @@ private enum JSONFileEditor {
             text.append("\n")
         }
         try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// Per-agent "will load / won't load (why)" breakdown for the selected capability —
+/// the AdapterPreviewBuilder reasoning that previously lived only in the CLI. Answers
+/// the cross-agent migrator's core question without leaving the inspector.
+private struct AgentLoadabilitySection: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let capability: Capability
+    let projectRoot: String
+
+    private struct Row: Identifiable {
+        let agent: AgentSelection
+        let mapping: AdapterCapabilityMapping
+        var id: String { agent.id }
+    }
+
+    private var rows: [Row] {
+        let builder = AdapterPreviewBuilder()
+        return AgentID.allCases.map { agentID in
+            Row(
+                agent: AgentSelection.builtIn(for: agentID),
+                mapping: builder.mapping(for: agentID, capability: capability, projectRoot: projectRoot)
+            )
+        }
+    }
+
+    var body: some View {
+        InspectorSection {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "rectangle.stack.badge.person.crop")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(L("inspector.loadability.title"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(rows) { row in
+                        HStack(alignment: .top, spacing: 8) {
+                            AgentBrandIcon(agent: row.agent, size: 13)
+                                .frame(width: 18, height: 18)
+                                .padding(.top, 1)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(row.agent.displayName)
+                                        .font(.caption.weight(.semibold))
+                                    LoadabilityPill(supported: row.mapping.supported)
+                                }
+                                Text(row.mapping.reason)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct LoadabilityPill: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let supported: Bool
+
+    var body: some View {
+        Text(supported ? L("inspector.loadability.loads") : L("inspector.loadability.skips"))
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(supported ? Color.green : Color.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(
+                (supported ? Color.green : Color.secondary).opacity(0.12),
+                in: Capsule()
+            )
     }
 }
 
