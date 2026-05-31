@@ -71,6 +71,8 @@ enum CapabilitySortOption: String, CaseIterable, Identifiable {
     case nameAscending
     case modifiedNewest
     case modifiedOldest
+    case statusPriority
+    case riskLevel
 
     var id: String { rawValue }
 
@@ -83,6 +85,10 @@ enum CapabilitySortOption: String, CaseIterable, Identifiable {
             return L("sort.modifiedNewest")
         case .modifiedOldest:
             return L("sort.modifiedOldest")
+        case .statusPriority:
+            return L("sort.statusPriority")
+        case .riskLevel:
+            return L("sort.riskLevel")
         }
     }
 }

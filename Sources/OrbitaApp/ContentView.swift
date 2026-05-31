@@ -30,6 +30,9 @@ struct ContentView: View {
     @State private var selectedProject: String? = ProjectCapabilityStore.environmentSelectionID
     @State private var selectedAgent: AgentSelection?
     @State private var selectedGroup = CapabilityCategory.all
+    @State private var searchText = ""
+    @State private var selectedFlags: Set<CapabilityFlag> = []
+    @State private var selectedCapabilityIDs: Set<String> = []
     @State private var selectedCapability: Capability?
     @State private var expandedGroupIDs: Set<String> = []
     @State private var sidebarCollapsed = false
@@ -214,6 +217,8 @@ struct ContentView: View {
                let updatedCapability = capabilities.first(where: { $0.id == selectedCapability.id }) {
                 self.selectedCapability = updatedCapability
             }
+            let validIDs = Set(capabilities.map(\.id))
+            selectedCapabilityIDs.formIntersection(validIDs)
             reconcileSelectedCapabilityWithDisplayedItems()
         }
         .onChange(of: selectedCapability) { _, capability in
@@ -223,11 +228,17 @@ struct ContentView: View {
         }
         .onChange(of: selectedGroup) { _, _ in
             expandedGroupIDs.removeAll()
+            selectedCapabilityIDs.removeAll()
             reconcileSelectedCapabilityWithDisplayedItems()
         }
         .onChange(of: selectedAgent) { _, _ in
             expandedGroupIDs.removeAll()
+            selectedCapabilityIDs.removeAll()
+            pruneFlagsToAvailable()
             reconcileSelectedCapabilityWithDisplayedItems()
+        }
+        .onChange(of: hideMacScopeInProject) { _, _ in
+            pruneFlagsToAvailable()
         }
         .onChange(of: scanRefreshPolicy) { _, value in
             store.configure(refreshPolicy: value)
@@ -264,6 +275,13 @@ struct ContentView: View {
                         successMessage: store.successMessage,
                         selectedAgent: $selectedAgent,
                         selectedGroup: $selectedGroup,
+                        searchText: $searchText,
+                        availableFlags: availableFlags,
+                        selectedFlags: $selectedFlags,
+                        selectedCapabilityIDs: $selectedCapabilityIDs,
+                        onBulkEnable: { runBulkAction(.enable) },
+                        onBulkDisable: { runBulkAction(.disable) },
+                        onBulkDelete: { runBulkAction(.delete) },
                         agentOptions: agentOptions,
                         categoryOptions: categoryOptions,
                         displaySections: capabilityDisplaySections,
@@ -527,7 +545,29 @@ struct ContentView: View {
     private var displayCacheKey: String {
         let agentKey = selectedAgent?.id ?? "__overview__"
         let hideMac = (hideMacScopeInProject && store.hasProject) ? "1" : "0"
-        return "\(store.graphRevision)|\(agentKey)|\(selectedGroup.rawValue)|\(capabilitySortOption)|\(hideMac)"
+        let flagsKey = selectedFlags.map(\.rawValue).sorted().joined(separator: "+")
+        let query = normalizedSearchQuery.lowercased()
+        return "\(store.graphRevision)|\(agentKey)|\(selectedGroup.rawValue)|\(capabilitySortOption)|\(hideMac)|\(flagsKey)|\(query)"
+    }
+
+    private var normalizedSearchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Flags actually present in the current agent/scope view (before the search
+    /// and flag filters are applied), so we only render chips the user can act on.
+    private var availableFlags: [CapabilityFlag] {
+        let capabilities = derivedDisplay().visible
+        return CapabilityFlag.allCases.filter { flag in
+            capabilities.contains { $0.statuses.contains(flag.status) }
+        }
+    }
+
+    private func pruneFlagsToAvailable() {
+        let available = Set(availableFlags)
+        if !selectedFlags.isSubset(of: available) {
+            selectedFlags.formIntersection(available)
+        }
     }
 
     private func derivedDisplay() -> DisplayDerivationCache {
@@ -578,6 +618,8 @@ struct ContentView: View {
                 .filter { selectedGroup.matches($0) }
                 .sorted(by: currentSortOption.comparator)
         }
+        let activeFlagStatuses = Set(selectedFlags.map(\.status))
+        let query = normalizedSearchQuery
         let items = CapabilityDisplayGrouper()
             .items(
                 for: grouping,
@@ -585,6 +627,14 @@ struct ContentView: View {
                 groupsPluginChildren: selectedGroup == .all || selectedGroup == .plugin
             )
             .filter(displayItemMatchesSelectedGroup)
+            .filter { item in
+                guard !activeFlagStatuses.isEmpty else { return true }
+                return item.capabilities.contains { !Set($0.statuses).isDisjoint(with: activeFlagStatuses) }
+            }
+            .filter { item in
+                guard !query.isEmpty else { return true }
+                return displayItemMatchesSearch(item, query: query)
+            }
         let grouped = Dictionary(grouping: items, by: CapabilitySectionKind.init(item:))
         return CapabilitySectionKind.allCases.compactMap { kind in
             guard let sectionItems = grouped[kind], !sectionItems.isEmpty else {
@@ -690,6 +740,24 @@ struct ContentView: View {
             return .category(.plugin)
         }
         return kind
+    }
+
+    private func displayItemMatchesSearch(_ item: CapabilityDisplayItem, query: String) -> Bool {
+        switch item {
+        case let .capability(capability):
+            return capabilityMatchesSearch(capability, query: query)
+        case let .group(group):
+            return group.name.localizedCaseInsensitiveContains(query)
+                || group.capabilities.contains { capabilityMatchesSearch($0, query: query) }
+        }
+    }
+
+    private func capabilityMatchesSearch(_ capability: Capability, query: String) -> Bool {
+        capability.name.localizedCaseInsensitiveContains(query)
+            || capability.id.localizedCaseInsensitiveContains(query)
+            || capability.source.path.localizedCaseInsensitiveContains(query)
+            || (capability.summary?.localizedCaseInsensitiveContains(query) ?? false)
+            || (capability.pluginID?.localizedCaseInsensitiveContains(query) ?? false)
     }
 
     private func displayItemMatchesSelectedGroup(_ item: CapabilityDisplayItem) -> Bool {
@@ -1016,11 +1084,22 @@ struct ContentView: View {
         guard didApply else {
             return
         }
+        selectedCapabilityIDs.removeAll()
         if plan.action == .delete {
             selectedCapability = nil
         } else if let updatedCapability = store.capability(id: plan.capabilityID) {
             selectedCapability = updatedCapability
         }
+    }
+
+    private func runBulkAction(_ kind: ProjectCapabilityStore.BulkActionKind) {
+        let ids = Array(selectedCapabilityIDs)
+        guard !ids.isEmpty, let plan = store.planBulk(kind, capabilityIDs: ids) else {
+            return
+        }
+        // Always route bulk plans through the review sheet so the user sees every
+        // operation (and the disabled-store / symlink details) before applying.
+        pendingPlan = plan
     }
 
     private func runNativeDelete(command: String, workingDirectory: String) {
@@ -1354,7 +1433,50 @@ private extension CapabilitySortOption {
                     return lhsDate < rhsDate
                 }
                 return compareByName(lhs, rhs)
+            case .statusPriority:
+                let lhsRank = statusRank(lhs)
+                let rhsRank = statusRank(rhs)
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                return compareByName(lhs, rhs)
+            case .riskLevel:
+                let lhsRank = riskRank(lhs)
+                let rhsRank = riskRank(rhs)
+                if lhsRank != rhsRank {
+                    return lhsRank > rhsRank
+                }
+                return compareByName(lhs, rhs)
             }
+        }
+    }
+
+    /// Triage ordering: capabilities that need attention (broken → drifted →
+    /// shadowed → risky → duplicate) float above normal items; intentionally
+    /// disabled items sink to the bottom.
+    private func statusRank(_ capability: Capability) -> Int {
+        if capability.statuses.contains(.broken) { return 0 }
+        if capability.statuses.contains(.drifted) { return 1 }
+        if capability.statuses.contains(.shadowed) { return 2 }
+        if capability.statuses.contains(.risky) { return 3 }
+        if capability.statuses.contains(.duplicate) { return 4 }
+        if capability.statuses.contains(.disabled) { return 6 }
+        return 5
+    }
+
+    private func riskRank(_ capability: Capability) -> Int {
+        capability.risks.map(riskSeverity).max() ?? 0
+    }
+
+    private func riskSeverity(_ risk: RiskLevel) -> Int {
+        switch risk {
+        case .info: return 0
+        case .read: return 1
+        case .exec: return 2
+        case .write: return 3
+        case .network: return 4
+        case .secret: return 5
+        case .global: return 6
         }
     }
 

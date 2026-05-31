@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import OrbitaCore
 
@@ -51,6 +52,7 @@ struct CapabilityCollectionView: View {
     let agentOptions: [AgentSelection]
     let selectedAgent: AgentSelection?
     @Binding var selectedCapability: Capability?
+    @Binding var selectedCapabilityIDs: Set<String>
     @Binding var expandedGroupIDs: Set<String>
     let availableWidth: CGFloat
     let onSyncCapability: (Capability) -> Void
@@ -131,6 +133,7 @@ struct CapabilityCollectionView: View {
                                 agentVisibilityIndex: agentVisibilityIndex,
                                 selectedAgent: selectedAgent,
                                 selectedCapability: $selectedCapability,
+                                selectedCapabilityIDs: $selectedCapabilityIDs,
                                 columns: columns,
                                 onSyncCapability: onSyncCapability
                             )
@@ -175,10 +178,16 @@ struct CapabilityCollectionView: View {
                 capability: capability,
                 visibleAgents: visibleAgents(for: item, in: agentVisibilityIndex),
                 isSelected: selectedCapability?.id == capability.id,
+                isMultiSelected: selectedCapabilityIDs.contains(capability.id),
+                isMultiSelectActive: !selectedCapabilityIDs.isEmpty,
+                onToggleMultiSelect: {
+                    toggleMultiSelect(capability.id)
+                },
                 onSync: {
                     onSyncCapability(capability)
                 }
             ) {
+                selectedCapabilityIDs.removeAll()
                 selectedCapability = capability
             }
         case let .group(group):
@@ -196,6 +205,16 @@ struct CapabilityCollectionView: View {
                     selectedCapability = inspectionCapability
                     toggleExpandedGroup(group.id)
                 }
+            }
+        }
+    }
+
+    private func toggleMultiSelect(_ id: String) {
+        withAnimation(.snappy(duration: 0.16)) {
+            if selectedCapabilityIDs.contains(id) {
+                selectedCapabilityIDs.remove(id)
+            } else {
+                selectedCapabilityIDs.insert(id)
             }
         }
     }
@@ -409,6 +428,7 @@ private struct ExpandedCapabilityGroupShelf: View {
     let agentVisibilityIndex: AgentVisibilityIndex
     let selectedAgent: AgentSelection?
     @Binding var selectedCapability: Capability?
+    @Binding var selectedCapabilityIDs: Set<String>
     let columns: [GridItem]
     let onSyncCapability: (Capability) -> Void
 
@@ -458,10 +478,16 @@ private struct ExpandedCapabilityGroupShelf: View {
                 capability: capability,
                 visibleAgents: visibleAgents(for: item),
                 isSelected: selectedCapability?.id == capability.id,
+                isMultiSelected: selectedCapabilityIDs.contains(capability.id),
+                isMultiSelectActive: !selectedCapabilityIDs.isEmpty,
+                onToggleMultiSelect: {
+                    toggleMultiSelect(capability.id)
+                },
                 onSync: {
                     onSyncCapability(capability)
                 }
             ) {
+                selectedCapabilityIDs.removeAll()
                 selectedCapability = capability
             }
         case let .group(group):
@@ -477,6 +503,16 @@ private struct ExpandedCapabilityGroupShelf: View {
                 }
             ) {
                 selectedCapability = inspectionCapability
+            }
+        }
+    }
+
+    private func toggleMultiSelect(_ id: String) {
+        withAnimation(.snappy(duration: 0.16)) {
+            if selectedCapabilityIDs.contains(id) {
+                selectedCapabilityIDs.remove(id)
+            } else {
+                selectedCapabilityIDs.insert(id)
             }
         }
     }
@@ -817,6 +853,9 @@ private struct CapabilityTile: View {
     let capability: Capability
     let visibleAgents: [AgentSelection]
     let isSelected: Bool
+    var isMultiSelected: Bool = false
+    var isMultiSelectActive: Bool = false
+    var onToggleMultiSelect: () -> Void = {}
     let onSync: () -> Void
     let action: () -> Void
 
@@ -830,6 +869,12 @@ private struct CapabilityTile: View {
                         isSelected: isSelected
                     )
                     Spacer(minLength: 6)
+                    if isMultiSelectActive {
+                        Image(systemName: isMultiSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(isMultiSelected ? OrbitaTheme.prominentControlFill : Color.secondary)
+                            .accessibilityHidden(true)
+                    }
                 }
                 .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
@@ -863,10 +908,24 @@ private struct CapabilityTile: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(tileBorderColor, style: tileOutlineStyle)
         }
+        .overlay {
+            if isMultiSelected {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(OrbitaTheme.prominentControlFill, lineWidth: 2)
+            }
+        }
         .shadow(color: isSelected ? OrbitaTheme.selectedShadow : Color.clear, radius: 10, x: 0, y: 5)
-        .onTapGesture(perform: action)
+        .onTapGesture {
+            let flags = NSEvent.modifierFlags
+            if flags.contains(.command) || flags.contains(.shift) {
+                onToggleMultiSelect()
+            } else {
+                action()
+            }
+        }
         .accessibilityAddTraits(.isButton)
         .animation(.snappy(duration: 0.18), value: isSelected)
+        .animation(.snappy(duration: 0.16), value: isMultiSelected)
     }
 
     private var tileBorderColor: Color {

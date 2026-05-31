@@ -489,6 +489,74 @@ final class ProjectCapabilityStore: ObservableObject {
         }
     }
 
+    // MARK: - Bulk (multi-select) plans
+
+    enum BulkActionKind {
+        case enable
+        case disable
+        case delete
+    }
+
+    func planBulk(_ kind: BulkActionKind, capabilityIDs ids: [String]) -> ApplyPlan? {
+        guard let graph else { return nil }
+        let expanded = expandedBulkIDs(ids, graph: graph)
+        guard !expanded.isEmpty else { return nil }
+        let groupName = String(format: L("bulk.groupName"), String(expanded.count))
+        do {
+            let plan: ApplyPlan
+            switch kind {
+            case .enable:
+                plan = try ApplyPlanBuilder().planEnable(
+                    capabilityIDs: expanded,
+                    groupID: "orbita.bulk",
+                    groupName: groupName,
+                    graph: graph
+                )
+            case .disable:
+                plan = try ApplyPlanBuilder().planDisable(
+                    capabilityIDs: expanded,
+                    groupID: "orbita.bulk",
+                    groupName: groupName,
+                    graph: graph
+                )
+            case .delete:
+                plan = try ApplyPlanBuilder().planDelete(
+                    capabilityIDs: expanded,
+                    groupID: "orbita.bulk",
+                    groupName: groupName,
+                    graph: graph
+                )
+            }
+            OrbitaTelemetry.apply.notice("plan.bulk count=\(expanded.count, privacy: .public) operations=\(plan.operations.count, privacy: .public)")
+            return plan
+        } catch {
+            errorMessage = error.localizedDescription
+            OrbitaTelemetry.apply.error("plan.bulk.failed count=\(expanded.count, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Flatten any virtual-group ids in the selection into their concrete child
+    /// capability ids, de-duplicated and order-preserving, so a bulk plan never
+    /// double-counts a capability reached via two selected tiles.
+    private func expandedBulkIDs(_ ids: [String], graph: CapabilityGraph) -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+        for id in ids {
+            let expansion: [String]
+            if let capability = graph.capabilities.first(where: { $0.id == id }) {
+                let children = groupedCapabilityIDs(for: capability)
+                expansion = children.isEmpty ? [id] : children
+            } else {
+                expansion = [id]
+            }
+            for childID in expansion where seen.insert(childID).inserted {
+                result.append(childID)
+            }
+        }
+        return result
+    }
+
     private func planDeleteSkillInstallTargets(
         _ capability: Capability,
         agentID: String,

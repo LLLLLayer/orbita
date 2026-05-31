@@ -16,6 +16,13 @@ struct CapabilityMainView: View {
     let successMessage: String?
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
+    @Binding var searchText: String
+    let availableFlags: [CapabilityFlag]
+    @Binding var selectedFlags: Set<CapabilityFlag>
+    @Binding var selectedCapabilityIDs: Set<String>
+    let onBulkEnable: () -> Void
+    let onBulkDisable: () -> Void
+    let onBulkDelete: () -> Void
     let agentOptions: [AgentSelection]
     let categoryOptions: [CapabilityCategory]
     let displaySections: [CapabilityCollectionSection]
@@ -67,8 +74,11 @@ struct CapabilityMainView: View {
                             CapabilityFilterBar(
                                 agentOptions: agentOptions,
                                 categoryOptions: categoryOptions,
+                                availableFlags: availableFlags,
                                 selectedAgent: $selectedAgent,
                                 selectedGroup: $selectedGroup,
+                                searchText: $searchText,
+                                selectedFlags: $selectedFlags,
                                 onAddAgent: onAddAgent,
                                 onMoveAgent: onMoveAgent,
                                 onPinAgent: onPinAgent,
@@ -79,8 +89,26 @@ struct CapabilityMainView: View {
                                 onHideCategories: onHideCategories
                             )
 
+                            if !selectedCapabilityIDs.isEmpty {
+                                BulkActionBar(
+                                    count: selectedCapabilityIDs.count,
+                                    onEnable: onBulkEnable,
+                                    onDisable: onBulkDisable,
+                                    onDelete: onBulkDelete,
+                                    onClear: {
+                                        withAnimation(.snappy(duration: 0.18)) {
+                                            selectedCapabilityIDs.removeAll()
+                                        }
+                                    }
+                                )
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+
                             if displaySections.isEmpty {
-                                EmptyCapabilitiesState()
+                                EmptyCapabilitiesState(
+                                    searchQuery: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    hasActiveFilters: !selectedFlags.isEmpty
+                                )
                                     .frame(
                                         width: contentWidth,
                                         height: emptyStateHeight(for: proxy.size.height),
@@ -94,6 +122,7 @@ struct CapabilityMainView: View {
                                     agentOptions: agentOptions,
                                     selectedAgent: selectedAgent,
                                     selectedCapability: $selectedCapability,
+                                    selectedCapabilityIDs: $selectedCapabilityIDs,
                                     expandedGroupIDs: $expandedGroupIDs,
                                     availableWidth: contentWidth,
                                     onSyncCapability: onSyncCapability
@@ -205,6 +234,14 @@ private struct HeaderSurface: View {
                 SummaryStat(title: L("main.summary.commands"), value: count(.command), systemImage: "terminal")
                 SummaryStat(title: "MCP", value: count(.mcp), systemImage: "server.rack")
                 SummaryStat(title: L("main.summary.hooks"), value: count(.hook), systemImage: "link")
+                if riskyCount > 0 {
+                    SummaryStat(
+                        title: L("main.summary.risky"),
+                        value: riskyCount,
+                        systemImage: "exclamationmark.shield",
+                        tint: .orange
+                    )
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -215,6 +252,10 @@ private struct HeaderSurface: View {
 
     private func count(_ category: CapabilityCategory) -> Int {
         capabilities.filter { category.matches($0) }.count
+    }
+
+    private var riskyCount: Int {
+        capabilities.filter { $0.statuses.contains(.risky) }.count
     }
 }
 
@@ -267,6 +308,81 @@ private struct InlineSuccessBanner: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color.green.opacity(0.20))
         }
+    }
+}
+
+/// Contextual action bar shown when one or more capability tiles are multi-selected.
+/// Routes to bulk enable/disable/delete plans (each reviewed in the apply sheet).
+private struct BulkActionBar: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let count: Int
+    let onEnable: () -> Void
+    let onDisable: () -> Void
+    let onDelete: () -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checklist")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(OrbitaTheme.prominentControlFill)
+            Text(String(format: L("bulk.selected"), String(count)))
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            Text(L("bulk.hint"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            BulkActionButton(title: L("bulk.enable"), systemImage: "power", action: onEnable)
+            BulkActionButton(title: L("bulk.disable"), systemImage: "pause.circle", action: onDisable)
+            BulkActionButton(title: L("bulk.delete"), systemImage: "trash", role: .destructive, action: onDelete)
+
+            Button(action: onClear) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .orbitaControlSurface(cornerRadius: 8)
+            .help(L("bulk.clear"))
+            .accessibilityLabel(L("bulk.clear"))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(OrbitaTheme.prominentControlFill.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(OrbitaTheme.prominentControlFill.opacity(0.30))
+        }
+    }
+}
+
+private struct BulkActionButton: View {
+    let title: String
+    let systemImage: String
+    var role: ButtonRole? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .foregroundStyle(role == .destructive ? Color.red : Color.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .orbitaControlSurface(cornerRadius: 8)
+        .help(title)
     }
 }
 
@@ -333,15 +449,17 @@ private struct SummaryStat: View {
     let title: String
     let value: Int
     let systemImage: String
+    var tint: Color? = nil
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tint ?? .secondary)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(value)")
                     .font(.headline.monospacedDigit())
+                    .foregroundStyle(tint ?? .primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Text(title)
@@ -427,8 +545,11 @@ struct CapabilityFilterBar: View {
     @ObservedObject private var localization = LocalizationManager.shared
     let agentOptions: [AgentSelection]
     let categoryOptions: [CapabilityCategory]
+    let availableFlags: [CapabilityFlag]
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
+    @Binding var searchText: String
+    @Binding var selectedFlags: Set<CapabilityFlag>
     let onAddAgent: () -> Void
     let onMoveAgent: (_ sourceID: String, _ targetID: String) -> Void
     let onPinAgent: (_ agentID: String) -> Void
@@ -488,6 +609,10 @@ struct CapabilityFilterBar: View {
                         .disabled(agent.isDeleteProtected)
                     }
                 }
+
+                Spacer(minLength: 12)
+
+                CapabilitySearchField(text: $searchText)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -530,7 +655,165 @@ struct CapabilityFilterBar: View {
                     }
                 }
             }
+
+            if !availableFlags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 26)
+                            .help(L("main.filter.flags.help"))
+                            .accessibilityLabel(L("main.filter.flags.help"))
+
+                        ForEach(availableFlags) { flag in
+                            FlagFilterChip(flag: flag, isSelected: selectedFlags.contains(flag)) {
+                                withAnimation(.snappy(duration: 0.16)) {
+                                    if selectedFlags.contains(flag) {
+                                        selectedFlags.remove(flag)
+                                    } else {
+                                        selectedFlags.insert(flag)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !selectedFlags.isEmpty {
+                            Button {
+                                withAnimation(.snappy(duration: 0.16)) {
+                                    selectedFlags.removeAll()
+                                }
+                            } label: {
+                                Text(L("main.filter.clearFlags"))
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 26)
+                            }
+                            .buttonStyle(.plain)
+                            .help(L("main.filter.clearFlags"))
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+/// A capability "flag" the user can filter the grid by — each maps to a
+/// `CapabilityStatus` worth triaging. Defined at file scope so both the filter
+/// bar and `ContentView`'s filter/prune logic share one source of truth.
+enum CapabilityFlag: String, CaseIterable, Identifiable {
+    case broken
+    case drifted
+    case shadowed
+    case risky
+    case disabled
+
+    var id: String { rawValue }
+
+    var status: CapabilityStatus {
+        switch self {
+        case .broken: return .broken
+        case .drifted: return .drifted
+        case .shadowed: return .shadowed
+        case .risky: return .risky
+        case .disabled: return .disabled
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .broken: return "exclamationmark.triangle"
+        case .drifted: return "arrow.triangle.branch"
+        case .shadowed: return "square.on.square"
+        case .risky: return "exclamationmark.shield"
+        case .disabled: return "pause.circle"
+        }
+    }
+
+    @MainActor
+    var title: String {
+        L("main.flag.\(rawValue)")
+    }
+}
+
+private struct FlagFilterChip: View {
+    let flag: CapabilityFlag
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: flag.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(flag.title)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : Color.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? OrbitaTheme.prominentControlFill : OrbitaTheme.controlFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isSelected ? Color.clear : OrbitaTheme.border)
+        }
+    }
+}
+
+private struct CapabilitySearchField: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    @Binding var text: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField(L("main.search.placeholder"), text: $text)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .focused($focused)
+                .frame(minWidth: 110, maxWidth: 200)
+                .onKeyPress(.escape) {
+                    if text.isEmpty { return .ignored }
+                    text = ""
+                    return .handled
+                }
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(L("main.search.clear"))
+                .accessibilityLabel(L("main.search.clear"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .frame(maxWidth: 230)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(OrbitaTheme.controlFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(focused ? OrbitaTheme.strongBorder : OrbitaTheme.border)
+        }
+        .accessibilityLabel(L("main.search.placeholder"))
     }
 }
 
@@ -663,10 +946,21 @@ private struct FilterChip: View {
 private struct EmptyCapabilitiesState: View {
     @ObservedObject private var localization = LocalizationManager.shared
     @Environment(\.colorScheme) private var colorScheme
+    var searchQuery: String = ""
+    var hasActiveFilters: Bool = false
+
+    private var isFiltered: Bool {
+        !searchQuery.isEmpty || hasActiveFilters
+    }
 
     var body: some View {
         VStack(spacing: 12) {
-            if let image = EmptyStateIllustrationStore.image(named: imageName) {
+            if isFiltered {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 38, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+            } else if let image = EmptyStateIllustrationStore.image(named: imageName) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -679,11 +973,22 @@ private struct EmptyCapabilitiesState: View {
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
             }
-            Text(L("main.empty.noCapabilities"))
+            Text(messageText)
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var messageText: String {
+        if !searchQuery.isEmpty {
+            return String(format: L("main.empty.noSearchResults"), searchQuery)
+        }
+        if hasActiveFilters {
+            return L("main.empty.noFilterResults")
+        }
+        return L("main.empty.noCapabilities")
     }
 
     private var imageName: String {
