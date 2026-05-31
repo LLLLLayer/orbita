@@ -338,6 +338,31 @@ enum CapabilityCategory: String, CaseIterable, Identifiable {
         }
     }
 
+    /// One-line plain-language definition of this capability type, surfaced as a
+    /// tooltip on the category chips so first-run users can tell Skill / Plugin /
+    /// MCP / Hook / Rule apart without leaving the grid.
+    @MainActor
+    var glossary: String {
+        switch self {
+        case .all:
+            return L("glossary.all")
+        case .plugin:
+            return L("glossary.plugin")
+        case .skill:
+            return L("glossary.skill")
+        case .agent:
+            return L("glossary.agent")
+        case .command:
+            return L("glossary.command")
+        case .mcp:
+            return L("glossary.mcp")
+        case .hook:
+            return L("glossary.hook")
+        case .instruction:
+            return L("glossary.instruction")
+        }
+    }
+
     func matches(_ capability: Capability) -> Bool {
         switch self {
         case .all:

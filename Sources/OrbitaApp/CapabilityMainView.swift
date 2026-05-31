@@ -580,6 +580,7 @@ struct CapabilityFilterBar: View {
                         systemImage: agent.systemImage,
                         agentIcon: agent,
                         isSelected: selectedAgent == agent,
+                        help: String(format: L("agent.tab.help"), agent.displayName),
                         draggedID: $draggedAgentID,
                         activeDropTargetID: $agentDropTargetID,
                         onMove: onMoveAgent
@@ -624,6 +625,7 @@ struct CapabilityFilterBar: View {
                             id: category.rawValue,
                             title: category.title,
                             isSelected: selectedGroup == category,
+                            help: category.glossary,
                             draggedID: $draggedCategoryID,
                             activeDropTargetID: $categoryDropTargetID,
                             onMove: onMoveCategory
@@ -824,10 +826,20 @@ private struct ReorderableFilterChip: View {
     var systemImage: String?
     var agentIcon: AgentSelection?
     let isSelected: Bool
+    /// Optional richer tooltip (a glossary definition or agent description). When set,
+    /// it leads and the drag-to-reorder hint is appended.
+    var help: String? = nil
     @Binding var draggedID: String?
     @Binding var activeDropTargetID: String?
     let onMove: (_ sourceID: String, _ targetID: String) -> Void
     let action: () -> Void
+
+    private var helpText: String {
+        guard let help, !help.isEmpty else {
+            return L("main.chip.dragToReorder")
+        }
+        return "\(help)\n\(L("main.chip.dragToReorder"))"
+    }
 
     var body: some View {
         FilterChip(title: title, systemImage: systemImage, agentIcon: agentIcon, isSelected: isSelected, action: action)
@@ -845,7 +857,8 @@ private struct ReorderableFilterChip: View {
                     onMove: onMove
                 )
             )
-            .help(L("main.chip.dragToReorder"))
+            .help(helpText)
+            .accessibilityLabel(help ?? title)
     }
 }
 

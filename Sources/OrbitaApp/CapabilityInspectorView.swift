@@ -134,6 +134,8 @@ struct CapabilityInspectorView: View {
 
                         StatusReasonSection(capability: capability)
 
+                        AccessRiskSection(capability: capability)
+
                         DriftLocationsSection(capability: capability)
                     }
 
@@ -715,7 +717,41 @@ private struct InspectorActionStrip: View {
     let onNativeAction: (NativePluginAction) -> Void
     let onNativeDelete: (NativePluginAction) -> Void
 
+    private var showsReversibleNote: Bool {
+        if let nativePrimaryAction {
+            return nativePrimaryAction.kind == .enable || nativePrimaryAction.kind == .disable
+        }
+        return allowsFallbackEnablement
+    }
+
+    private var showsDeleteNote: Bool {
+        nativeDeleteAction != nil || allowsFallbackDelete
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            actionRow
+
+            if showsReversibleNote || showsDeleteNote {
+                VStack(alignment: .leading, spacing: 3) {
+                    if showsReversibleNote {
+                        Label(L("inspector.consequence.reversible"), systemImage: "arrow.uturn.backward")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if showsDeleteNote {
+                        Label(L("inspector.consequence.delete"), systemImage: "exclamationmark.triangle")
+                            .font(.caption2)
+                            .foregroundStyle(.red.opacity(0.85))
+                    }
+                }
+                .labelStyle(.titleAndIcon)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var actionRow: some View {
         HStack(spacing: 10) {
             if let nativePrimaryAction {
                 InspectorToolbarButton(
@@ -2000,6 +2036,70 @@ private enum JSONFileEditor {
             text.append("\n")
         }
         try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// Plain-language breakdown of what a capability's access tokens (exec / network /
+/// secret / …) actually allow. Only rendered when the capability requests something
+/// beyond the benign `info` level, so safe capabilities stay uncluttered.
+private struct AccessRiskSection: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let capability: Capability
+
+    private var guidance: [RiskGuidance] {
+        CapabilityDisplayText.riskGuidance(for: capability.risks)
+    }
+
+    var body: some View {
+        if !guidance.isEmpty {
+            InspectorSection {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "shield.lefthalf.filled")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(L("inspector.access.title"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(guidance) { item in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: item.systemImage)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(color(for: item.risk))
+                                    .frame(width: 14, alignment: .center)
+                                    .padding(.top, 2)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.label)
+                                        .font(.caption.weight(.semibold))
+                                    Text(item.explanation)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func color(for risk: RiskLevel) -> Color {
+        switch risk {
+        case .secret, .global:
+            return .red
+        case .exec, .network:
+            return .orange
+        case .write:
+            return .yellow
+        case .read, .info:
+            return .secondary
+        }
     }
 }
 

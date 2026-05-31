@@ -12,6 +12,19 @@ enum CapabilityDisplayText {
             .joined(separator: ", ")
     }
 
+    /// Ordered, de-duplicated, human-readable guidance for each non-`info` risk a
+    /// capability requests — token label + a plain-language sentence + an icon — so the
+    /// inspector can explain *what* "exec, network, secret" actually means rather than
+    /// just listing the tokens.
+    @MainActor static func riskGuidance(for risks: [RiskLevel]) -> [RiskGuidance] {
+        var seen = Set<RiskLevel>()
+        return risks
+            .filter { $0 != .info }
+            .sorted { accessRank($0) < accessRank($1) }
+            .filter { seen.insert($0).inserted }
+            .map { RiskGuidance(risk: $0, label: $0.accessLabel, explanation: $0.explanation, systemImage: $0.riskSystemImage) }
+    }
+
     private static func accessRank(_ risk: RiskLevel) -> Int {
         switch risk {
         case .info:
@@ -32,6 +45,15 @@ enum CapabilityDisplayText {
     }
 }
 
+struct RiskGuidance: Identifiable {
+    let risk: RiskLevel
+    let label: String
+    let explanation: String
+    let systemImage: String
+
+    var id: String { risk.rawValue }
+}
+
 extension RiskLevel {
     @MainActor var accessLabel: String {
         switch self {
@@ -49,6 +71,44 @@ extension RiskLevel {
             return L("risk.secret")
         case .global:
             return L("risk.global")
+        }
+    }
+
+    @MainActor var explanation: String {
+        switch self {
+        case .info:
+            return L("risk.explain.info")
+        case .read:
+            return L("risk.explain.read")
+        case .write:
+            return L("risk.explain.write")
+        case .exec:
+            return L("risk.explain.exec")
+        case .network:
+            return L("risk.explain.network")
+        case .secret:
+            return L("risk.explain.secret")
+        case .global:
+            return L("risk.explain.global")
+        }
+    }
+
+    var riskSystemImage: String {
+        switch self {
+        case .info:
+            return "info.circle"
+        case .read:
+            return "eye"
+        case .write:
+            return "pencil"
+        case .exec:
+            return "terminal"
+        case .network:
+            return "network"
+        case .secret:
+            return "key"
+        case .global:
+            return "globe"
         }
     }
 }
