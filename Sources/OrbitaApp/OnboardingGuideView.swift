@@ -571,8 +571,8 @@ private struct OrganizeIllustration: View {
             // Sectioned list column.
             VStack(alignment: .leading, spacing: 9) {
                 sectionHeader(L("onboarding.organize.section.enabled"), count: 2, dot: .green)
-                listRow("review-helper", on: true)
-                listRow("lark-doc", on: true)
+                listRow("skill-creator", on: true)
+                listRow("superpowers", on: true)
                 sectionHeader(L("onboarding.organize.section.disabled"), count: 1, dot: .secondary)
                 listRow("legacy-skill", on: false)
             }

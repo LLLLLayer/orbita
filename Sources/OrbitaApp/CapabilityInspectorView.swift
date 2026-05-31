@@ -8,6 +8,9 @@ struct CapabilityInspectorView: View {
     let capability: Capability?
     let selectedAgent: AgentSelection?
     var projectRoot: String = ""
+    /// The native hosts the user actually has in their tab strip — so the loadability
+    /// panel doesn't surface agents (e.g. Cursor) the user intentionally omitted.
+    var loadabilityAgentIDs: [AgentID] = AgentID.allCases
     let onClose: () -> Void
     let onEnable: (Capability) -> Void
     let onDisable: (Capability) -> Void
@@ -138,7 +141,7 @@ struct CapabilityInspectorView: View {
 
                         AccessRiskSection(capability: capability)
 
-                        AgentLoadabilitySection(capability: capability, projectRoot: projectRoot)
+                        AgentLoadabilitySection(capability: capability, projectRoot: projectRoot, agentIDs: loadabilityAgentIDs)
 
                         DriftLocationsSection(capability: capability)
                     }
@@ -2268,6 +2271,7 @@ private struct AgentLoadabilitySection: View {
     @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability
     let projectRoot: String
+    let agentIDs: [AgentID]
 
     private struct Row: Identifiable {
         let agent: AgentSelection
@@ -2277,7 +2281,7 @@ private struct AgentLoadabilitySection: View {
 
     private var rows: [Row] {
         let builder = AdapterPreviewBuilder()
-        return AgentID.allCases.map { agentID in
+        return agentIDs.map { agentID in
             Row(
                 agent: AgentSelection.builtIn(for: agentID),
                 mapping: builder.mapping(for: agentID, capability: capability, projectRoot: projectRoot)
@@ -2286,6 +2290,14 @@ private struct AgentLoadabilitySection: View {
     }
 
     var body: some View {
+        if rows.isEmpty {
+            EmptyView()
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         InspectorSection {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {

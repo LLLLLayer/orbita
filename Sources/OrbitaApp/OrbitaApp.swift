@@ -16,8 +16,11 @@ struct OrbitaApp: App {
 
     var body: some Scene {
         WindowGroup("Orbita") {
-            ContentView()
-                .frame(minWidth: 1180, minHeight: 720)
+            ContentView(
+                onCheckForUpdates: { updaterController.updater.checkForUpdates() },
+                updatesConfigured: SparkleConfiguration.isReady
+            )
+            .frame(minWidth: 1180, minHeight: 720)
         }
         .windowStyle(.hiddenTitleBar)
         .commands {

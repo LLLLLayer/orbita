@@ -17,6 +17,8 @@ private final class DisplayDerivationCache {
 
 struct ContentView: View {
     @ObservedObject private var localization = LocalizationManager.shared
+    var onCheckForUpdates: (() -> Void)? = nil
+    var updatesConfigured: Bool = false
     @StateObject private var store = ProjectCapabilityStore()
     @StateObject private var fullDiskAccess = FullDiskAccessGate()
     @AppStorage("customAgentsJSON") private var customAgentsJSON = "[]"
@@ -339,6 +341,7 @@ struct ContentView: View {
                             capability: selectedCapability,
                             selectedAgent: selectedAgent,
                             projectRoot: store.graph?.projectRoot ?? "",
+                            loadabilityAgentIDs: loadabilityHostAgentIDs,
                             onClose: {
                                 withAnimation(.snappy(duration: 0.22)) {
                                     inspectorVisible = false
@@ -411,7 +414,9 @@ struct ContentView: View {
             },
             onShowGuide: {
                 onboardingGuidePresented = true
-            }
+            },
+            onCheckForUpdates: onCheckForUpdates,
+            canCheckForUpdates: updatesConfigured
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity)
@@ -1233,6 +1238,14 @@ struct ContentView: View {
 
     private var currentSortOption: CapabilitySortOption {
         CapabilitySortOption(rawValue: capabilitySortOption) ?? .nameAscending
+    }
+
+    /// Native hosts present in the user's tab strip — drives the inspector's per-agent
+    /// loadability panel so it never lists an agent (e.g. Cursor) the user omitted.
+    private var loadabilityHostAgentIDs: [AgentID] {
+        AgentID.allCases.filter { id in
+            agentOptions.contains { $0.id == AgentSelection.builtIn(for: id).id }
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Foundation
 
@@ -106,6 +107,8 @@ struct OrbitaSettingsView: View {
     let onRefresh: () -> Void
     let onClose: () -> Void
     var onShowGuide: (() -> Void)? = nil
+    var onCheckForUpdates: (() -> Void)? = nil
+    var canCheckForUpdates: Bool = false
 
     @AppStorage("orbitaOnboardingGuideFrequency") private var guideFrequency = OnboardingGuideFrequency.firstLaunchOnly.rawValue
     @State private var selectedPage = SettingsPage.general
@@ -335,56 +338,54 @@ struct OrbitaSettingsView: View {
     private var releaseSettings: some View {
         SettingsPageStack {
             SettingsHeader(title: L("settings.page.release"), subtitle: L("settings.release.subtitle"))
-            ReleaseSummaryCard(
-                versionInfo: VersionInfo.current,
-                projectName: projectName,
-                projectRootPath: projectRootPath
-            )
+            SettingsCard(title: L("settings.release.about"), systemImage: "app.badge") {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Orbita")
+                            .font(.headline.weight(.semibold))
+                        Text("v\(VersionInfo.current.version)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Button {
+                        onCheckForUpdates?()
+                    } label: {
+                        Label(L("settings.release.checkUpdates"), systemImage: "arrow.triangle.2.circlepath")
+                            .font(.subheadline.weight(.medium))
+                            .padding(.horizontal, 12)
+                            .frame(height: 30)
+                    }
+                    .buttonStyle(.plain)
+                    .orbitaControlSurface(cornerRadius: 9)
+                    .disabled(onCheckForUpdates == nil || !canCheckForUpdates)
+                    .help(canCheckForUpdates ? L("settings.release.checkUpdates") : L("settings.release.checkUpdates.unavailable"))
+                }
 
-            // The old single "Pipeline" card crammed 9 read-only rows into three
-            // unlabeled divider groups. Split into three demoted (flat, no-shadow)
-            // reference cards so each concern is named: what gets built, how it's
-            // trusted, how it auto-updates.
-            SettingsReferenceCard(title: L("settings.release.group.build"), systemImage: "hammer") {
-                SettingsInfoRow(title: L("settings.release.row.workflow"), value: ".github/workflows/release.yml")
-                SettingsInfoRow(title: L("settings.release.row.tag"), value: "v\(VersionInfo.current.version)")
-                SettingsInfoRow(title: L("settings.release.row.artifact"), value: "Orbita-v\(VersionInfo.current.version).dmg")
-            }
+                SettingsDivider()
 
-            SettingsReferenceCard(title: L("settings.release.group.trust"), systemImage: "checkmark.seal") {
-                SettingsInfoRow(title: L("settings.release.row.signing"), value: "Developer ID Application")
-                SettingsInfoRow(title: L("settings.release.row.runtime"), value: "Hardened Runtime")
-                SettingsInfoRow(title: L("settings.release.row.notary"), value: "xcrun notarytool + stapler")
-            }
-
-            SettingsReferenceCard(title: L("settings.release.group.update"), systemImage: "arrow.down.circle") {
-                SettingsInfoRow(title: L("settings.release.row.updater"), value: "Sparkle runtime + appcast")
-                SettingsInfoRow(title: L("settings.release.row.feed"), value: "SUFeedURL over HTTPS")
-                SettingsInfoRow(title: L("settings.release.row.security"), value: "SUPublicEDKey + EdDSA archive signatures")
-            }
-
-            SettingsCard(title: L("settings.release.actions"), systemImage: "play.circle") {
-                CommandRow(
-                    title: L("settings.release.action.gh.title"),
-                    detail: L("settings.release.action.gh.detail"),
-                    command: "gh auth status",
-                    isRunning: isRunningCommand,
-                    onRun: { runCommand("gh auth status") }
+                SettingsExternalLinkRow(
+                    title: L("settings.release.source"),
+                    value: "github.com/LLLLLayer/orbita",
+                    systemImage: "chevron.left.forwardslash.chevron.right",
+                    action: { openExternal("https://github.com/LLLLLayer/orbita") }
                 )
 
                 SettingsDivider()
 
-                CommandRow(
-                    title: L("settings.release.action.tag.title"),
-                    detail: L("settings.release.action.tag.detail"),
-                    command: "script/release_github.sh v\(VersionInfo.current.version)",
-                    isRunning: isRunningCommand,
-                    isPrimary: true,
-                    onRun: { runCommand("script/release_github.sh v\(VersionInfo.current.version)") }
+                SettingsExternalLinkRow(
+                    title: L("settings.release.contact"),
+                    value: "yangjie.layer@gmail.com",
+                    systemImage: "envelope",
+                    action: { openExternal("mailto:yangjie.layer@gmail.com") }
                 )
             }
-            commandResultView
         }
+    }
+
+    private func openExternal(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @ViewBuilder
@@ -538,84 +539,6 @@ private struct SettingsCard<Content: View>: View {
 /// `controlFill` background, no shadow, and a small uppercase caption header. The
 /// lack of elevation visually ranks these below the actionable (elevated) cards so
 /// the page reads as "reference, then actions" instead of one flat wall of rows.
-private struct SettingsReferenceCard<Content: View>: View {
-    let title: String
-    let systemImage: String
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(.secondary)
-            } icon: {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
-            }
-            content()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(OrbitaTheme.border)
-        }
-    }
-}
-
-private struct ReleaseSummaryCard: View {
-    @ObservedObject private var localization = LocalizationManager.shared
-    let versionInfo: VersionInfo
-    let projectName: String
-    let projectRootPath: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 14) {
-                Image(systemName: "app.badge")
-                    .font(.system(size: 23, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
-                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Orbita")
-                        .font(.title3.weight(.semibold))
-                    Text(String(format: L("settings.release.buildFor"), versionInfo.build, projectName))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                Spacer(minLength: 16)
-
-                Text("v\(versionInfo.version)")
-                    .font(.callout.monospacedDigit().weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background(OrbitaTheme.controlFill, in: Capsule())
-            }
-
-            SettingsDivider()
-
-            SettingsInfoRow(title: L("settings.release.row.bundle"), value: versionInfo.bundleIdentifier)
-            SettingsInfoRow(title: L("settings.release.row.project"), value: projectName)
-            if let projectRootPath {
-                SettingsInfoRow(title: L("settings.release.row.path"), value: projectRootPath)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .orbitaCard(cornerRadius: 12, shadowRadius: 5, shadowY: 2)
-    }
-}
-
 private struct SettingsDivider: View {
     var body: some View {
         Divider()
@@ -736,6 +659,41 @@ private struct CommandRow: View {
             .controlSize(.small)
             .disabled(isRunning)
         }
+    }
+}
+
+private struct SettingsExternalLinkRow: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 3)
+        }
+        .buttonStyle(.plain)
+        .help(value)
+        .accessibilityLabel("\(title): \(value)")
     }
 }
 
