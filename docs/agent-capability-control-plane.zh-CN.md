@@ -229,25 +229,15 @@ flowchart LR
 | Trace / Audit | [Claude Code Monitoring](https://code.claude.com/docs/en/monitoring-usage) | 通过 OpenTelemetry 追踪请求、工具执行、hook 事件和错误。 | 治理闭环需要观测：候选、命中、调用、失败、成本。 |
 | Trace / Audit | [Claude Trace](https://claude-trace.com/) / [ccboard](https://github.com/florianbruniaux/ccboard) | 社区把 Claude Code 会话、工具调用、成本、MCP、hooks 可视化。 | 控制面不只是配置页，也应提供 trace 和复盘。 |
 
-### 5. 可借用 / 建议重画的图片来源
+### 5. 图示来源
 
-| 关键词 | 图源 | 适合借鉴的图 | 建议用法 |
-| --- | --- | --- | --- |
-| Gateway / Router | [MCP Architecture](https://modelcontextprotocol.io/docs/concepts/architecture) | Host / Client / Server 的标准架构图。 | 重画成“Agent 能力从哪里来”的入口图。 |
-| Tool Search | [Claude Code Features Overview](https://code.claude.com/docs/en/features-overview) | CLAUDE.md、Skills、MCP 等上下文加载示意图。 | 可作为“哪些东西会进入上下文”的视觉参考。 |
-| Result Budget | [Chroma Context Rot](https://www.trychroma.com/research/context-rot) | 长上下文、distractor、performance decay 相关图。 | 建议重画为“上下文越多，不等于能力越强”。 |
-| Registry + Retrieval | [SkillRouter paper](https://arxiv.org/abs/2603.22455) | retrieve-and-rerank skill selection pipeline。 | 重画成 Skill Finder / Registry / Reranker 流程图。 |
-| Registry + Retrieval | [LangGraph BigTool](https://github.com/langchain-ai/langgraph-bigtool) | 大量工具集通过检索进入 agent 的架构。 | 可借鉴做“工具 registry + semantic search”图。 |
-| Gateway / Router | [Nacos MCP Router](https://github.com/nacos-group/nacos-mcp-router) | MCP Router / proxy 的分层图。 | 重画成“Gateway 如何屏蔽工具爆炸”。 |
-| Gateway / Router | [Portkey MCP Gateway](https://portkey.ai/docs/product/mcp) | MCP Gateway、访问控制、团队维度治理图。 | 用来支撑控制面 / policy / audit。 |
-| Gateway / Router | [WRITER RAG-MCP](https://writer.com/engineering/rag-mcp/) | RAG-MCP 原型图：tool embedding、retrieval、injection。 | 重画为“检索不是执行，执行仍由 agent 完成”。 |
-
-### 6. 社区讨论与推文
-
-| 关键词 | 资料 | 信号 | 使用方式 |
-| --- | --- | --- | --- |
-| Tool Search | [Apify: MCP context overload](https://x.com/apify/status/2011556498477105383) | 社区明确把 MCP 的痛点归纳为 context overload、auth pain、failed tool calls。 | 作为行业痛感引用，不作为严肃评测证据。 |
-| Tool Search | [Obie Fernandez: 42 MCP tools load into context](https://x.com/obie/status/2025613273496715514) | 真实项目里几十个 MCP tools 就会带来上下文负担。 | 作为“不是理论问题”的案例。 |
-| Sandbox / Subagent | [Oikon: Claude Code context management](https://x.com/oikon48/status/2026344594397606070) | Subagents、Hooks、Skills、MCP、Multi-agent Orchestration 都在参与上下文管理。 | 支撑“能力治理不是单点优化”。 |
-| Tool Search | [Claude Code Tool Search 社区讨论](https://www.reddit.com/r/ClaudeCode/comments/1qczhgd/tool_search_now_available_in_cc/) | 用户把 Tool Search 视为缓解 MCP 上下文占用的关键变化。 | 可作为产品需求侧反馈。 |
-| Pack / Namespace | [如何控制 Claude Code skills 可见性](https://www.reddit.com/r/ClaudeCode/comments/1rt3dik/how_do_you_control_which_skills_are_available_to/) | 用户关心“不同 agent / 项目能否只看到需要的 skills”。 | 支撑控制面和 per-project profile 的必要性。 |
+| 关键词 | 图源 | 图示内容 |
+| --- | --- | --- |
+| Gateway / Router | [MCP Architecture](https://modelcontextprotocol.io/docs/concepts/architecture) | Host / Client / Server 的标准架构图。 |
+| Tool Search | [Claude Code Features Overview](https://code.claude.com/docs/en/features-overview) | CLAUDE.md、Skills、MCP 等上下文加载示意图。 |
+| Result Budget | [Chroma Context Rot](https://www.trychroma.com/research/context-rot) | 长上下文、distractor、performance decay 相关图。 |
+| Registry + Retrieval | [SkillRouter paper](https://arxiv.org/abs/2603.22455) | retrieve-and-rerank skill selection pipeline。 |
+| Registry + Retrieval | [LangGraph BigTool](https://github.com/langchain-ai/langgraph-bigtool) | 大量工具集通过检索进入 agent 的架构。 |
+| Gateway / Router | [Nacos MCP Router](https://github.com/nacos-group/nacos-mcp-router) | MCP Router / proxy 的分层图。 |
+| Gateway / Router | [Portkey MCP Gateway](https://portkey.ai/docs/product/mcp) | MCP Gateway、访问控制、团队维度治理图。 |
+| Gateway / Router | [WRITER RAG-MCP](https://writer.com/engineering/rag-mcp/) | RAG-MCP 原型图：tool embedding、retrieval、injection。 |
