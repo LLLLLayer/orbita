@@ -103,76 +103,19 @@ public final class AgentViewResolver {
         }
     }
 
-    /// Cursor loads SKILL.md-based skills, MCP servers, Instructions and Rules. Like Trae, it additionally
-    /// surfaces anything installed via `npx skills` for the cursor agent ID and anything physically under
-    /// `.cursor/`, so its view matches the SkillsAgentCatalog claim (and the App's skills-CLI union) that
-    /// Cursor loads `.agents/skills` / `~/.cursor/skills` — keeping core and App in agreement after a fork.
+    /// Cursor reads SKILL.md skills, MCP servers, Instructions and Rules from its OWN dirs
+    /// (`.cursor/…` / `~/.cursor/skills`) plus anything synced for the cursor agent via the skills
+    /// CLI. It does NOT auto-load the shared `.agents` workspace — those appear in Cursor's view
+    /// only once synced. See `CapabilityClassifier.isVisibleToGenericAgent`.
     private func isVisibleToCursor(_ capability: Capability) -> Bool {
-        if capability.metadata["skillsInstalledAgentIDs"]?
-            .split(separator: ",")
-            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .contains("cursor") == true {
-            return true
-        }
-        if sourcePathComponents(for: capability).contains(".cursor") {
-            return true
-        }
-        switch capability.type {
-        case .skill:
-            let kind = capability.source.kind
-            if isCodexPluginBundledCapability(capability) {
-                return false
-            }
-            if kind == "codex-skill" || kind == "claude-skill" || kind.hasPrefix("claude-plugin-") {
-                return false
-            }
-            return kind == "agents-skill"
-                || kind == "user-skill"
-                || kind == "skill"
-                || sourcePathComponents(for: capability).contains(".agents")
-        case .mcpServer, .instruction, .rule:
-            return true
-        case .plugin, .agent, .hook, .command, .unknown:
-            return false
-        }
+        CapabilityClassifier.isVisibleToGenericAgent(capability, agentID: "cursor", agentDirComponent: ".cursor")
     }
 
-    /// Trae reads SKILL.md-based skills, MCP servers and Instructions like
-    /// Cursor does. We additionally surface anything explicitly installed via
-    /// `npx skills` for the trae agent ID, plus capabilities physically
-    /// living under `.trae/` (project or global), so Trae's view tracks
-    /// what its CLI actually touches.
+    /// Trae reads SKILL.md skills, MCP servers and Instructions from its OWN dirs (`.trae/…` /
+    /// `~/.trae/skills`) plus anything synced for the trae agent via the skills CLI. Like Cursor it
+    /// does NOT auto-load the shared `.agents` workspace — those appear only once synced.
     private func isVisibleToTrae(_ capability: Capability) -> Bool {
-        if capability.metadata["skillsInstalledAgentIDs"]?
-            .split(separator: ",")
-            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .contains("trae") == true {
-            return true
-        }
-        if sourcePathComponents(for: capability).contains(".trae") {
-            return true
-        }
-        switch capability.type {
-        case .skill:
-            // Trae picks up shared `.agents/skills` and user-scope skills the
-            // way other generic agents do, but it does not get Codex- or
-            // Claude-native ones.
-            let kind = capability.source.kind
-            if isCodexPluginBundledCapability(capability) {
-                return false
-            }
-            if kind == "codex-skill" || kind == "claude-skill" || kind.hasPrefix("claude-plugin-") {
-                return false
-            }
-            return kind == "agents-skill"
-                || kind == "user-skill"
-                || kind == "skill"
-                || sourcePathComponents(for: capability).contains(".agents")
-        case .mcpServer, .instruction, .rule:
-            return true
-        case .plugin, .agent, .hook, .command, .unknown:
-            return false
-        }
+        CapabilityClassifier.isVisibleToGenericAgent(capability, agentID: "trae", agentDirComponent: ".trae")
     }
 
     private func isClaudeNativeCapability(_ capability: Capability) -> Bool {
@@ -193,13 +136,4 @@ public final class AgentViewResolver {
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
         CapabilityClassifier.isCodexSkill(capability)
     }
-
-    private func isCodexPluginBundledCapability(_ capability: Capability) -> Bool {
-        CapabilityClassifier.isCodexPluginBundled(capability)
-    }
-
-    private func sourcePathComponents(for capability: Capability) -> [String] {
-        CapabilityClassifier.sourcePathComponents(for: capability)
-    }
-
 }

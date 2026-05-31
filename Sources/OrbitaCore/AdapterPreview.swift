@@ -274,109 +274,41 @@ public final class AdapterPreviewBuilder {
         CapabilityClassifier.isCodexSkill(capability)
     }
 
-    private func sourcePathComponents(for capability: Capability) -> [String] {
-        CapabilityClassifier.sourcePathComponents(for: capability)
-    }
-
     private func cursorMapping(for capability: Capability) -> AdapterCapabilityMapping {
-        switch capability.type {
-        case .skill:
-            let kind = capability.source.kind
-            if isCodexPluginBundledCapability(capability)
-                || kind == "codex-skill"
-                || kind == "claude-skill"
-                || kind.hasPrefix("claude-plugin-") {
-                return AdapterCapabilityMapping(
-                    capabilityID: capability.id,
-                    supported: false,
-                    targetPath: nil,
-                    reason: "Cursor does not load this skill source directly; sync it into .agents/skills or ~/.cursor/skills first."
-                )
-            }
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Cursor loads SKILL.md-based skills from .agents/skills and ~/.cursor/skills."
-            )
-        case .rule:
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Cursor loads project rules from .cursor/rules."
-            )
-        case .mcpServer:
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Cursor can read MCP server configuration."
-            )
-        case .instruction:
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Cursor can use supported project instruction files as context."
-            )
-        default:
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: false,
-                targetPath: nil,
-                reason: "Cursor does not load \(capability.type.rawValue) capabilities through this adapter."
-            )
-        }
+        genericAgentMapping(for: capability, agentName: "Cursor", agentID: "cursor", agentDirComponent: ".cursor")
     }
 
     private func traeMapping(for capability: Capability) -> AdapterCapabilityMapping {
-        switch capability.type {
-        case .skill:
-            let kind = capability.source.kind
-            if isCodexPluginBundledCapability(capability)
-                || kind == "codex-skill"
-                || kind == "claude-skill"
-                || kind.hasPrefix("claude-plugin-") {
-                return AdapterCapabilityMapping(
-                    capabilityID: capability.id,
-                    supported: false,
-                    targetPath: nil,
-                    reason: "Trae does not load this skill source directly; sync it into .agents/skills or ~/.trae/skills first."
-                )
-            }
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Trae loads SKILL.md-based skills from .agents/skills and ~/.trae/skills."
-            )
-        case .mcpServer:
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Trae can read MCP server configuration from project and user sources."
-            )
-        case .instruction, .rule:
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: true,
-                targetPath: capability.source.path,
-                reason: "Trae uses supported project instruction and rule files as context."
-            )
-        default:
-            return AdapterCapabilityMapping(
-                capabilityID: capability.id,
-                supported: false,
-                targetPath: nil,
-                reason: "Trae does not load \(capability.type.rawValue) capabilities through this adapter."
-            )
-        }
+        genericAgentMapping(for: capability, agentName: "Trae", agentID: "trae", agentDirComponent: ".trae")
     }
 
-    private func isCodexPluginBundledCapability(_ capability: Capability) -> Bool {
-        CapabilityClassifier.isCodexPluginBundled(capability)
+    /// Shared mapping for the generic SKILL.md hosts (Trae, Cursor). Loadability is decided by the
+    /// same `CapabilityClassifier.isVisibleToGenericAgent` predicate the view uses, so preview-supported
+    /// tracks view-visible. The shared `.agents` workspace is not auto-loaded by these hosts — its
+    /// capabilities are unsupported until synced into the host's own dir.
+    private func genericAgentMapping(for capability: Capability, agentName: String, agentID: String, agentDirComponent: String) -> AdapterCapabilityMapping {
+        guard CapabilityClassifier.isVisibleToGenericAgent(capability, agentID: agentID, agentDirComponent: agentDirComponent) else {
+            let reason: String
+            if CapabilityClassifier.isAgentsShared(capability) {
+                reason = "\(agentName) does not auto-load the shared .agents workspace; sync this into \(agentDirComponent)/skills (or install it for \(agentName)) first."
+            } else {
+                reason = "\(agentName) does not load this \(capability.type.rawValue) source through this adapter."
+            }
+            return AdapterCapabilityMapping(capabilityID: capability.id, supported: false, targetPath: nil, reason: reason)
+        }
+
+        let reason: String
+        switch capability.type {
+        case .skill:
+            reason = "\(agentName) loads SKILL.md-based skills from \(agentDirComponent)/skills and skills synced for \(agentName)."
+        case .mcpServer:
+            reason = "\(agentName) can read MCP server configuration from project and user sources."
+        case .instruction, .rule:
+            reason = "\(agentName) uses supported project instruction and rule files as context."
+        default:
+            reason = "\(agentName) loads this capability from its own configuration."
+        }
+        return AdapterCapabilityMapping(capabilityID: capability.id, supported: true, targetPath: capability.source.path, reason: reason)
     }
 
     private func capabilitiesJSON(agent: AgentID, capabilities: [Capability], mappings: [AdapterCapabilityMapping]) -> String {

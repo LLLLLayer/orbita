@@ -1307,7 +1307,9 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
     }
 
-    func testTraeAgentViewIncludesSharedAgentsSkillsAndExcludesNativeOnes() throws {
+    func testTraeAgentViewExcludesUnsyncedAgentsSkillsAndNativeOnes() throws {
+        // Trae reads its own .trae/skills, not the shared .agents workspace — so an .agents
+        // skill is hidden from Trae UNTIL it's synced/installed for Trae (the exception below).
         let agentsSkill = Capability(
             id: "skill:.agents:shared-doc",
             name: "shared-doc",
@@ -1316,6 +1318,16 @@ final class CapabilityScannerTests: XCTestCase {
             statuses: [.enabled],
             risks: [.read],
             source: CapabilitySource(kind: "agents-skill", path: "/tmp/project/.agents/skills/shared-doc/SKILL.md")
+        )
+        let syncedAgentsSkill = Capability(
+            id: "skill:.agents:synced-doc",
+            name: "synced-doc",
+            type: .skill,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "agents-skill", path: "/tmp/project/.agents/skills/synced-doc/SKILL.md"),
+            metadata: ["skillsInstalledAgentIDs": "codex,trae"]
         )
         let codexSkill = Capability(
             id: "skill:.codex:codex-doc",
@@ -1378,20 +1390,60 @@ final class CapabilityScannerTests: XCTestCase {
         )
         let graph = CapabilityGraph(
             projectRoot: "/tmp/project",
-            capabilities: [agentsSkill, codexSkill, claudeSkill, claudePlugin, traeNativeSkill, codexPluginSkill, mcpServer],
+            capabilities: [agentsSkill, syncedAgentsSkill, codexSkill, claudeSkill, claudePlugin, traeNativeSkill, codexPluginSkill, mcpServer],
             issues: []
         )
 
         let traeView = AgentViewResolver().view(for: .trae, graph: graph)
         let visibleIDs = Set(traeView.visibleCapabilities.map { $0.id })
 
-        XCTAssertTrue(visibleIDs.contains(agentsSkill.id), "Trae should pick up shared .agents/skills entries")
+        XCTAssertFalse(visibleIDs.contains(agentsSkill.id), "Trae must NOT auto-load shared .agents/skills until it is synced to Trae")
+        XCTAssertTrue(visibleIDs.contains(syncedAgentsSkill.id), "Trae should see an .agents skill once it is installed/synced for Trae")
         XCTAssertTrue(visibleIDs.contains(traeNativeSkill.id), "Trae should pick up skills under ~/.trae/")
         XCTAssertTrue(visibleIDs.contains(mcpServer.id), "Trae should see project MCP servers")
         XCTAssertFalse(visibleIDs.contains(codexSkill.id), "Trae must not see Codex-native skills")
         XCTAssertFalse(visibleIDs.contains(claudeSkill.id), "Trae must not see Claude-native skills")
         XCTAssertFalse(visibleIDs.contains(claudePlugin.id), "Trae has no plugin surface and should ignore Claude plugins")
         XCTAssertFalse(visibleIDs.contains(codexPluginSkill.id), "Trae must not surface Codex plugin-bundled skills as Trae data")
+    }
+
+    func testTraeAndCursorGateAllAgentsScopedCapabilitiesUntilSynced() throws {
+        // The gating applies to EVERY .agents capability type, not just skills: Codex reads the
+        // shared workspace in place, but Trae/Cursor only see it once synced into their own dir.
+        let agentsInstruction = Capability(
+            id: "instruction:.agents:house-rules",
+            name: "house-rules",
+            type: .instruction,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "agents-instruction", path: "/tmp/project/.agents/AGENTS.md")
+        )
+        let agentsMCP = Capability(
+            id: "mcp:.agents:shared-server",
+            name: "shared-server",
+            type: .mcpServer,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.network],
+            source: CapabilitySource(kind: "mcp-config", path: "/tmp/project/.agents/.mcp.json")
+        )
+        let graph = CapabilityGraph(
+            projectRoot: "/tmp/project",
+            capabilities: [agentsInstruction, agentsMCP],
+            issues: []
+        )
+
+        let codex = Set(AgentViewResolver().visibleCapabilities(for: .codex, graph: graph).map(\.id))
+        let trae = Set(AgentViewResolver().visibleCapabilities(for: .trae, graph: graph).map(\.id))
+        let cursor = Set(AgentViewResolver().visibleCapabilities(for: .cursor, graph: graph).map(\.id))
+
+        XCTAssertTrue(codex.contains(agentsInstruction.id), "Codex reads .agents instructions in place")
+        XCTAssertTrue(codex.contains(agentsMCP.id), "Codex reads .agents MCP config in place")
+        XCTAssertFalse(trae.contains(agentsInstruction.id), "Trae must not auto-load an .agents instruction until synced")
+        XCTAssertFalse(trae.contains(agentsMCP.id), "Trae must not auto-load an .agents MCP server until synced")
+        XCTAssertFalse(cursor.contains(agentsInstruction.id), "Cursor must not auto-load an .agents instruction until synced")
+        XCTAssertFalse(cursor.contains(agentsMCP.id), "Cursor must not auto-load an .agents MCP server until synced")
     }
 
     func testScannerIncludesTraeSkillRootsAsTraeNativeOnly() throws {
@@ -1956,7 +2008,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(preview.supportedCapabilities.contains { $0.id == codexPluginSkill.id })
         XCTAssertFalse(mapping.supported)
         XCTAssertNil(mapping.targetPath)
-        XCTAssertTrue(mapping.reason.contains("does not load this skill source directly"))
+        XCTAssertTrue(mapping.reason.contains("does not load this skill source"))
     }
 
     func testAdapterPreviewGeneratedFileContainsMappingJSON() throws {
