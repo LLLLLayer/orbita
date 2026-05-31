@@ -249,14 +249,6 @@ private struct HeaderSurface: View {
                 SummaryStat(title: L("main.summary.commands"), value: count(.command), systemImage: "terminal")
                 SummaryStat(title: "MCP", value: count(.mcp), systemImage: "server.rack")
                 SummaryStat(title: L("main.summary.hooks"), value: count(.hook), systemImage: "link")
-                if riskyCount > 0 {
-                    SummaryStat(
-                        title: L("main.summary.risky"),
-                        value: riskyCount,
-                        systemImage: "exclamationmark.shield",
-                        tint: .orange
-                    )
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -267,10 +259,6 @@ private struct HeaderSurface: View {
 
     private func count(_ category: CapabilityCategory) -> Int {
         capabilities.filter { category.matches($0) }.count
-    }
-
-    private var riskyCount: Int {
-        capabilities.filter { $0.statuses.contains(.risky) }.count
     }
 }
 
