@@ -26,6 +26,17 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
     static let trae = AgentSelection(id: "built-in:trae", displayName: "Trae", behavior: .traeSource)
     static let defaultAgents = [agents, codex, claudeCode, trae]
 
+    /// The built-in tab for a core `AgentID` — used to render a capability's HOST brand icon
+    /// (e.g. on a disabled tile) even when that agent is not a currently-shown tab (Cursor).
+    static func builtIn(for agentID: AgentID) -> AgentSelection {
+        switch agentID {
+        case .codex: return .codex
+        case .claudeCode: return .claudeCode
+        case .cursor: return .cursor
+        case .trae: return .trae
+        }
+    }
+
     var isBuiltIn: Bool {
         id.hasPrefix("built-in:")
     }
@@ -252,12 +263,11 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.claudeCode.id || behavior == .claudeSource || behavior == .claudeLike || skillsAgentID == "claude-code" {
             return "claude"
         }
-        if id == Self.cursor.id || behavior == .cursorSource || skillsAgentID == "cursor" {
-            return "cursor"
-        }
         if id == Self.trae.id || behavior == .traeSource || skillsAgentID == "trae" || displayName.localizedCaseInsensitiveContains("trae") {
             return "trae"
         }
+        // Only the flagship three keep a bundled brand SVG; everything else (incl. Cursor) uses the
+        // unified sports-style SF Symbol fallback.
         return nil
     }
 
@@ -306,24 +316,25 @@ enum CapabilityCategory: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    @MainActor
     var title: String {
         switch self {
         case .all:
-            return "All"
+            return L("category.all")
         case .plugin:
-            return "Plugins"
+            return L("category.plugins")
         case .skill:
-            return "Skills"
+            return L("category.skills")
         case .agent:
-            return "Agents"
+            return L("category.agents")
         case .command:
-            return "Commands"
+            return L("category.commands")
         case .mcp:
-            return "MCP"
+            return L("category.mcp")
         case .hook:
-            return "Hooks"
+            return L("category.hooks")
         case .instruction:
-            return "Instructions"
+            return L("category.instructions")
         }
     }
 
@@ -355,12 +366,13 @@ enum CapabilitySortOrder: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    @MainActor
     var title: String {
         switch self {
         case .name:
-            return "Name"
+            return L("sort.name")
         case .modifiedAt:
-            return "Modified"
+            return L("sort.modified")
         }
     }
 
@@ -381,12 +393,13 @@ struct CapabilityDisplaySection: Identifiable {
 
         var id: String { rawValue }
 
+        @MainActor
         var title: String {
             switch self {
             case .enabled:
-                return "Enabled"
+                return L("status.enabled")
             case .disabled:
-                return "Disabled"
+                return L("status.disabled")
             }
         }
     }
@@ -429,22 +442,23 @@ enum CapabilityVisuals {
         return .green
     }
 
+    @MainActor
     static func statusLabel(for capability: Capability) -> String {
         var labels: [String] = [
-            capability.statuses.contains(.disabled) ? "Disabled" : "Enabled"
+            capability.statuses.contains(.disabled) ? L("status.disabled") : L("status.enabled")
         ]
 
         if capability.statuses.contains(.broken) {
-            labels.append("Broken")
+            labels.append(L("status.broken"))
         }
         if capability.statuses.contains(.drifted) || capability.statuses.contains(.shadowed) {
-            labels.append("Needs attention")
+            labels.append(L("status.needsAttention"))
         }
         if capability.statuses.contains(.risky) {
-            labels.append("Review needed")
+            labels.append(L("status.reviewNeeded"))
         }
         if capability.statuses.contains(.duplicate) {
-            labels.append("Duplicate")
+            labels.append(L("status.duplicate"))
         }
 
         return labels.joined(separator: ", ")
@@ -467,26 +481,27 @@ extension AgentID {
 }
 
 extension CapabilityType {
+    @MainActor
     var displayName: String {
         switch self {
         case .plugin:
-            return "Plugin"
+            return L("type.plugin")
         case .skill:
-            return "Skill"
+            return L("type.skill")
         case .agent:
-            return "Agent"
+            return L("type.agent")
         case .mcpServer:
-            return "MCP"
+            return L("type.mcp")
         case .rule:
-            return "Rule"
+            return L("type.rule")
         case .instruction:
-            return "Instruction"
+            return L("type.instruction")
         case .hook:
-            return "Hook"
+            return L("type.hook")
         case .command:
-            return "Command"
+            return L("type.command")
         case .unknown:
-            return "Unknown"
+            return L("type.unknown")
         }
     }
 }

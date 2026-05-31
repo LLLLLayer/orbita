@@ -2,6 +2,7 @@ import Foundation
 import OrbitaCore
 
 enum CapabilitySourceClassifier {
+    @MainActor
     static func label(for capability: Capability) -> String {
         switch sourceKind(for: capability) {
         case .agents:
@@ -15,16 +16,28 @@ enum CapabilitySourceClassifier {
         case .trae:
             return "Trae"
         case .packages:
-            return "package"
+            return L("source.packages.lower")
         case .project:
-            return "project"
+            return L("source.project.lower")
         case .other:
             return capability.scope.rawValue
         }
     }
 
     static func sourceKind(for capability: Capability) -> SourceKind {
-        let path = classificationPath(for: capability)
+        let kind = sourceKind(forPath: classificationPath(for: capability), sourceKind: capability.source.kind)
+        if kind == .other, capability.scope == .project {
+            return .project
+        }
+        return kind
+    }
+
+    /// Classify a bare on-disk path (plus its `source.kind`, used only to recognise
+    /// Cursor rule files that don't live under `/.cursor/`). Shared by `sourceKind(for:)`
+    /// and the drift-locations panel, which has a path string but no full `Capability`.
+    /// Returns `.other` when nothing matches — the project-scope fallback lives in the
+    /// capability-aware overload because a bare path carries no scope.
+    static func sourceKind(forPath path: String, sourceKind kind: String = "") -> SourceKind {
         if path.contains("/.agents/") {
             return .agents
         }
@@ -34,7 +47,7 @@ enum CapabilitySourceClassifier {
         if path.contains("/.claude/") {
             return .claude
         }
-        if path.contains("/.cursor/") || capability.source.kind == "legacy-cursor-rule" || capability.source.kind == "cursor-rule" {
+        if path.contains("/.cursor/") || kind == "legacy-cursor-rule" || kind == "cursor-rule" {
             return .cursor
         }
         if path.contains("/.trae/") {
@@ -42,9 +55,6 @@ enum CapabilitySourceClassifier {
         }
         if path.contains("/node_modules/") {
             return .packages
-        }
-        if capability.scope == .project {
-            return .project
         }
         return .other
     }
@@ -74,7 +84,8 @@ enum CapabilitySourceClassifier {
 
         static let headerKinds: [SourceKind] = [.agents, .codex, .claude, .cursor, .trae]
 
-        var title: String {
+        @MainActor
+    var title: String {
             switch self {
             case .agents:
                 return "Agents"
@@ -87,11 +98,11 @@ enum CapabilitySourceClassifier {
             case .trae:
                 return "Trae"
             case .packages:
-                return "Packages"
+                return L("source.packages")
             case .project:
-                return "Project"
+                return L("source.project")
             case .other:
-                return "Other"
+                return L("source.other")
             }
         }
 

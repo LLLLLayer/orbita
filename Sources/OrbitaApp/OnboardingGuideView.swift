@@ -65,12 +65,12 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     @MainActor
     var eyebrow: String {
         switch self {
-        case .welcome:  return tr("WELCOME", "欢迎", "歡迎")
-        case .scope:    return tr("SCOPE", "作用域", "作用域")
-        case .agents:   return tr("AGENT TABS", "AGENT 标签页", "AGENT 分頁")
-        case .organize: return tr("ORGANIZE", "整理", "整理")
-        case .actions:  return tr("CORE ACTIONS", "核心操作", "核心操作")
-        case .ready:    return tr("READY", "就绪", "就緒")
+        case .welcome:  return L("onboarding.eyebrow.welcome")
+        case .scope:    return L("onboarding.eyebrow.scope")
+        case .agents:   return L("onboarding.eyebrow.agents")
+        case .organize: return L("onboarding.eyebrow.organize")
+        case .actions:  return L("onboarding.eyebrow.actions")
+        case .ready:    return L("onboarding.eyebrow.ready")
         }
     }
 
@@ -78,12 +78,12 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     @MainActor
     var title: String {
         switch self {
-        case .welcome:  return tr("One console for\nevery agent.", "一个控制台，\n统管所有 Agent。", "一個主控台，\n統管所有 Agent。")
-        case .scope:    return tr("This Mac,\nand this project.", "本机，\n与当前项目。", "本機，\n與目前專案。")
-        case .agents:   return tr("Every tab is\na point of view.", "每个标签页\n都是一种视角。", "每個分頁\n都是一種視角。")
-        case .organize: return tr("Filter, sort,\nsee the state.", "筛选、排序，\n看清状态。", "篩選、排序，\n看清狀態。")
-        case .actions:  return tr("Hide. Copy.\nRemove.", "隐藏。复制。\n移除。", "隱藏。複製。\n移除。")
-        case .ready:    return tr("You're all set.", "一切就绪。", "一切就緒。")
+        case .welcome:  return L("onboarding.title.welcome")
+        case .scope:    return L("onboarding.title.scope")
+        case .agents:   return L("onboarding.title.agents")
+        case .organize: return L("onboarding.title.organize")
+        case .actions:  return L("onboarding.title.actions")
+        case .ready:    return L("onboarding.title.ready")
         }
     }
 
@@ -92,41 +92,17 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     var body: String {
         switch self {
         case .welcome:
-            return tr(
-                "Orbita is your **single console** for coding-agent capabilities — Skills, Plugins, Commands, Hooks, MCP, Rules, Instructions — across **Codex**, **Claude Code**, **Trae** and the shared `.agents` workspace.",
-                "Orbita 是管理 Coding Agent 能力的**统一控制台**——Skills、Plugins、Commands、Hooks、MCP、Rules、Instructions——覆盖 **Codex**、**Claude Code**、**Trae** 以及共享的 `.agents` 工作区。",
-                "Orbita 是管理 Coding Agent 能力的**統一主控台**——Skills、Plugins、Commands、Hooks、MCP、Rules、Instructions——涵蓋 **Codex**、**Claude Code**、**Trae** 以及共享的 `.agents` 工作區。"
-            )
+            return L("onboarding.body.welcome")
         case .scope:
-            return tr(
-                "Capabilities live in **two places**: your whole Mac (`~/.codex`, `~/.claude`) and the project you open. Orbita shows **both at once**, so you always know what an agent really sees here.",
-                "能力存在于**两个位置**：整台 Mac（`~/.codex`、`~/.claude`）和你打开的项目。Orbita **同时展示两者**，让你随时清楚某个 Agent 在这里到底能看到什么。",
-                "能力存在於**兩個位置**：整台 Mac（`~/.codex`、`~/.claude`）與你開啟的專案。Orbita **同時呈現兩者**，讓你隨時清楚某個 Agent 在這裡到底看得到什麼。"
-            )
+            return L("onboarding.body.scope")
         case .agents:
-            return tr(
-                "Each tab is **one agent's view**. Switching tabs **never changes files** — it only re-filters the same scan, so you can compare what Codex, Claude Code and Trae each load.",
-                "每个标签页是**某个 Agent 的视角**。切换标签页**不会改动任何文件**——只是对同一次扫描重新过滤，方便你对比 Codex、Claude Code、Trae 各自加载了什么。",
-                "每個分頁是**某個 Agent 的視角**。切換分頁**不會改動任何檔案**——只是對同一次掃描重新篩選，方便你對比 Codex、Claude Code、Trae 各自載入了什麼。"
-            )
+            return L("onboarding.body.agents")
         case .organize:
-            return tr(
-                "Filter by type, sort by name or date, and read each section by **effective status** — Enabled, Disabled, Discovered. Grouping keeps a plugin's children together.",
-                "按类型筛选，按名称或日期排序，并按**生效状态**分区查看——已启用、已停用、已发现。分组会让插件的子能力保持在一起。",
-                "依類型篩選，依名稱或日期排序，並依**生效狀態**分區查看——已啟用、已停用、已探索。分組會讓外掛的子能力保持在一起。"
-            )
+            return L("onboarding.body.organize")
         case .actions:
-            return tr(
-                "Three actions, three meanings. **Tap a card** to see what each one does — one hides, one copies, one removes.",
-                "三个动作，三种含义。**点一下卡片**看看各自做什么——一个隐藏、一个复制、一个移除。",
-                "三個動作，三種含義。**點一下卡片**看看各自做什麼——一個隱藏、一個複製、一個移除。"
-            )
+            return L("onboarding.body.actions")
         case .ready:
-            return tr(
-                "Open a project from the sidebar to begin. You can **replay this guide** any time from **Settings → Guide**.",
-                "从侧边栏打开一个项目即可开始。你可以随时在**「设置 → 引导」**中**重看本引导**。",
-                "從側邊欄開啟一個專案即可開始。你可以隨時在**「設定 → 引導」**中**重看本引導**。"
-            )
+            return L("onboarding.body.ready")
         }
     }
 }
@@ -150,12 +126,23 @@ struct OnboardingGuideView: View {
         ZStack {
             OrbitaTheme.canvas.ignoresSafeArea()
 
+            // Same drifting-glyph backdrop as the Full Disk Access screen, so the two first-run
+            // surfaces share one look.
+            FloatingIconBackdrop()
+                .allowsHitTesting(false)
+
             card
-                .frame(width: 720)
+                .frame(width: 720, height: Self.cardHeight)
                 .padding(40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    /// Fixed card height so every step is the same size — otherwise the shorter last pages
+    /// (`actions`, `ready`, whose titles/bodies are shorter) render smaller than the rest. The
+    /// `Spacer` above the controls absorbs the per-step text-height difference and keeps the
+    /// buttons pinned to the bottom.
+    private static let cardHeight: CGFloat = 640
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -165,12 +152,12 @@ struct OnboardingGuideView: View {
                 .padding(.top, 18)
             textBlock
                 .padding(.top, 24)
+            Spacer(minLength: 16)
             controls
-                .padding(.top, 22)
         }
         .padding(30)
-        .frame(maxWidth: .infinity)
-        .orbitaCard(cornerRadius: 24, shadowRadius: 18, shadowY: 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .orbitaCard(cornerRadius: 22, shadowRadius: 14, shadowY: 8)
     }
 
     // MARK: Top bar (brand + clickable progress)
@@ -186,7 +173,7 @@ struct OnboardingGuideView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Orbita")
                     .font(.headline)
-                Text(tr("Quick start", "快速上手", "快速上手"))
+                Text(L("settings.guide.card"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -214,9 +201,7 @@ struct OnboardingGuideView: View {
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.84), value: step)
-        .accessibilityLabel(tr("Step \(stepIndex + 1) of \(OnboardingStep.allCases.count)",
-                               "第 \(stepIndex + 1) / \(OnboardingStep.allCases.count) 步",
-                               "第 \(stepIndex + 1) / \(OnboardingStep.allCases.count) 步"))
+        .accessibilityLabel(String(format: L("onboarding.progress.step"), stepIndex + 1, OnboardingStep.allCases.count))
     }
 
     // MARK: Hero illustration (fixed band, content centred)
@@ -296,7 +281,7 @@ struct OnboardingGuideView: View {
         HStack(spacing: 10) {
             if !isLast {
                 Button(action: finish) {
-                    Text(tr("Skip", "跳过", "跳過"))
+                    Text(L("onboarding.button.skip"))
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -308,7 +293,7 @@ struct OnboardingGuideView: View {
 
             if !isFirst {
                 Button(action: back) {
-                    Label(tr("Back", "上一步", "上一步"), systemImage: "chevron.left")
+                    Label(L("onboarding.button.back"), systemImage: "chevron.left")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
@@ -316,7 +301,7 @@ struct OnboardingGuideView: View {
 
             Button(action: advance) {
                 Label(
-                    isLast ? tr("Get started", "开始使用", "開始使用") : tr("Next", "下一步", "下一步"),
+                    isLast ? L("onboarding.button.getStarted") : L("onboarding.button.next"),
                     systemImage: isLast ? "checkmark" : "chevron.right"
                 )
                 .labelStyle(.titleAndIcon)
@@ -332,7 +317,7 @@ struct OnboardingGuideView: View {
     private var languageMenu: some View {
         Menu {
             languageItem(.english)
-            Menu(tr("Chinese", "中文", "中文")) {
+            Menu(L("onboarding.language.chinese")) {
                 languageItem(.simplifiedChinese)
                 languageItem(.traditionalChinese)
             }
@@ -344,7 +329,7 @@ struct OnboardingGuideView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(tr("Language", "语言", "語言"))
+        .help(L("onboarding.language.help"))
     }
 
     private func languageItem(_ language: OrbitaLanguage) -> some View {
@@ -440,6 +425,7 @@ private struct GuideTile: View {
 
 /// Capability types fan in on appear and gently float.
 private struct WelcomeIllustration: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     private let symbols = ["shippingbox", "wand.and.stars", "server.rack", "terminal", "link", "doc.text"]
     @State private var appeared = false
 
@@ -463,15 +449,16 @@ private struct WelcomeIllustration: View {
         }
         .frame(maxWidth: .infinity)
         .onAppear { appeared = true }
-        .accessibilityLabel(tr("A row of capability types", "一排能力类型", "一排能力類型"))
+        .accessibilityLabel(L("onboarding.illustration.welcome"))
     }
 }
 
 /// Nested rounded rectangles: outer = "This Mac" (user scope), inner = "Project".
 private struct ScopeIllustration: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Label(tr("This Mac", "本机", "本機"), systemImage: "menubar.dock.rectangle")
+            Label(L("onboarding.scope.thisMac"), systemImage: "menubar.dock.rectangle")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 12)
@@ -482,7 +469,7 @@ private struct ScopeIllustration: View {
 
                 // Inner project box.
                 VStack(alignment: .leading, spacing: 9) {
-                    Label(tr("Project", "项目", "專案"), systemImage: "folder")
+                    Label(L("onboarding.scope.project"), systemImage: "folder")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                     HStack(spacing: 12) {
@@ -504,14 +491,13 @@ private struct ScopeIllustration: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(OrbitaTheme.border)
         }
-        .accessibilityLabel(tr("Project scope nested inside this Mac",
-                               "项目作用域嵌套在本机之中",
-                               "專案作用域嵌套在本機之中"))
+        .accessibilityLabel(L("onboarding.illustration.scope"))
     }
 }
 
 /// A row of four agent tabs with a selection underline that slides — mirrors the real tab strip.
 private struct AgentTabsIllustration: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     private let tabs: [(String, String)] = [
         ("point.3.connected.trianglepath.dotted", "Agents"),
         ("command", "Codex"),
@@ -547,9 +533,9 @@ private struct AgentTabsIllustration: View {
             }
 
             HStack(spacing: 14) {
-                GuideTile(symbol: "wand.and.stars", caption: "skill")
+                GuideTile(symbol: "wand.and.stars", caption: L("onboarding.tile.skill"))
                 GuideTile(symbol: "server.rack", caption: "mcp")
-                GuideTile(symbol: "doc.text", caption: "rule")
+                GuideTile(symbol: "doc.text", caption: L("onboarding.tile.rule"))
             }
         }
         .frame(maxWidth: .infinity)
@@ -562,41 +548,38 @@ private struct AgentTabsIllustration: View {
                 }
             }
         }
-        .accessibilityLabel(tr("Four agent tabs filtering the same capabilities",
-                               "四个 Agent 标签页过滤同一批能力",
-                               "四個 Agent 分頁篩選同一批能力"))
+        .accessibilityLabel(L("onboarding.illustration.agents"))
     }
 }
 
 /// A miniature capability list with section headers and a sort control.
 private struct OrganizeIllustration: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
             // Sort/filter control column.
             VStack(alignment: .leading, spacing: 11) {
-                miniChip(tr("All", "全部", "全部"), system: "square.grid.2x2", on: true)
-                miniChip("Skills", system: "wand.and.stars", on: false)
+                miniChip(L("onboarding.organize.filter.all"), system: "square.grid.2x2", on: true)
+                miniChip(L("collection.type.skills"), system: "wand.and.stars", on: false)
                 miniChip("MCP", system: "server.rack", on: false)
                 Divider().frame(width: 104)
-                Label(tr("Name", "名称", "名稱"), systemImage: "arrow.up.arrow.down")
+                Label(L("sort.name"), systemImage: "arrow.up.arrow.down")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
             // Sectioned list column.
             VStack(alignment: .leading, spacing: 9) {
-                sectionHeader(tr("Enabled", "已启用", "已啟用"), count: 2, dot: .green)
+                sectionHeader(L("onboarding.organize.section.enabled"), count: 2, dot: .green)
                 listRow("review-helper", on: true)
                 listRow("lark-doc", on: true)
-                sectionHeader(tr("Disabled", "已停用", "已停用"), count: 1, dot: .secondary)
+                sectionHeader(L("onboarding.organize.section.disabled"), count: 1, dot: .secondary)
                 listRow("legacy-skill", on: false)
             }
             .frame(maxWidth: 320, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        .accessibilityLabel(tr("Capabilities filtered, sorted and grouped by status",
-                               "能力按状态筛选、排序与分组",
-                               "能力依狀態篩選、排序與分組"))
+        .accessibilityLabel(L("onboarding.illustration.organize"))
     }
 
     private func miniChip(_ text: String, system: String, on: Bool) -> some View {
@@ -637,6 +620,7 @@ private struct OrganizeIllustration: View {
 /// The three core actions as tap-to-reveal cards. Selecting one lifts it and dims the
 /// others, so the meaning of Disable / Fork / Delete lands one at a time.
 private struct ActionsIllustration: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     @State private var selected: Int? = nil
     @State private var pulse = false
 
@@ -651,26 +635,20 @@ private struct ActionsIllustration: View {
         [
             Action(
                 symbol: "eye.slash",
-                title: tr("Disable", "停用", "停用"),
-                detail: tr("Hide it here. The source is cached and fully reversible.",
-                           "在此隐藏。源被缓存，可完全恢复。",
-                           "在此隱藏。來源被快取，可完全還原。"),
+                title: L("onboarding.action.disable.title"),
+                detail: L("onboarding.action.disable.detail"),
                 tint: .orange
             ),
             Action(
                 symbol: "arrow.triangle.branch",
-                title: "Fork",
-                detail: tr("Copy it into another agent's own folder.",
-                           "复制到另一个 Agent 自己的目录。",
-                           "複製到另一個 Agent 自己的目錄。"),
+                title: L("onboarding.action.fork.title"),
+                detail: L("onboarding.action.fork.detail"),
                 tint: .blue
             ),
             Action(
                 symbol: "trash",
-                title: tr("Delete", "删除", "刪除"),
-                detail: tr("Remove the capability for good.",
-                           "彻底移除该能力。",
-                           "徹底移除該能力。"),
+                title: L("onboarding.action.delete.title"),
+                detail: L("onboarding.action.delete.detail"),
                 tint: .red
             ),
         ]
@@ -684,9 +662,7 @@ private struct ActionsIllustration: View {
         }
         .frame(maxWidth: .infinity)
         .onAppear { pulse = true }
-        .accessibilityLabel(tr("Disable hides, Fork copies, Delete removes",
-                               "停用即隐藏，Fork 即复制，删除即移除",
-                               "停用即隱藏，Fork 即複製，刪除即移除"))
+        .accessibilityLabel(L("onboarding.illustration.actions"))
     }
 
     private func card(_ action: Action, index: Int) -> some View {
@@ -742,6 +718,7 @@ private struct ActionsIllustration: View {
 }
 
 private struct ReadyIllustration: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     @State private var checked = false
 
     var body: some View {
@@ -753,14 +730,14 @@ private struct ReadyIllustration: View {
                 .scaleEffect(checked ? 1 : 0.6)
                 .opacity(checked ? 1 : 0)
                 .animation(.spring(response: 0.5, dampingFraction: 0.6), value: checked)
-            Label(tr("Open a project to begin", "打开一个项目即可开始", "開啟一個專案即可開始"),
+            Label(L("onboarding.ready.openProject"),
                   systemImage: "folder.badge.plus")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .onAppear { checked = true }
-        .accessibilityLabel(tr("Setup complete", "设置完成", "設定完成"))
+        .accessibilityLabel(L("onboarding.illustration.ready"))
     }
 }
 
@@ -903,6 +880,7 @@ extension View {
 }
 
 private struct OnboardingSpotlightOverlay: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let rect: CGRect
     let message: String
     let onNext: () -> Void
@@ -948,12 +926,12 @@ private struct OnboardingSpotlightOverlay: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 if let onSkip {
-                    Button(tr("Skip", "跳过", "跳過"), action: onSkip)
+                    Button(L("onboarding.button.skip"), action: onSkip)
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Button(tr("Next", "下一步", "下一步"), action: onNext)
+                Button(L("onboarding.button.next"), action: onNext)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
             }

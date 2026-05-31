@@ -10,6 +10,7 @@ struct MarkdownPreviewDocument: Identifiable, Equatable {
 }
 
 struct MarkdownPreviewPage: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let document: MarkdownPreviewDocument
     let onClose: () -> Void
 
@@ -40,7 +41,7 @@ struct MarkdownPreviewPage: View {
                     .orbitaIconControlSurface()
             }
             .buttonStyle(.plain)
-            .help("Back")
+            .help(L("main.markdownPreview.back"))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(document.title)

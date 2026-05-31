@@ -1457,6 +1457,17 @@ public final class ApplyPlanBuilder {
             ]
         }
 
+        // Native-first: a capability the host can disable IN PLACE (Codex `[[skills.config]] enabled=false`,
+        // Claude `skillOverrides=off`, or any native plugin/skill lifecycle) must NOT be physically moved.
+        // Its disable is expressed as an emitted native command, and the `.agents` intent write above already
+        // records Orbita's view; quarantining it here would both violate "source file stays where it is" and
+        // fight the native client. The destructive move is a last-resort fallback ONLY for hosts with no
+        // native off-switch (e.g. Trae/Cursor skills). Without this gate a `orbita plan --disable <id>` on a
+        // Codex/Claude real-file skill from the CLI would wrongly relocate it.
+        guard !hasNativeDisable(capability) else {
+            return []
+        }
+
         guard let sourcePath = cacheableSourcePath(for: capability),
               isCacheableAgentSourcePath(sourcePath),
               fileManager.fileExists(atPath: sourcePath)
@@ -1464,32 +1475,99 @@ public final class ApplyPlanBuilder {
             return []
         }
 
+        let quarantinePath = disabledQuarantineContentPath(for: capability, sourcePath: sourcePath, graph: graph)
+        let entryDirectory = URL(fileURLWithPath: quarantinePath).deletingLastPathComponent()
         return [
             ApplyOperation(
                 kind: .cachePath,
                 path: sourcePath,
-                target: disabledCachePath(for: capability, sourcePath: sourcePath, graph: graph),
+                target: quarantinePath,
                 risk: .write,
-                description: "Copy capability source into .orbita disabled cache before removing it from the host-visible location"
+                description: "Move capability source into the scope-correct Orbita disabled store (host has no native disable); restorable on enable"
+            ),
+            ApplyOperation(
+                kind: .writeFile,
+                path: OrbitaDisabledStore.sidecarPath(forEntryDirectory: entryDirectory).path,
+                content: OrbitaDisabledStore.sidecarJSON(
+                    capabilityID: manifestCapabilityID(for: capability),
+                    name: capability.name,
+                    type: capability.type.rawValue,
+                    originalSourcePath: sourcePath,
+                    scope: capability.scope.rawValue
+                ),
+                risk: .write,
+                description: "Write co-located restore metadata so the disabled item survives loss of .agents/manifest.json"
             )
         ]
     }
 
+    /// True when the host owns a native, non-destructive disable for this capability — so Orbita must never
+    /// physically move it. Keyed on the native-lifecycle metadata the scanner attaches (Codex
+    /// `codexSkillConfigPath`/`codexDisableCommand`, Claude `claudeSkillDisableCommand`, plugin
+    /// `disableCommand`) plus the Claude-native source kinds. Trae/Cursor skills carry none of these.
+    private func hasNativeDisable(_ capability: Capability) -> Bool {
+        let metadata = capability.metadata
+        if metadata["codexSkillConfigPath"] != nil
+            || metadata["codexDisableCommand"] != nil
+            || metadata["claudeSkillDisableCommand"] != nil
+            || metadata["disableCommand"] != nil {
+            return true
+        }
+        switch capability.source.kind {
+        case "claude-plugin",
+             "claude-plugin-skill",
+             "claude-plugin-command",
+             "claude-plugin-hook",
+             "claude-skill",
+             "claude-settings",
+             "claude-settings-hook":
+            return true
+        default:
+            return false
+        }
+    }
+
     private func restoreOperation(for capability: Capability, graph: CapabilityGraph) -> ApplyOperation? {
-        guard let sourcePath = cacheableSourcePath(for: capability) else {
-            return nil
+        // Deterministic first (form-stable): the new scope-correct store path, then the legacy
+        // `.orbita/cache/disabled` location for entries quarantined before the data-grade store existed.
+        // This covers the normal case AND the manifest-lost case (the scanner-reconstructed tile still
+        // carries the original sourcePath + capabilityID, so the same key recomputes the same path).
+        if let sourcePath = cacheableSourcePath(for: capability) {
+            let candidates = [
+                disabledQuarantineContentPath(for: capability, sourcePath: sourcePath, graph: graph),
+                legacyDisabledCachePath(for: capability, sourcePath: sourcePath, graph: graph)
+            ]
+            for candidate in candidates where fileManager.fileExists(atPath: candidate) {
+                return ApplyOperation(
+                    kind: .restorePath,
+                    path: candidate,
+                    target: sourcePath,
+                    risk: .write,
+                    description: "Restore capability source from the Orbita disabled store"
+                )
+            }
         }
-        let cachePath = disabledCachePath(for: capability, sourcePath: sourcePath, graph: graph)
-        guard fileManager.fileExists(atPath: cachePath) else {
-            return nil
-        }
-        return ApplyOperation(
-            kind: .restorePath,
-            path: cachePath,
-            target: sourcePath,
-            risk: .write,
-            description: "Restore capability source from .orbita disabled cache"
+
+        // Final fallback — manifest-independent: locate the entry by its co-located sidecar (capabilityID
+        // match) for the rare case where the deterministic key no longer matches (e.g. the capability id or
+        // source path drifted since it was disabled).
+        let roots = OrbitaDisabledStore.roots(
+            projectRoot: URL(fileURLWithPath: graph.projectRoot),
+            home: homeDirectory,
+            includeUserScope: true
         )
+        let capabilityID = manifestCapabilityID(for: capability)
+        if let entry = OrbitaDisabledStore.entries(roots: roots, fileManager: fileManager)
+            .first(where: { $0.capabilityID == capabilityID }) {
+            return ApplyOperation(
+                kind: .restorePath,
+                path: entry.contentPath,
+                target: entry.originalSourcePath,
+                risk: .write,
+                description: "Restore capability source from the Orbita disabled store"
+            )
+        }
+        return nil
     }
 
     private func symbolicDisablePath(for capability: Capability, agentsRoot: URL) -> String? {
@@ -1543,8 +1621,20 @@ public final class ApplyPlanBuilder {
             || components.contains(".trae")
     }
 
-    private func disabledCachePath(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> String {
-        let key = cacheKey(for: "\(manifestCapabilityID(for: capability))|\(sourcePath)")
+    private func disabledQuarantineContentPath(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> String {
+        OrbitaDisabledStore.contentPath(
+            capabilityID: manifestCapabilityID(for: capability),
+            type: capability.type.rawValue,
+            sourcePath: sourcePath,
+            projectRoot: URL(fileURLWithPath: graph.projectRoot),
+            home: homeDirectory
+        ).path
+    }
+
+    /// Pre-migration location (`<project>/.orbita/cache/disabled/...`) — READ-ONLY, consulted only so an
+    /// entry quarantined before the scope-correct data-grade store existed can still be restored.
+    private func legacyDisabledCachePath(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> String {
+        let key = OrbitaDisabledStore.fnv1a("\(manifestCapabilityID(for: capability))|\(sourcePath)")
         let sourceName = URL(fileURLWithPath: sourcePath).lastPathComponent
         return URL(fileURLWithPath: graph.projectRoot)
             .appendingPathComponent(".orbita/cache/disabled")
@@ -1552,15 +1642,6 @@ public final class ApplyPlanBuilder {
             .appendingPathComponent(key)
             .appendingPathComponent(sourceName.isEmpty ? "source" : sourceName)
             .path
-    }
-
-    private func cacheKey(for value: String) -> String {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x100000001b3
-        }
-        return String(hash, radix: 16)
     }
 
     private func skillDirectoryPath(for capability: Capability) -> String {
@@ -1891,15 +1972,19 @@ public final class ApplyPlanExecutor {
                 throw OrbitaError.invalidApplyPlan("Cache source is outside known agent storage: \(operation.path)")
             }
             let targetPath = containmentPath(target)
-            guard targetPath == orbitaRootPath || targetPath.hasPrefix(orbitaRootPath + "/") else {
-                throw OrbitaError.invalidApplyPlan("Cache target is outside .orbita: \(target)")
+            guard isDisabledStorePath(targetPath, projectRootPath: projectRootPath) else {
+                throw OrbitaError.invalidApplyPlan("Disabled-store target is outside .orbita/disabled: \(target)")
             }
         case .restorePath:
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing restore target for \(operation.path)")
             }
-            guard operationPath == orbitaRootPath || operationPath.hasPrefix(orbitaRootPath + "/") else {
-                throw OrbitaError.invalidApplyPlan("Restore source is outside .orbita: \(operation.path)")
+            // Source must live in a quarantine store: the project's `.orbita` (covers both the new
+            // `.orbita/disabled` store and the legacy `.orbita/cache/disabled` location) or the user store.
+            guard operationPath == orbitaRootPath
+                || operationPath.hasPrefix(orbitaRootPath + "/")
+                || isDisabledStorePath(operationPath, projectRootPath: projectRootPath) else {
+                throw OrbitaError.invalidApplyPlan("Restore source is outside the Orbita disabled store: \(operation.path)")
             }
             let targetPath = containmentPath(target)
             guard isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
@@ -1937,10 +2022,23 @@ public final class ApplyPlanExecutor {
                 || operationPath.hasPrefix(agentsRootPath + "/")
                 || operationPath == orbitaRootPath
                 || operationPath.hasPrefix(orbitaRootPath + "/")
+                || isDisabledStorePath(operationPath, projectRootPath: projectRootPath)
             else {
                 throw OrbitaError.invalidApplyPlan("Operation is outside .agents or .orbita: \(operation.path)")
             }
         }
+    }
+
+    /// The scope-correct disabled-store roots: the project's `<repo>/.orbita/disabled` and the user's
+    /// `~/.orbita/disabled`. Anchored (resolving symlinks) so it is a true last line of defense, not a
+    /// "path contains .orbita" membership test. The user store is Orbita's own state dir, so this widens
+    /// the write boundary only to a location Orbita already owns — never into an agent's or a foreign tree.
+    private func isDisabledStorePath(_ path: String, projectRootPath: String) -> Bool {
+        let stores = [
+            resolvedRootPath(projectRootPath + "/.orbita/" + OrbitaDisabledStore.directoryName),
+            resolvedRootPath(homeDirectory.path + "/.orbita/" + OrbitaDisabledStore.directoryName)
+        ]
+        return stores.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
     /// Agent-sync (fork) is allowed to write into agent storage. To keep the guard a true last line of

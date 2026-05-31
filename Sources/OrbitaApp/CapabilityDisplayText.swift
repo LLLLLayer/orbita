@@ -1,10 +1,10 @@
 import OrbitaCore
 
 enum CapabilityDisplayText {
-    static func accessSummary(for risks: [RiskLevel]) -> String {
+    @MainActor static func accessSummary(for risks: [RiskLevel]) -> String {
         let visibleRisks = risks.filter { $0 != .info }
         guard !visibleRisks.isEmpty else {
-            return "Metadata only"
+            return L("risk.info")
         }
         return visibleRisks
             .sorted { accessRank($0) < accessRank($1) }
@@ -33,66 +33,66 @@ enum CapabilityDisplayText {
 }
 
 extension RiskLevel {
-    var accessLabel: String {
+    @MainActor var accessLabel: String {
         switch self {
         case .info:
-            return "Metadata only"
+            return L("risk.info")
         case .read:
-            return "Reads files"
+            return L("risk.read")
         case .write:
-            return "Writes files"
+            return L("risk.write")
         case .exec:
-            return "Runs commands"
+            return L("risk.exec")
         case .network:
-            return "Network access"
+            return L("risk.network")
         case .secret:
-            return "Secrets/env"
+            return L("risk.secret")
         case .global:
-            return "Global scope"
+            return L("risk.global")
         }
     }
 }
 
 extension ApplyAction {
-    var displayTitle: String {
+    @MainActor var displayTitle: String {
         switch self {
         case .enable:
-            return "Enable"
+            return L("inspector.action.enable")
         case .disable:
-            return "Disable"
+            return L("inspector.action.disable")
         case .delete:
-            return "Delete"
+            return L("inspector.action.delete")
         case .merge:
-            return "Merge into .agents"
+            return L("applyAction.merge")
         case .rollback:
-            return "Rollback"
+            return L("applyAction.rollback")
         case .clean:
-            return "Clean"
+            return L("applyAction.clean")
         }
     }
 }
 
 extension ApplyOperationKind {
-    var displayTitle: String {
+    @MainActor var displayTitle: String {
         switch self {
         case .readSource:
-            return "Read source"
+            return L("op.readSource")
         case .createDirectory:
-            return "Create folder"
+            return L("op.createDirectory")
         case .createSymlink:
-            return "Create link"
+            return L("op.createSymlink")
         case .copyPath:
-            return "Copy path"
+            return L("op.copyPath")
         case .cachePath:
-            return "Cache source"
+            return L("op.cachePath")
         case .restorePath:
-            return "Restore source"
+            return L("op.restorePath")
         case .removePath:
-            return "Remove path"
+            return L("op.removePath")
         case .writeFile:
-            return "Write file"
+            return L("op.writeFile")
         case .appendLog:
-            return "Append log"
+            return L("op.appendLog")
         }
     }
 }

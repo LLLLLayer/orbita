@@ -53,6 +53,7 @@ private enum SparkleConfiguration {
 }
 
 private struct CheckForUpdatesView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     private let updater: SPUUpdater
     private let isConfigured: Bool
 
@@ -62,7 +63,7 @@ private struct CheckForUpdatesView: View {
     }
 
     var body: some View {
-        Button("Check for Updates...", action: updater.checkForUpdates)
+        Button(L("app.menu.checkForUpdates"), action: updater.checkForUpdates)
             .disabled(!isConfigured)
     }
 }

@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 import OrbitaCore
 
 struct CapabilityMainView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let projectName: String
     let hasActiveContext: Bool
     let graph: CapabilityGraph?
@@ -105,7 +106,7 @@ struct CapabilityMainView: View {
             } else if isScanning || hasActiveContext {
                 ProjectLoadingView(
                     projectName: projectName,
-                    message: scanMessage ?? "Scanning \(projectName)",
+                    message: scanMessage ?? String(format: L("main.loading.scanning"), projectName),
                     progress: scanProgress,
                     isScanning: isScanning,
                     lastRefreshLabel: lastRefreshLabel,
@@ -119,7 +120,7 @@ struct CapabilityMainView: View {
             } else if let errorMessage {
                 VStack {
                     ContentUnavailableView(
-                        "Unable to scan",
+                        L("main.error.unableToScan"),
                         systemImage: "exclamationmark.triangle",
                         description: Text(errorMessage)
                     )
@@ -163,6 +164,7 @@ struct CapabilityMainView: View {
 }
 
 private struct HeaderSurface: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let projectName: String
     let capabilities: [Capability]
     let isScanning: Bool
@@ -190,13 +192,13 @@ private struct HeaderSurface: View {
             }
 
             HStack(spacing: 0) {
-                SummaryStat(title: "Total", value: capabilities.count, systemImage: "square.grid.2x2")
-                SummaryStat(title: "Plugins", value: count(.plugin), systemImage: "shippingbox")
-                SummaryStat(title: "Skills", value: count(.skill), systemImage: "wand.and.stars")
-                SummaryStat(title: "Agents", value: count(.agent), systemImage: "person.2")
-                SummaryStat(title: "Commands", value: count(.command), systemImage: "terminal")
+                SummaryStat(title: L("main.summary.total"), value: capabilities.count, systemImage: "square.grid.2x2")
+                SummaryStat(title: L("main.summary.plugins"), value: count(.plugin), systemImage: "shippingbox")
+                SummaryStat(title: L("main.summary.skills"), value: count(.skill), systemImage: "wand.and.stars")
+                SummaryStat(title: L("main.summary.agents"), value: count(.agent), systemImage: "person.2")
+                SummaryStat(title: L("main.summary.commands"), value: count(.command), systemImage: "terminal")
                 SummaryStat(title: "MCP", value: count(.mcp), systemImage: "server.rack")
-                SummaryStat(title: "Hooks", value: count(.hook), systemImage: "link")
+                SummaryStat(title: L("main.summary.hooks"), value: count(.hook), systemImage: "link")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -236,6 +238,7 @@ private struct InlineErrorBanner: View {
 }
 
 private struct ProjectLoadingView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let projectName: String
     let message: String
     let progress: Double
@@ -263,7 +266,7 @@ private struct ProjectLoadingView: View {
 
             if let errorMessage {
                 ContentUnavailableView(
-                    "Unable to scan",
+                    L("main.error.unableToScan"),
                     systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage)
                 )
@@ -276,7 +279,7 @@ private struct ProjectLoadingView: View {
                         Text(message)
                             .font(.subheadline.weight(.medium))
                         Spacer()
-                        Text("\(Int(progress * 100))%")
+                        Text(String(format: L("main.loading.percent"), Int(progress * 100)))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -320,6 +323,7 @@ private struct SummaryStat: View {
 }
 
 private struct HeaderRefreshButton: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let title: String
     let isScanning: Bool
     let action: () -> Void
@@ -328,7 +332,7 @@ private struct HeaderRefreshButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 RefreshButtonIcon(isSpinning: isScanning)
-                Text(isScanning ? "Refreshing..." : title)
+                Text(isScanning ? L("main.refresh.refreshing") : title)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
             }
@@ -337,11 +341,12 @@ private struct HeaderRefreshButton: View {
         }
         .buttonStyle(.plain)
         .orbitaControlSurface(cornerRadius: 10)
-        .help("Refresh")
+        .help(L("settings.general.refresh.title"))
     }
 }
 
 private struct HeaderMacScopeToggle: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     @Binding var isHiding: Bool
 
     var body: some View {
@@ -351,7 +356,7 @@ private struct HeaderMacScopeToggle: View {
             HStack(spacing: 6) {
                 Image(systemName: "laptopcomputer")
                     .font(.system(size: 13, weight: .semibold))
-                Text(isHiding ? "Show This Mac" : "Hide This Mac")
+                Text(isHiding ? L("main.macScope.show") : L("main.macScope.hide"))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
             }
@@ -361,7 +366,7 @@ private struct HeaderMacScopeToggle: View {
         }
         .buttonStyle(.plain)
         .orbitaControlSurface(selected: isHiding, cornerRadius: 10)
-        .help(isHiding ? "Show capabilities that come from This Mac" : "Hide capabilities that come from This Mac")
+        .help(isHiding ? L("main.macScope.show.help") : L("main.macScope.hide.help"))
     }
 }
 
@@ -386,6 +391,7 @@ private struct RefreshButtonIcon: View {
 }
 
 struct CapabilityFilterBar: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let agentOptions: [AgentSelection]
     let categoryOptions: [CapabilityCategory]
     @Binding var selectedAgent: AgentSelection?
@@ -406,9 +412,9 @@ struct CapabilityFilterBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                FilterIconButton(systemImage: "plus", help: "Add coding agent", action: onAddAgent)
+                FilterIconButton(systemImage: "plus", help: L("main.filter.addAgent"), action: onAddAgent)
 
-                FilterChip(title: "Overview", systemImage: "square.grid.2x2", isSelected: selectedAgent == nil) {
+                FilterChip(title: L("main.filter.overview"), systemImage: "square.grid.2x2", isSelected: selectedAgent == nil) {
                     withAnimation(.snappy(duration: 0.18)) {
                         selectedAgent = nil
                     }
@@ -434,7 +440,7 @@ struct CapabilityFilterBar: View {
                                 onPinAgent(agent.id)
                             }
                         } label: {
-                            Label("Pin to Top", systemImage: "pin")
+                            Label(L("main.menu.pinToTop"), systemImage: "pin")
                         }
 
                         Divider()
@@ -444,7 +450,7 @@ struct CapabilityFilterBar: View {
                                 onDeleteAgent(agent.id)
                             }
                         } label: {
-                            Label("Delete", systemImage: "trash")
+                            Label(L("main.menu.delete"), systemImage: "trash")
                         }
                         .disabled(agent.isDeleteProtected)
                     }
@@ -453,7 +459,7 @@ struct CapabilityFilterBar: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
-                    FilterIconButton(systemImage: "eye.slash", help: "Hide categories", action: onHideCategories)
+                    FilterIconButton(systemImage: "eye.slash", help: L("main.filter.hideCategories"), action: onHideCategories)
 
                     ForEach(categoryOptions) { category in
                         ReorderableFilterChip(
@@ -474,7 +480,7 @@ struct CapabilityFilterBar: View {
                                     onPinCategory(category.rawValue)
                                 }
                             } label: {
-                                Label("Pin to Top", systemImage: "pin")
+                                Label(L("main.menu.pinToTop"), systemImage: "pin")
                             }
 
                             Divider()
@@ -484,7 +490,7 @@ struct CapabilityFilterBar: View {
                                     onHideCategory(category.rawValue)
                                 }
                             } label: {
-                                Label("Hide", systemImage: "eye.slash")
+                                Label(L("main.menu.hide"), systemImage: "eye.slash")
                             }
                             .disabled(category == .all)
                         }
@@ -496,6 +502,7 @@ struct CapabilityFilterBar: View {
 }
 
 private struct ReorderableFilterChip: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let id: String
     let title: String
     var systemImage: String?
@@ -522,7 +529,7 @@ private struct ReorderableFilterChip: View {
                     onMove: onMove
                 )
             )
-            .help("Drag to reorder")
+            .help(L("main.chip.dragToReorder"))
     }
 }
 
@@ -620,6 +627,7 @@ private struct FilterChip: View {
 }
 
 private struct EmptyCapabilitiesState: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -637,7 +645,7 @@ private struct EmptyCapabilitiesState: View {
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
             }
-            Text("No capabilities")
+            Text(L("main.empty.noCapabilities"))
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.secondary)
         }
@@ -690,6 +698,7 @@ private enum EmptyStateIllustrationStore {
 }
 
 private struct EmptyProjectView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let onOpenProject: () -> Void
 
     var body: some View {
@@ -700,16 +709,16 @@ private struct EmptyProjectView: View {
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 6) {
-                Text("Open a project")
+                Text(L("main.empty.openProject.title"))
                     .font(.title2.weight(.semibold))
-                Text("Choose a repository to inspect local coding-agent capabilities.")
+                Text(L("main.empty.openProject.subtitle"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
 
             Button(action: onOpenProject) {
-                Label("Open Project...", systemImage: "folder.badge.plus")
+                Label(L("main.empty.openProject.button"), systemImage: "folder.badge.plus")
                     .frame(minWidth: 136)
             }
             .buttonStyle(.borderedProminent)

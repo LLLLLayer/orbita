@@ -1185,6 +1185,38 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(project.statuses.contains(.drifted))
         XCTAssertTrue(user.statuses.contains(.shadowed))
         XCTAssertTrue(user.statuses.contains(.drifted))
+
+        // The resolver records *where* the drift is so the inspector can name every copy.
+        XCTAssertEqual(project.metadata["driftLocationCount"], "2")
+        XCTAssertEqual(user.metadata["driftLocationCount"], "2")
+
+        func driftLocations(_ capability: Capability) throws -> [DriftLocation] {
+            let json = try XCTUnwrap(capability.metadata["driftLocationsJSON"])
+            let data = try XCTUnwrap(json.data(using: .utf8))
+            return try JSONDecoder().decode([DriftLocation].self, from: data)
+        }
+
+        let projectLocations = try driftLocations(project)
+        let userLocations = try driftLocations(user)
+        XCTAssertEqual(projectLocations.count, 2)
+        XCTAssertEqual(userLocations.count, 2)
+
+        // Each member flags exactly one location as the tile being inspected, and it is itself.
+        XCTAssertEqual(projectLocations.filter { $0.current }.count, 1)
+        XCTAssertEqual(userLocations.filter { $0.current }.count, 1)
+        let projectCurrent = try XCTUnwrap(projectLocations.first { $0.current })
+        let userCurrent = try XCTUnwrap(userLocations.first { $0.current })
+        XCTAssertEqual(projectCurrent.scope, "project")
+        XCTAssertEqual(userCurrent.scope, "user")
+        XCTAssertTrue(projectCurrent.path.contains("global-doc"))
+
+        // The whole point of drift: the two copies carry differing, non-empty content hashes.
+        let hashes = Set(projectLocations.map(\.hash))
+        XCTAssertEqual(hashes.count, 2)
+        XCTAssertFalse(hashes.contains(""))
+
+        // Both members enumerate the same location set — only `current` differs between them.
+        XCTAssertEqual(Set(projectLocations.map(\.path)), Set(userLocations.map(\.path)))
     }
 
     func testResolverAppliesAgentsManifestDisabledStatusAndMarksDriftedWhenSourceStillExists() throws {
@@ -1395,6 +1427,53 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(traeIDs.contains(scannedUserSkill.id))
         XCTAssertFalse(codexIDs.contains(scannedProjectSkill.id))
         XCTAssertFalse(codexIDs.contains(scannedUserSkill.id))
+
+        // Regression (user-scope Trae disable bug): scanUserSkillRoots passes a codexConfigPath for EVERY
+        // user root, but a Trae skill has no Codex `[[skills.config]]` off-switch. It must NOT receive
+        // codexSkillConfigPath/codexDisableCommand — otherwise ApplyPlan.hasNativeDisable() returns true and
+        // short-circuits the disabled-store fallback, emitting a useless `[[skills.config]]` command pointed
+        // into `.trae`. Both scopes must be Codex-disable-free.
+        for traeSkill in [scannedProjectSkill, scannedUserSkill] {
+            XCTAssertNil(traeSkill.metadata["codexSkillConfigPath"], "Trae skill must not be Codex-disable-capable")
+            XCTAssertNil(traeSkill.metadata["codexDisableCommand"], "Trae skill must not carry a Codex disable command")
+            XCTAssertNil(traeSkill.metadata["codexEnableCommand"])
+        }
+    }
+
+    func testHostAgentIDsResolvesDisabledTileToOriginAgentWithoutMakingItVisible() {
+        let resolver = AgentViewResolver()
+
+        // A quarantined (disabled) Trae skill keeps its ORIGINAL .trae source path. It is absent from
+        // every active view, but host derivation must still surface Trae so the tile shows the Trae icon.
+        let quarantinedTrae = Capability(
+            id: "skill:trae-disabled",
+            name: "trae-disabled",
+            type: .skill,
+            scope: .user,
+            statuses: [.disabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "orbita-quarantine", path: "/Users/x/.trae/skills/trae-disabled/SKILL.md"),
+            metadata: ["sourcePath": "/Users/x/.trae/skills/trae-disabled/SKILL.md"]
+        )
+        let graph = CapabilityGraph(projectRoot: "/Users/x/proj", capabilities: [quarantinedTrae], issues: [])
+        XCTAssertEqual(resolver.hostAgentIDs(for: quarantinedTrae), [.trae])
+        XCTAssertFalse(
+            resolver.view(for: .trae, graph: graph).visibleCapabilities.contains { $0.id == quarantinedTrae.id },
+            "A disabled tile must stay out of the active agent view"
+        )
+
+        // A Codex skill turned off natively via [[skills.config]] still resolves to Codex.
+        let disabledCodex = Capability(
+            id: "skill:codex-disabled",
+            name: "codex-disabled",
+            type: .skill,
+            scope: .user,
+            statuses: [.disabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "codex-skill", path: "/Users/x/.codex/skills/codex-disabled/SKILL.md"),
+            metadata: ["codexSkillEnabled": "false"]
+        )
+        XCTAssertEqual(resolver.hostAgentIDs(for: disabledCodex), [.codex])
     }
 
     func testCodexAgentViewExcludesClaudeNativePlugins() throws {
@@ -2528,10 +2607,19 @@ final class CapabilityScannerTests: XCTestCase {
 
         let disable = try builder.planDisable(capabilityID: capability.id, graph: graph)
         let cacheOperation = try XCTUnwrap(disable.operations.first { $0.kind == .cachePath })
+        let target = try XCTUnwrap(cacheOperation.target)
+        // Data-grade store, not a throwaway "cache".
+        XCTAssertTrue(target.contains("/.orbita/disabled/"), "expected the data-grade disabled store, got \(target)")
+        XCTAssertFalse(target.contains("/.orbita/cache/"), "must not use the old throwaway cache location")
+        // A co-located restore sidecar is written so the entry survives loss of .agents/manifest.json.
+        let sidecarOperation = try XCTUnwrap(disable.operations.first {
+            $0.kind == .writeFile && $0.path.hasSuffix(".orbita-restore.json")
+        })
         _ = try executor.apply(disable)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: skillDirectory.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(cacheOperation.target)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarOperation.path))
 
         let enable = try builder.planEnable(capabilityID: capability.id, graph: graph)
         let restoreOperation = try XCTUnwrap(enable.operations.first { $0.kind == .restorePath })
@@ -2540,6 +2628,106 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(restoreOperation.path, cacheOperation.target)
         XCTAssertTrue(FileManager.default.fileExists(atPath: skillFile.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: restoreOperation.path))
+    }
+
+    func testDisableUserScopeSourceQuarantinesToUserStoreNotOpenProject() throws {
+        // Fix A: disabling a user-global skill must quarantine under the user's own ~/.orbita/disabled,
+        // never into whatever project happens to be open (which would strand the only copy in one repo).
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let projectRoot = temporaryRoot.appendingPathComponent("project")
+        let fakeHome = temporaryRoot.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fakeHome, withIntermediateDirectories: true)
+
+        let skillDirectory = fakeHome.appendingPathComponent(".trae/skills/global-skill")
+        let skillFile = skillDirectory.appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try skillText(name: "global-skill", body: "body").write(to: skillFile, atomically: true, encoding: .utf8)
+
+        let capability = Capability(
+            id: "skill:\(skillFile.path)",
+            name: "global-skill",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "trae-skill", path: skillFile.path)
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [capability], issues: [])
+        let builder = ApplyPlanBuilder(homeDirectory: fakeHome)
+        let executor = ApplyPlanExecutor(homeDirectory: fakeHome)
+
+        let disable = try builder.planDisable(capabilityID: capability.id, graph: graph)
+        let target = try XCTUnwrap(disable.operations.first { $0.kind == .cachePath }?.target)
+        XCTAssertTrue(target.hasPrefix(fakeHome.appendingPathComponent(".orbita/disabled").path + "/"),
+                      "user-scope source must quarantine under ~/.orbita/disabled, got \(target)")
+        XCTAssertFalse(target.hasPrefix(projectRoot.appendingPathComponent(".orbita").path + "/"),
+                       "user-scope source must NOT be demoted into the open project's .orbita")
+
+        _ = try executor.apply(disable)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: skillDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent(".orbita").path))
+    }
+
+    func testDisableNativeDisableCapabilityDoesNotMoveSource() throws {
+        // Fix C: a capability the host can disable in place (here: Codex `[[skills.config]]`) must never be
+        // physically moved, even via the CLI's agent-agnostic plan path.
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let skillDirectory = temporaryRoot.appendingPathComponent(".codex/skills/native")
+        let skillFile = skillDirectory.appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try skillText(name: "native", body: "body").write(to: skillFile, atomically: true, encoding: .utf8)
+
+        let capability = Capability(
+            id: "skill:\(skillFile.path)",
+            name: "native",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "codex-skill", path: skillFile.path),
+            metadata: ["codexSkillConfigPath": skillFile.path,
+                       "codexDisableCommand": "Set [[skills.config]] ... enabled = false"]
+        )
+        let graph = CapabilityGraph(projectRoot: temporaryRoot.path, capabilities: [capability], issues: [])
+        let builder = ApplyPlanBuilder()
+
+        let disable = try builder.planDisable(capabilityID: capability.id, graph: graph)
+        XCTAssertNil(disable.operations.first { $0.kind == .cachePath },
+                     "a natively-disablable capability must not be moved into the disabled store")
+        _ = try ApplyPlanExecutor().apply(disable)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: skillFile.path),
+                      "native disable must leave the source file in place")
+    }
+
+    func testScanReadsBackDisabledStoreWithoutManifest() throws {
+        // Fix D: a quarantined entry surfaces as a disabled tile from the store alone, with no .agents intent.
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let originalSource = temporaryRoot.appendingPathComponent(".trae/skills/parked").path
+        let entryDir = temporaryRoot.appendingPathComponent(".orbita/disabled/skill/testkey")
+        let content = entryDir.appendingPathComponent("parked")
+        try FileManager.default.createDirectory(at: content, withIntermediateDirectories: true)
+        try skillText(name: "parked", body: "b").write(
+            to: content.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try OrbitaDisabledStore.sidecarJSON(
+            capabilityID: "skill:quarantined-demo",
+            name: "parked",
+            type: "skill",
+            originalSourcePath: originalSource,
+            scope: "project"
+        ).write(to: entryDir.appendingPathComponent(".orbita-restore.json"), atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let tile = try XCTUnwrap(graph.capabilities.first { $0.id == "skill:quarantined-demo" })
+        XCTAssertEqual(tile.name, "parked")
+        XCTAssertTrue(tile.statuses.contains(.disabled))
+        XCTAssertFalse(tile.statuses.contains(.drifted), "a quarantined tile is cleanly disabled, not drifted")
+        XCTAssertEqual(tile.source.kind, "orbita-quarantine")
     }
 
     func testDisableAfterMergePreservesOtherManifestEntries() throws {

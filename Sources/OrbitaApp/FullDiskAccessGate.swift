@@ -62,10 +62,10 @@ final class FullDiskAccessGate: ObservableObject {
         }
 
         if existingProbeCount == 0 {
-            return .denied("Orbita could not verify access to protected macOS folders. If you just enabled Full Disk Access, quit and reopen Orbita.")
+            return .denied(L("permission.denied.noProbes"))
         }
 
-        return .denied("Orbita cannot verify Full Disk Access yet. Grant Full Disk Access, then quit and reopen Orbita.")
+        return .denied(L("permission.denied.notYet"))
     }
 
     private static func protectedProbeURLs() -> [URL] {
@@ -77,6 +77,7 @@ final class FullDiskAccessGate: ObservableObject {
 }
 
 struct FullDiskAccessOnboardingView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let status: FullDiskAccessStatus
     let directoryAccessMessage: String?
     let isPreflightingDirectoryAccess: Bool
@@ -101,13 +102,13 @@ struct FullDiskAccessOnboardingView: View {
                         .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Orbita needs Full Disk Access")
+                        Text(L("permission.title"))
                             .font(.title2.weight(.semibold))
-                        Text("Orbita reads local coding-agent directories such as ~/.agents, ~/.codex, ~/.claude, project workspaces, package caches, and lock files. Enable Full Disk Access before using the app.")
+                        Text(L("permission.subtitle.reads"))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("If you skip, Orbita will preflight the exact user and project paths it is about to scan so macOS can show permission prompts before the workspace opens.")
+                        Text(L("permission.subtitle.skip"))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -115,9 +116,9 @@ struct FullDiskAccessOnboardingView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    PermissionStep(number: 1, title: "Open Privacy & Security", detail: "Click the button below to open System Settings.")
-                    PermissionStep(number: 2, title: "Enable Orbita", detail: "Go to Full Disk Access and turn Orbita on. If Orbita is not listed, add the app manually.")
-                    PermissionStep(number: 3, title: "Quit and reopen Orbita", detail: "macOS applies this permission to the next app launch.")
+                    PermissionStep(number: 1, title: L("permission.step1.title"), detail: L("permission.step1.detail"))
+                    PermissionStep(number: 2, title: L("permission.step2.title"), detail: L("permission.step2.detail"))
+                    PermissionStep(number: 3, title: L("permission.step3.title"), detail: L("permission.step3.detail"))
                 }
 
                 if case let .denied(message) = status {
@@ -142,13 +143,13 @@ struct FullDiskAccessOnboardingView: View {
                     Spacer(minLength: 0)
 
                     Button(action: onOpenSettings) {
-                        Label("Open System Settings", systemImage: "gear")
+                        Label(L("permission.button.openSettings"), systemImage: "gear")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
                     Button(action: onContinueWithoutAccess) {
-                        Label(isPreflightingDirectoryAccess ? "Checking Access" : "Skip and Continue", systemImage: "arrow.right")
+                        Label(isPreflightingDirectoryAccess ? L("permission.button.checking") : L("permission.button.skip"), systemImage: "arrow.right")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -157,7 +158,7 @@ struct FullDiskAccessOnboardingView: View {
                     Button {
                         NSApplication.shared.terminate(nil)
                     } label: {
-                        Label("Quit Orbita", systemImage: "power")
+                        Label(L("permission.button.quit"), systemImage: "power")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
@@ -200,7 +201,11 @@ private struct PermissionStep: View {
     }
 }
 
-private struct FloatingIconBackdrop: View {
+/// A slow, decorative drift of faint capability glyphs behind the onboarding / permission cards.
+/// Rendered in a single GPU-backed `Canvas` (drawn on a background thread) rather than as N separate
+/// animated `Image` views: at 30fps the old approach re-diffed and re-laid-out 14 views per frame on the
+/// main thread, which stuttered. The Canvas draws every particle in one pass, so it stays smooth.
+struct FloatingIconBackdrop: View {
     private static let icons: [String] = [
         "shippingbox",
         "wand.and.stars",
@@ -211,6 +216,9 @@ private struct FloatingIconBackdrop: View {
         "square.grid.2x2"
     ]
 
+    /// Symbols are resolved once at this point size, then scaled per particle in the draw pass.
+    private static let baseSymbolSize: CGFloat = 64
+
     private let particles: [Particle]
 
     init() {
@@ -218,19 +226,28 @@ private struct FloatingIconBackdrop: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                ZStack {
-                    ForEach(particles) { particle in
-                        Image(systemName: particle.symbol)
-                            .font(.system(size: particle.size, weight: .regular))
-                            .foregroundStyle(Color.primary.opacity(particle.opacity))
-                            .rotationEffect(.degrees(particle.rotation(at: t)))
-                            .position(particle.position(at: t, in: proxy.size))
-                    }
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            Canvas(rendersAsynchronously: true) { graphics, size in
+                for particle in particles {
+                    guard let resolved = graphics.resolveSymbol(id: particle.symbol) else { continue }
+                    let point = particle.position(at: t, in: size)
+                    let scale = particle.size / Self.baseSymbolSize
+                    var layer = graphics
+                    layer.opacity = particle.opacity
+                    layer.translateBy(x: point.x, y: point.y)
+                    layer.rotate(by: .degrees(particle.rotation(at: t)))
+                    layer.scaleBy(x: scale, y: scale)
+                    layer.draw(resolved, at: .zero, anchor: .center)
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height)
+            } symbols: {
+                ForEach(Self.icons, id: \.self) { name in
+                    Image(systemName: name)
+                        .font(.system(size: Self.baseSymbolSize, weight: .regular))
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(Color.primary)
+                        .tag(name)
+                }
             }
         }
     }

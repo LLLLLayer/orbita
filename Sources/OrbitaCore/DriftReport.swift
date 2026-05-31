@@ -1,5 +1,30 @@
 import Foundation
 
+/// One physical location of a capability that participates in a drifted same-name group.
+/// The resolver attaches the full list (serialised under the `driftLocationsJSON` metadata key)
+/// to every member of the group, with `current` flagging the member it is attached to, so the
+/// inspector can show "this copy vs. the others" and surface exactly which content diverged.
+public struct DriftLocation: Codable, Hashable, Sendable {
+    /// The capability's `source.kind` (e.g. `agents-skill`, `trae-skill`, `claude-skill`).
+    public var kind: String
+    /// The capability's scope raw value (`project` / `user` / `installed` / `environment`).
+    public var scope: String
+    /// Home-abbreviated display path of the real on-disk location.
+    public var path: String
+    /// Full content hash of this copy (empty when the scanner could not hash it).
+    public var hash: String
+    /// True for the location whose tile this list is attached to.
+    public var current: Bool
+
+    public init(kind: String, scope: String, path: String, hash: String, current: Bool) {
+        self.kind = kind
+        self.scope = scope
+        self.path = path
+        self.hash = hash
+        self.current = current
+    }
+}
+
 public struct DriftReportItem: Codable, Hashable, Sendable {
     public var capabilityID: String
     public var capabilityName: String

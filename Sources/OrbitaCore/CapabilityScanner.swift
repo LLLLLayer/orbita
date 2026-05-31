@@ -6,6 +6,7 @@ public struct ScanOptions: Sendable {
     public var maxSkillFiles: Int
     public var userSkillRoots: [URL]
     public var userAgentRoots: [URL]
+    public var userDisabledStoreRoots: [URL]
     public var codexConfigURL: URL
     public var codexPluginCacheRoot: URL
     public var claudeInstalledPluginsURL: URL
@@ -19,6 +20,7 @@ public struct ScanOptions: Sendable {
         maxSkillFiles: Int = 200,
         userSkillRoots: [URL]? = nil,
         userAgentRoots: [URL]? = nil,
+        userDisabledStoreRoots: [URL]? = nil,
         codexConfigURL: URL? = nil,
         codexPluginCacheRoot: URL? = nil,
         claudeInstalledPluginsURL: URL? = nil,
@@ -32,6 +34,9 @@ public struct ScanOptions: Sendable {
         self.maxSkillFiles = maxSkillFiles
         self.userSkillRoots = userSkillRoots ?? Self.defaultUserSkillRoots()
         self.userAgentRoots = userAgentRoots ?? (userSkillRoots == nil ? Self.defaultUserAgentRoots() : [])
+        // Mirror the userAgentRoots default: when callers inject explicit user roots (tests), do NOT also
+        // read the real `~/.orbita/disabled`, so scans stay deterministic and isolated.
+        self.userDisabledStoreRoots = userDisabledStoreRoots ?? (userSkillRoots == nil ? Self.defaultUserDisabledStoreRoots() : [])
         self.codexConfigURL = codexConfigURL ?? home.appendingPathComponent(".codex/config.toml")
         self.codexPluginCacheRoot = codexPluginCacheRoot ?? home.appendingPathComponent(".codex/plugins/cache")
         self.claudeInstalledPluginsURL = claudeInstalledPluginsURL ?? home.appendingPathComponent(".claude/plugins/installed_plugins.json")
@@ -56,6 +61,13 @@ public struct ScanOptions: Sendable {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return [
             home.appendingPathComponent(".claude/agents")
+        ]
+    }
+
+    public static func defaultUserDisabledStoreRoots() -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(".orbita/\(OrbitaDisabledStore.directoryName)")
         ]
     }
 
@@ -199,6 +211,8 @@ public final class CapabilityScanner {
             issues: &issues
         )
         scanNativePluginRegistries(projectRoot: root, options: options, into: &capabilities, issues: &issues)
+
+        scanDisabledStore(projectRoot: root, options: options, into: &capabilities)
 
         emitProgress("scan.finish", path: root.path, count: capabilities.count, options: options)
         return ScanResult(
@@ -359,6 +373,41 @@ public final class CapabilityScanner {
             projectRoot: root,
             codexSkillStates: codexSkillStates
         )
+    }
+
+    /// Reads back Orbita's scope-correct disabled store (`<repo>/.orbita/disabled` and, under user scope,
+    /// `~/.orbita/disabled`) so a capability that was disabled by moving its source aside (the fallback for
+    /// hosts with no native off-switch, e.g. Trae/Cursor skills) still surfaces as a `disabled` tile —
+    /// independently of `.agents/manifest.json`. If the live source for an entry is still present elsewhere
+    /// (already scanned), the store entry is skipped so the live capability stays authoritative.
+    private func scanDisabledStore(projectRoot: URL, options: ScanOptions, into capabilities: inout [Capability]) {
+        var roots = [projectRoot.appendingPathComponent(".orbita").appendingPathComponent(OrbitaDisabledStore.directoryName)]
+        if options.includeUserScope {
+            roots.append(contentsOf: options.userDisabledStoreRoots)
+        }
+        // Seed with the live capability ids and grow as we add tiles, so a store entry whose source is still
+        // present elsewhere stays subordinate to the live capability and two entries can't double-add an id.
+        var seenIDs = Set(capabilities.map(\.id))
+        for entry in OrbitaDisabledStore.entries(roots: roots, fileManager: fileManager) {
+            guard seenIDs.insert(entry.capabilityID).inserted else { continue }
+            let type = CapabilityType(rawValue: entry.type) ?? .skill
+            let scope = CapabilityScope(rawValue: entry.scope) ?? .project
+            capabilities.append(Capability(
+                id: entry.capabilityID,
+                name: entry.name,
+                type: type,
+                scope: scope,
+                statuses: [.disabled],
+                risks: scope == .user ? [.read, .global] : [.read],
+                source: CapabilitySource(kind: "orbita-quarantine", path: entry.originalSourcePath),
+                summary: nil,
+                metadata: [
+                    "capabilityID": entry.capabilityID,
+                    "sourcePath": entry.originalSourcePath,
+                    "disabledStorePath": entry.contentPath
+                ]
+            ))
+        }
     }
 
     private func scanClaudeSettings(
@@ -1651,7 +1700,17 @@ public final class CapabilityScanner {
             || codexCacheInfo != nil
             || sourceKind.contains("plugin-skill")
             || (metadata["manager"] == "codex" && metadata["pluginSelector"] != nil)
-        if !usesPluginLifecycle {
+        // Only skill roots Codex actually reads can be disabled via `[[skills.config]]`:
+        // `.codex/skills` (codex-skill), the canonical user skills (user-skill), and `.agents/skills`
+        // (agents-skill, which Codex consumes in place). A Trae/Cursor skill (`trae-skill`) or a
+        // Claude-native skill (`claude-skill`, which has its own skillOverrides disable) must NOT receive
+        // codexSkillConfigPath/codexDisableCommand — otherwise `hasNativeDisable` reports true and
+        // short-circuits the disabled-store fallback, emitting a `[[skills.config]]` command pointed into
+        // `.trae`/`.cursor` that Codex never reads and the host ignores. (CLAUDE.md write-boundary invariant.)
+        let codexManagesSkill = sourceKind == "codex-skill"
+            || sourceKind == "user-skill"
+            || sourceKind == "agents-skill"
+        if !usesPluginLifecycle && codexManagesSkill {
             if let configPath = codexConfigPath {
                 metadata["codexConfigPath"] = configPath
                 metadata["codexSkillConfigPath"] = url.path

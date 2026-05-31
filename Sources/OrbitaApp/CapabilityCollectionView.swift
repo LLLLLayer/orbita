@@ -24,7 +24,27 @@ private func orderedVisibleAgentBadges(_ agents: [AgentSelection]) -> [AgentSele
     }
 }
 
+/// Origin host agent(s) for a tile that NO active view shows — i.e. a disabled or broken
+/// capability (a quarantined Trae/Cursor skill, or a Codex/Claude skill turned off natively).
+/// Those tiles are absent from every agent's active view, so their brand badge set is empty;
+/// fall back to the structural host so the origin app icon still appears. Empty for active tiles.
+private func originHostAgents(for item: CapabilityDisplayItem) -> [AgentSelection] {
+    let representative = item.inspectionCapability
+    guard representative.statuses.contains(.disabled) || representative.statuses.contains(.broken) else {
+        return []
+    }
+    let resolver = AgentViewResolver()
+    var hostIDs = Set<AgentID>()
+    for capability in item.capabilities {
+        for agentID in resolver.hostAgentIDs(for: capability) {
+            hostIDs.insert(agentID)
+        }
+    }
+    return AgentID.allCases.filter { hostIDs.contains($0) }.map(AgentSelection.builtIn(for:))
+}
+
 struct CapabilityCollectionView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let sections: [CapabilityCollectionSection]
     let graph: CapabilityGraph?
     let graphRevision: Int
@@ -143,8 +163,8 @@ struct CapabilityCollectionView: View {
         }
         .buttonStyle(.plain)
         .contentShape(Circle())
-        .help(isCollapsed ? "Expand \(section.title)" : "Collapse \(section.title)")
-        .accessibilityLabel(isCollapsed ? "Expand \(section.title)" : "Collapse \(section.title)")
+        .help(isCollapsed ? String(format: L("collection.section.expand"), section.title) : String(format: L("collection.section.collapse"), section.title))
+        .accessibilityLabel(isCollapsed ? String(format: L("collection.section.expand"), section.title) : String(format: L("collection.section.collapse"), section.title))
     }
 
     @ViewBuilder
@@ -207,6 +227,9 @@ struct CapabilityCollectionView: View {
                 return false
             }
             return !capabilityIDs.isDisjoint(with: visibleIDs)
+        }
+        if visibleAgents.isEmpty {
+            return orderedVisibleAgentBadges(originHostAgents(for: item))
         }
         return orderedVisibleAgentBadges(visibleAgents)
     }
@@ -380,6 +403,7 @@ private struct CapabilityDisplayRow: Identifiable {
 }
 
 private struct ExpandedCapabilityGroupShelf: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let group: CapabilityGroup
     let agentOptions: [AgentSelection]
     let agentVisibilityIndex: AgentVisibilityIndex
@@ -395,7 +419,7 @@ private struct ExpandedCapabilityGroupShelf: View {
                     HStack(spacing: 6) {
                         Text(section.title)
                             .font(.subheadline.weight(.semibold))
-                        Text("\(section.itemCount) items")
+                        Text(String(format: L("collection.shelf.items"), section.itemCount))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -464,6 +488,9 @@ private struct ExpandedCapabilityGroupShelf: View {
                 return false
             }
             return !capabilityIDs.isDisjoint(with: visibleIDs)
+        }
+        if visibleAgents.isEmpty {
+            return orderedVisibleAgentBadges(originHostAgents(for: item))
         }
         return orderedVisibleAgentBadges(visibleAgents)
     }
@@ -580,29 +607,31 @@ private enum CapabilityTypeSection: String, CaseIterable, Hashable {
 
     var id: String { rawValue }
 
+    @MainActor
     var title: String {
         switch self {
         case .plugins:
-            return "Plugins"
+            return L("collection.type.plugins")
         case .skills:
-            return "Skills"
+            return L("collection.type.skills")
         case .agents:
-            return "Agents"
+            return L("collection.type.agents")
         case .commands:
-            return "Commands"
+            return L("collection.type.commands")
         case .mcp:
             return "MCP"
         case .hooks:
-            return "Hooks"
+            return L("collection.type.hooks")
         case .instructions:
-            return "Instructions"
+            return L("collection.type.instructions")
         case .other:
-            return "Other"
+            return L("collection.type.other")
         }
     }
 }
 
 private struct CapabilityGroupTile: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let group: CapabilityGroup
     let visibleAgents: [AgentSelection]
     let isExpanded: Bool
@@ -746,26 +775,28 @@ private extension CapabilityGroup {
         }
     }
 
+    @MainActor
     var kindLabel: String {
         switch kind {
         case .plugin:
-            return "Plugin"
+            return L("collection.kind.plugin")
         case .mirror:
             return inspectionCapability.type.displayName
         case .prefix:
-            return "Group"
+            return L("collection.kind.group")
         }
     }
 
+    @MainActor
     var mirrorRelationshipLabel: String {
         let relationships = Set(capabilities.compactMap { $0.metadata["duplicateRelationship"] })
         if relationships.contains("linked-mirror") {
-            return "Linked mirrors"
+            return L("collection.mirror.linked")
         }
         if relationships.contains("copied-mirror") {
-            return "Same hash copies"
+            return L("collection.mirror.copied")
         }
-        return "Same source"
+        return L("collection.mirror.sameSource")
     }
 
     var isVirtualPlugin: Bool {
@@ -945,24 +976,25 @@ private extension Capability {
 }
 
 private extension CapabilityType {
+    @MainActor
     var protocolDescription: String {
         switch self {
         case .skill:
-            return "Skill capability"
+            return L("collection.protocol.skill")
         case .agent:
-            return "Subagent"
+            return L("collection.protocol.agent")
         case .plugin:
-            return "Plugin package"
+            return L("collection.protocol.plugin")
         case .mcpServer:
-            return "MCP server"
+            return L("collection.protocol.mcp")
         case .hook:
-            return "Hook timing"
+            return L("hook.timing")
         case .command:
-            return "Command"
+            return L("collection.protocol.command")
         case .instruction, .rule:
-            return "Instruction"
+            return L("collection.protocol.instruction")
         case .unknown:
-            return "Capability"
+            return L("collection.protocol.capability")
         }
     }
 }
@@ -1013,6 +1045,7 @@ private struct CapabilityKindPill: View {
 }
 
 private struct GroupTopBadge: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let text: String
     let isExpanded: Bool
     var showsDisclosure = true
@@ -1035,7 +1068,7 @@ private struct GroupTopBadge: View {
         .overlay {
             Capsule().strokeBorder(OrbitaTheme.border)
         }
-        .accessibilityLabel("\(text) items")
+        .accessibilityLabel(String(format: L("collection.badge.items"), text))
     }
 }
 
@@ -1045,6 +1078,7 @@ private enum AgentAvatarMetrics {
 }
 
 private struct AgentVisibilityStack: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let agents: [AgentSelection]
     let showsSyncButton: Bool
     let onSync: () -> Void
@@ -1100,14 +1134,15 @@ private struct AgentVisibilityStack: View {
 
     private var helpText: String {
         if agents.isEmpty {
-            return "Sync to another agent"
+            return L("collection.sync.help")
         }
-        let visibleText = "Visible to \(agents.map(\.displayName).joined(separator: ", "))"
-        return showsSyncButton ? "\(visibleText). Sync to another agent" : visibleText
+        let visibleText = String(format: L("collection.visible.to"), agents.map(\.displayName).joined(separator: ", "))
+        return showsSyncButton ? String(format: L("collection.visible.toSync"), visibleText) : visibleText
     }
 }
 
 private struct AgentSyncButton: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let action: () -> Void
 
     var body: some View {
@@ -1124,8 +1159,8 @@ private struct AgentSyncButton: View {
                 .shadow(color: OrbitaTheme.cardShadow, radius: 4, x: 0, y: 2)
         }
         .buttonStyle(.plain)
-        .help("Sync to another agent")
-        .accessibilityLabel("Sync capability to another agent")
+        .help(L("collection.sync.help"))
+        .accessibilityLabel(L("collection.sync.accessibility"))
     }
 }
 

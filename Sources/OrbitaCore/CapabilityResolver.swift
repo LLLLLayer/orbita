@@ -36,7 +36,10 @@ public final class CapabilityResolver {
             if let index = capabilities.firstIndex(where: { $0.id == capabilityID || $0.source.path == sourcePath }) {
                 appendStatus(status, to: &capabilities[index])
                 capabilities[index].metadata["manifestStatus"] = manifestStatus
-                if status == .disabled {
+                // A quarantine tile (reconstructed from the disabled store) is cleanly disabled — its source
+                // was moved aside, so the "source remains discoverable" drift does NOT apply. Only mark drift
+                // when the matched capability is a live, still-discoverable source.
+                if status == .disabled, capabilities[index].source.kind != "orbita-quarantine" {
                     appendStatus(.drifted, to: &capabilities[index])
                     capabilities[index].metadata["driftReason"] = "disabled in .agents but source remains discoverable"
                 }
@@ -293,8 +296,58 @@ public final class CapabilityResolver {
                 for index in indices {
                     appendStatus(.drifted, to: &capabilities[index])
                 }
+                annotateDriftLocations(forGroup: indices, in: &capabilities)
             }
         }
+    }
+
+    /// One serialised location record per member of a drifted same-name group. The
+    /// resolver already knows every conflicting copy here; without this the App can only
+    /// say "exists in multiple locations" without naming *where* or showing *which content
+    /// differs*. Each member carries the full list (with `current` flagging itself) so the
+    /// inspector can render a side-by-side "this copy vs. the others" comparison and point
+    /// the user at the divergence. Stored as JSON because metadata values are `String`.
+    private func annotateDriftLocations(forGroup indices: [Int], in capabilities: inout [Capability]) {
+        let ordered = indices.sorted { lhs, rhs in
+            let lScope = scopeRank(capabilities[lhs].scope)
+            let rScope = scopeRank(capabilities[rhs].scope)
+            if lScope != rScope { return lScope < rScope }
+            return locationPath(for: capabilities[lhs]) < locationPath(for: capabilities[rhs])
+        }
+        for index in indices {
+            let records = ordered.map { member -> DriftLocation in
+                let capability = capabilities[member]
+                return DriftLocation(
+                    kind: capability.source.kind,
+                    scope: capability.scope.rawValue,
+                    path: displayPath(locationPath(for: capability)),
+                    hash: capability.metadata["contentHash"] ?? "",
+                    current: member == index
+                )
+            }
+            guard let json = encodeDriftLocations(records) else { continue }
+            capabilities[index].metadata["driftLocationsJSON"] = json
+            capabilities[index].metadata["driftLocationCount"] = String(records.count)
+        }
+    }
+
+    /// The real on-disk location to show for a capability: the scanner-recorded `sourcePath`
+    /// when present (the SKILL.md / config the user can actually open), falling back to the
+    /// structural `source.path`. Orbita's own internal index paths are never surfaced.
+    private func locationPath(for capability: Capability) -> String {
+        if let path = capability.metadata["sourcePath"],
+           !path.isEmpty,
+           !path.contains("/.orbita/") {
+            return path
+        }
+        return capability.source.path
+    }
+
+    private func encodeDriftLocations(_ records: [DriftLocation]) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(records) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func appendStatus(_ status: CapabilityStatus, to capability: inout Capability) {

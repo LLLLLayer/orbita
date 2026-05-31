@@ -3,6 +3,7 @@ import OrbitaCore
 
 private enum ApplyExecutionOutcome: Sendable {
     case success(ApplyExecutionResult)
+    case executionFailure(ApplyExecutionError)
     case failure(String)
 }
 
@@ -70,8 +71,8 @@ final class ProjectCapabilityStore: ObservableObject {
     }
 
     var projectName: String {
-        if isEnvironment { return "This Mac" }
-        guard let projectRoot else { return "Open a project" }
+        if isEnvironment { return L("scope.thisMac") }
+        guard let projectRoot else { return L("scope.openProject") }
         return projectRoot.lastPathComponent.isEmpty ? projectRoot.path : projectRoot.lastPathComponent
     }
 
@@ -81,12 +82,12 @@ final class ProjectCapabilityStore: ObservableObject {
 
     var lastRefreshLabel: String {
         guard let lastRefreshedAt else {
-            return "Never refreshed"
+            return L("scan.neverRefreshed")
         }
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .short
-        return "Last refresh \(formatter.string(from: lastRefreshedAt))"
+        return String(format: L("scan.lastRefresh"), formatter.string(from: lastRefreshedAt))
     }
 
     func configure(refreshPolicy rawValue: String) {
@@ -131,12 +132,12 @@ final class ProjectCapabilityStore: ObservableObject {
             lastRefreshedAt = iso8601Formatter.date(from: snapshot.capturedAt)
             if !force, isSnapshotFresh(snapshot) {
                 isScanning = false
-                scanMessage = "Using cached snapshot"
+                scanMessage = L("scan.usingCachedSnapshot")
                 scanProgress = 1
                 OrbitaTelemetry.scan.notice("snapshot.cache.hit root=\(root.path, privacy: .private)")
                 return
             }
-            scanMessage = "Refreshing cached snapshot"
+            scanMessage = L("scan.refreshingCachedSnapshot")
             scanProgress = 0.08
             OrbitaTelemetry.scan.notice("snapshot.loaded root=\(root.path, privacy: .private)")
         } else {
@@ -144,7 +145,7 @@ final class ProjectCapabilityStore: ObservableObject {
                 setGraph(nil)
             }
             lastRefreshedAt = nil
-            scanMessage = "Scanning \(projectName)"
+            scanMessage = String(format: L("main.loading.scanning"), projectName)
             scanProgress = 0.04
         }
         isScanning = true
@@ -179,7 +180,7 @@ final class ProjectCapabilityStore: ObservableObject {
                 self.setGraph(graph)
                 self.errorMessage = nil
                 self.isScanning = false
-                self.scanMessage = "Found \(graph.capabilities.count) capabilities"
+                self.scanMessage = String(format: L("scan.foundCapabilities"), graph.capabilities.count)
                 self.scanProgress = 1
                 self.lastRefreshedAt = Date()
                 do {
@@ -257,30 +258,30 @@ final class ProjectCapabilityStore: ObservableObject {
     private func scanMessage(for event: ScanProgressEvent) -> String {
         switch event.name {
         case "scan.start":
-            return "Preparing \(projectName)"
+            return String(format: L("scan.preparing"), projectName)
         case "scan.instructions.start", "scan.instructions.finish":
-            return "Checking project instructions"
+            return L("scan.checkingInstructions")
         case "scan.codex.start", "scan.codex.finish":
-            return "Checking Codex"
+            return L("scan.checkingCodex")
         case "scan.claude.start", "scan.claude.finish":
-            return "Checking Claude Code"
+            return L("scan.checkingClaude")
         case "scan.cursor.start", "scan.cursor.finish":
-            return "Checking project rules"
+            return L("scan.checkingRules")
         case "scan.mcp.start", "scan.mcp.finish":
-            return "Checking MCP"
+            return L("scan.checkingMCP")
         case "scan.agents.start", "scan.agents.finish":
-            return "Checking .agents"
+            return L("scan.checkingAgents")
         case "scan.skills.start":
-            return "Scanning skills"
+            return L("scan.scanningSkills")
         case "scan.skills.finish":
             if let count = event.count {
-                return "Scanned skills - \(count) found"
+                return String(format: L("scan.scannedSkillsCount"), count)
             }
-            return "Scanned skills"
+            return L("scan.scannedSkills")
         case "scan.finish":
-            return "Finishing scan"
+            return L("scan.finishing")
         default:
-            return scanMessage ?? "Scanning \(projectName)"
+            return scanMessage ?? String(format: L("main.loading.scanning"), projectName)
         }
     }
 
@@ -544,17 +545,17 @@ final class ProjectCapabilityStore: ObservableObject {
     /// Turns a structured ApplyExecutionError into a message that tells the user exactly which step failed
     /// and how much of a grouped/multi-target plan (e.g. a fork across several agents) was completed vs not
     /// attempted, instead of collapsing everything to a bare error string.
-    nonisolated static func failureMessage(for error: ApplyExecutionError) -> String {
+    @MainActor static func failureMessage(for error: ApplyExecutionError) -> String {
         var lines = [error.message]
         let completed = error.completedOperations.count
         let pending = error.pendingOperations.count
         if completed > 0 || pending > 0 {
-            var summary = "Failed at: \(error.failedOperation.description)."
+            var summary = String(format: L("apply.failure.failedAt"), error.failedOperation.description)
             if completed > 0 {
-                summary += " \(completed) operation\(completed == 1 ? "" : "s") had already applied."
+                summary += " " + String(format: L("apply.failure.alreadyApplied"), completed)
             }
             if pending > 0 {
-                summary += " \(pending) operation\(pending == 1 ? "" : "s") were not attempted."
+                summary += " " + String(format: L("apply.failure.notAttempted"), pending)
             }
             lines.append(summary)
         }
@@ -576,7 +577,7 @@ final class ProjectCapabilityStore: ObservableObject {
                     let result = try ApplyPlanExecutor().apply(plan)
                     return ApplyExecutionOutcome.success(result)
                 } catch let executionError as ApplyExecutionError {
-                    return ApplyExecutionOutcome.failure(Self.failureMessage(for: executionError))
+                    return ApplyExecutionOutcome.executionFailure(executionError)
                 } catch {
                     return ApplyExecutionOutcome.failure(error.localizedDescription)
                 }
@@ -590,6 +591,13 @@ final class ProjectCapabilityStore: ObservableObject {
                     plan,
                     result: result,
                     affectedCapabilities: affectedCapabilities,
+                    optimisticRevision: optimisticRevision
+                )
+            case let .executionFailure(executionError):
+                self.failApply(
+                    plan,
+                    message: Self.failureMessage(for: executionError),
+                    previousGraph: previousGraph,
                     optimisticRevision: optimisticRevision
                 )
             case let .failure(message):

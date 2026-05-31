@@ -2,6 +2,7 @@ import SwiftUI
 import OrbitaCore
 
 struct AddAgentSheet: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     @State private var name = ""
     @State private var behavior = AgentBehavior.generic
     @State private var selectedPresetID = ""
@@ -24,10 +25,10 @@ struct AddAgentSheet: View {
             AddAgentHeader()
 
             VStack(alignment: .leading, spacing: 14) {
-                AddAgentFieldLabel(title: "Agent source", systemImage: "wand.and.stars")
+                AddAgentFieldLabel(title: L("sheet.addagent.field.source"), systemImage: "wand.and.stars")
                 presetMenu
 
-                AddAgentFieldLabel(title: "Display name", systemImage: "textformat")
+                AddAgentFieldLabel(title: L("sheet.addagent.field.displayname"), systemImage: "textformat")
                     .padding(.top, 2)
                 nameField
             }
@@ -38,9 +39,9 @@ struct AddAgentSheet: View {
 
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
-                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(title: L("sheet.action.cancel"), systemImage: "xmark", action: onCancel)
                 AddAgentActionButton(
-                    title: "Add",
+                    title: L("sheet.action.add"),
                     systemImage: "plus",
                     prominent: true,
                     isDisabled: trimmedName.isEmpty,
@@ -63,7 +64,7 @@ struct AddAgentSheet: View {
             Button {
                 selectCustomPreset()
             } label: {
-                Label("Custom", systemImage: "person.crop.circle")
+                Label(L("sheet.addagent.preset.custom"), systemImage: "person.crop.circle")
             }
 
             Divider()
@@ -72,17 +73,36 @@ struct AddAgentSheet: View {
                 Button {
                     select(preset)
                 } label: {
-                    Label(preset.displayName, systemImage: "wand.and.stars")
+                    Label {
+                        Text(preset.displayName)
+                    } icon: {
+                        Image(nsImage: AgentGlyphImage.nsImage(
+                            assetName: AgentBrandIconStore.assetName(forAgentID: preset.id),
+                            seed: preset.id,
+                            displayName: preset.displayName
+                        ))
+                    }
                 }
             }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: selectedPreset == nil ? "person.crop.circle" : "wand.and.stars")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 22)
+                Group {
+                    if let selectedPreset {
+                        AgentGlyph(
+                            assetName: AgentBrandIconStore.assetName(forAgentID: selectedPreset.id),
+                            seed: selectedPreset.id,
+                            displayName: selectedPreset.displayName,
+                            size: 18
+                        )
+                    } else {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                }
+                .frame(width: 22)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(selectedPreset?.displayName ?? "Custom")
+                    Text(selectedPreset?.displayName ?? L("sheet.addagent.preset.custom"))
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                     Text(presetDetail)
@@ -107,7 +127,7 @@ struct AddAgentSheet: View {
     }
 
     private var nameField: some View {
-        TextField("Agent name", text: $name)
+        TextField(L("sheet.addagent.field.name.placeholder"), text: $name)
             .textFieldStyle(.plain)
             .font(.body.weight(.medium))
             .padding(.horizontal, 12)
@@ -124,28 +144,22 @@ struct AddAgentSheet: View {
     @ViewBuilder
     private var capabilityModelSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            AddAgentFieldLabel(title: "Capability model", systemImage: "slider.horizontal.3")
+            AddAgentFieldLabel(title: L("sheet.addagent.field.capabilitymodel"), systemImage: "slider.horizontal.3")
 
-            if selectedPreset == nil {
-                HStack(spacing: 10) {
-                    ForEach(AddAgentBehaviorOption.customOptions) { option in
-                        AddAgentBehaviorButton(
-                            option: option,
-                            isSelected: behavior == option.behavior
-                        ) {
-                            behavior = option.behavior
-                        }
-                    }
-                }
-            } else if let selectedPreset {
+            if let selectedPreset {
                 SkillsPresetSummary(preset: selectedPreset)
+            } else {
+                // A custom tool uses the default (Generic) scheme for now. Agent-specific schemes
+                // (Codex/Claude visibility rules) are intentionally not offered in the add panel yet — the
+                // note below tells the user which scheme they're getting.
+                DefaultSchemeNote()
             }
         }
     }
 
     private var presetDetail: String {
         guard let selectedPreset else {
-            return "Manual capability view"
+            return L("sheet.addagent.preset.manualview")
         }
         return "\(selectedPreset.projectSkillsDir) / \(displayPath(selectedPreset.globalSkillsDir))"
     }
@@ -175,7 +189,7 @@ struct AddAgentSheet: View {
 
     private func displayPath(_ path: String?) -> String {
         guard let path, !path.isEmpty else {
-            return "No global path"
+            return L("sheet.addagent.noglobalpath")
         }
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         if path == homePath {
@@ -193,6 +207,7 @@ struct AddAgentSheet: View {
 }
 
 private struct AddAgentHeader: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             ZStack {
@@ -210,9 +225,9 @@ private struct AddAgentHeader: View {
             .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Add Coding Agent")
+                Text(L("sheet.addagent.header.title"))
                     .font(.title2.weight(.semibold))
-                Text("Preset or custom capability view")
+                Text(L("sheet.addagent.header.subtitle"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -234,70 +249,43 @@ private struct AddAgentFieldLabel: View {
     }
 }
 
-private struct AddAgentBehaviorOption: Identifiable {
-    let behavior: AgentBehavior
-    let title: String
-    let subtitle: String
-    let systemImage: String
-
-    var id: AgentBehavior { behavior }
-
-    static let customOptions: [AddAgentBehaviorOption] = [
-        .init(
-            behavior: .generic,
-            title: "Generic",
-            subtitle: "All enabled capabilities",
-            systemImage: "square.grid.2x2"
-        ),
-        .init(
-            behavior: .codexLike,
-            title: "Codex-style",
-            subtitle: "Codex visibility rules",
-            systemImage: "command"
-        ),
-        .init(
-            behavior: .claudeLike,
-            title: "Claude-style",
-            subtitle: "Claude visibility rules",
-            systemImage: "text.bubble"
-        )
-    ]
-}
-
-private struct AddAgentBehaviorButton: View {
-    let option: AddAgentBehaviorOption
-    let isSelected: Bool
-    let action: () -> Void
-
+private struct DefaultSchemeNote: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                Image(systemName: option.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 22, height: 20, alignment: .leading)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 24)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(option.title)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(L("sheet.addagent.scheme.generic"))
                         .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(option.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground.opacity(0.72) : .secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(L("sheet.addagent.scheme.default"))
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(OrbitaTheme.controlFill, in: Capsule())
                 }
+
+                Text(L("sheet.addagent.scheme.note"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
-            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : Color.primary)
-            .contentShape(Rectangle())
+
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .orbitaControlSurface(selected: isSelected, cornerRadius: 14)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .orbitaCard(cornerRadius: 16, shadowRadius: 6, shadowY: 3)
     }
 }
 
 private struct SkillsPresetSummary: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let preset: SkillsAgentDefinition
 
     var body: some View {
@@ -309,9 +297,9 @@ private struct SkillsPresetSummary: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text("Skills CLI install paths")
+                    Text(L("sheet.addagent.skillspaths.title"))
                         .font(.subheadline.weight(.semibold))
-                    Text(preset.usesSharedProjectSkills ? "Shared" : "Dedicated")
+                    Text(preset.usesSharedProjectSkills ? L("sheet.addagent.skillspaths.shared") : L("sheet.addagent.skillspaths.dedicated"))
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -334,7 +322,7 @@ private struct SkillsPresetSummary: View {
 
     private func displayPath(_ path: String?) -> String {
         guard let path, !path.isEmpty else {
-            return "No global path"
+            return L("sheet.addagent.noglobalpath")
         }
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         if path == homePath {
@@ -378,6 +366,7 @@ struct SyncCapabilityRequest {
 }
 
 struct SyncCapabilitySheet: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability
     let agents: [AgentSelection]
     let visibleAgentIDs: Set<String>
@@ -408,7 +397,7 @@ struct SyncCapabilitySheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             CategorySheetHeader(
-                title: "Sync to Agent",
+                title: L("sheet.sync.title"),
                 subtitle: syncSubtitle,
                 systemImage: "arrow.triangle.branch"
             )
@@ -426,6 +415,7 @@ struct SyncCapabilitySheet: View {
 
             HStack(spacing: 10) {
                 Label(statusText, systemImage: "info.circle")
+                    // statusText is already localized
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -433,9 +423,9 @@ struct SyncCapabilitySheet: View {
 
                 Spacer(minLength: 0)
 
-                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(title: L("sheet.action.cancel"), systemImage: "xmark", action: onCancel)
                 AddAgentActionButton(
-                    title: "Sync",
+                    title: L("sheet.action.sync"),
                     systemImage: "arrow.triangle.branch",
                     prominent: true,
                     isDisabled: selectedAgent == nil
@@ -463,8 +453,8 @@ struct SyncCapabilitySheet: View {
         VStack(alignment: .leading, spacing: 12) {
             SyncStepHeader(
                 number: 1,
-                title: "Destination",
-                detail: selectedAgent.map { "Sync to \($0.displayName)" } ?? "Choose an agent"
+                title: L("sheet.sync.step.destination"),
+                detail: selectedAgent.map { String(format: L("sheet.sync.destination.syncto"), $0.displayName) } ?? L("sheet.sync.destination.choose")
             )
 
             ScrollView {
@@ -499,12 +489,12 @@ struct SyncCapabilitySheet: View {
 
     private var methodPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SyncStepHeader(number: 2, title: "Method", detail: selectedMode.title)
+            SyncStepHeader(number: 2, title: L("sheet.sync.step.method"), detail: selectedMode.title)
 
             VStack(spacing: 8) {
                 SyncOptionButton(
-                    title: "Copy",
-                    detail: "Create an independent file at the target.",
+                    title: L("sheet.sync.method.copy"),
+                    detail: L("sheet.sync.method.copy.detail"),
                     systemImage: "doc.on.doc",
                     isSelected: selectedMode == .copy
                 ) {
@@ -512,8 +502,8 @@ struct SyncCapabilitySheet: View {
                 }
 
                 SyncOptionButton(
-                    title: "Symlink",
-                    detail: "Point the target back to this source.",
+                    title: L("sheet.sync.method.symlink"),
+                    detail: L("sheet.sync.method.symlink.detail"),
                     systemImage: "link",
                     isSelected: selectedMode == .symlink
                 ) {
@@ -528,7 +518,7 @@ struct SyncCapabilitySheet: View {
 
     private var locationPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SyncStepHeader(number: 3, title: "Location", detail: selectedDestinationScope.title)
+            SyncStepHeader(number: 3, title: L("sheet.sync.step.location"), detail: selectedDestinationScope.title)
 
             VStack(spacing: 8) {
                 ForEach(destinationScopes, id: \.self) { scope in
@@ -559,7 +549,7 @@ struct SyncCapabilitySheet: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            Label(selectedAgent?.displayName ?? "Agent", systemImage: "person.crop.circle")
+            Label(selectedAgent?.displayName ?? L("sheet.sync.preview.agent"), systemImage: "person.crop.circle")
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
 
@@ -581,12 +571,12 @@ struct SyncCapabilitySheet: View {
 
     private var statusText: String {
         guard let selectedAgent else {
-            return "Choose a destination agent."
+            return L("sheet.sync.status.choose")
         }
         if visibleAgentIDs.contains(selectedAgent.id) {
-            return "\(selectedAgent.displayName) already has this capability."
+            return String(format: L("sheet.sync.status.alreadyhas"), selectedAgent.displayName)
         }
-        return "Ready to sync to \(selectedAgent.displayName)."
+        return String(format: L("sheet.sync.status.ready"), selectedAgent.displayName)
     }
 
     private var selectedAgent: AgentSelection? {
@@ -651,6 +641,7 @@ private struct SyncStepHeader: View {
 }
 
 private struct SyncAgentRow: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let agent: AgentSelection
     let isAlreadyVisible: Bool
     let isSelected: Bool
@@ -666,7 +657,7 @@ private struct SyncAgentRow: View {
                     Text(agent.displayName)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
-                    Text(isAlreadyVisible ? "Already available" : "Available target")
+                    Text(isAlreadyVisible ? L("sheet.sync.row.alreadyavailable") : L("sheet.sync.row.availabletarget"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -769,31 +760,32 @@ private struct SyncSummaryRow: View {
     }
 }
 
+@MainActor
 private extension AgentSyncMode {
     var title: String {
         switch self {
         case .copy:
-            return "Copy"
+            return L("sheet.sync.method.copy")
         case .symlink:
-            return "Symlink"
+            return L("sheet.sync.method.symlink")
         }
     }
 
     var summaryTitle: String {
         switch self {
         case .copy:
-            return "Copies are independent"
+            return L("sheet.sync.summary.copy.title")
         case .symlink:
-            return "Symlinks follow the source"
+            return L("sheet.sync.summary.symlink.title")
         }
     }
 
     var summaryDetail: String {
         switch self {
         case .copy:
-            return "Future edits to the original will not update this target automatically."
+            return L("sheet.sync.summary.copy.detail")
         case .symlink:
-            return "The target points back to the original capability on disk."
+            return L("sheet.sync.summary.symlink.detail")
         }
     }
 
@@ -807,22 +799,23 @@ private extension AgentSyncMode {
     }
 }
 
+@MainActor
 private extension AgentSyncDestinationScope {
     var title: String {
         switch self {
         case .project:
-            return "Project"
+            return L("sheet.sync.scope.project")
         case .user:
-            return "Global"
+            return L("sheet.sync.scope.global")
         }
     }
 
     var detail: String {
         switch self {
         case .project:
-            return "Install into this project only."
+            return L("sheet.sync.scope.project.detail")
         case .user:
-            return "Install for local projects on this Mac."
+            return L("sheet.sync.scope.global.detail")
         }
     }
 
@@ -838,23 +831,24 @@ private extension AgentSyncDestinationScope {
     var summaryTitle: String {
         switch self {
         case .project:
-            return "Installs into the project"
+            return L("sheet.sync.scope.project.summary")
         case .user:
-            return "Installs globally"
+            return L("sheet.sync.scope.global.summary")
         }
     }
 
     var summaryDetail: String {
         switch self {
         case .project:
-            return "Only this project gets the synced capability."
+            return L("sheet.sync.scope.project.summary.detail")
         case .user:
-            return "The selected agent can use it across local projects."
+            return L("sheet.sync.scope.global.summary.detail")
         }
     }
 }
 
 struct ScopedCapabilityActionSheet: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let title: String
     let message: String
     let primaryButtonTitle: String
@@ -869,7 +863,7 @@ struct ScopedCapabilityActionSheet: View {
         VStack(alignment: .leading, spacing: 18) {
             CategorySheetHeader(
                 title: headerTitle,
-                subtitle: "Review current capability",
+                subtitle: L("sheet.scoped.subtitle"),
                 systemImage: headerSystemImage
             )
 
@@ -881,7 +875,7 @@ struct ScopedCapabilityActionSheet: View {
             )
 
             HStack(spacing: 10) {
-                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(title: L("sheet.action.cancel"), systemImage: "xmark", action: onCancel)
 
                 Spacer(minLength: 0)
 
@@ -901,7 +895,7 @@ struct ScopedCapabilityActionSheet: View {
     }
 
     private var headerTitle: String {
-        isShowingSecondaryConfirmation ? "Confirm Linked Delete" : title
+        isShowingSecondaryConfirmation ? L("sheet.scoped.header.linkeddelete") : title
     }
 
     private var headerSystemImage: String {
@@ -928,9 +922,9 @@ struct ScopedCapabilityActionSheet: View {
 
     private var impactTitle: String {
         if isShowingSecondaryConfirmation {
-            return "Linked targets will be removed"
+            return L("sheet.scoped.impact.linkedremoved")
         }
-        return isDestructive ? "Permanent delete" : "Capability will be disabled"
+        return isDestructive ? L("sheet.scoped.impact.permanentdelete") : L("sheet.scoped.impact.willbedisabled")
     }
 
     private var showsContinueButton: Bool {
@@ -938,7 +932,7 @@ struct ScopedCapabilityActionSheet: View {
     }
 
     private var actionButtonTitle: String {
-        showsContinueButton ? "Continue" : primaryButtonTitle
+        showsContinueButton ? L("sheet.scoped.action.continue") : primaryButtonTitle
     }
 
     private var actionButtonSystemImage: String {
@@ -1060,6 +1054,7 @@ private struct HelpBadge: View {
 }
 
 struct HideCategoriesSheet: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let categories: [CapabilityCategory]
     let onSave: (Set<String>) -> Void
     let onCancel: () -> Void
@@ -1081,8 +1076,8 @@ struct HideCategoriesSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             CategorySheetHeader(
-                title: "Hidden Categories",
-                subtitle: "Second filter visibility",
+                title: L("sheet.hide.title"),
+                subtitle: L("sheet.hide.subtitle"),
                 systemImage: "eye.slash"
             )
 
@@ -1104,15 +1099,15 @@ struct HideCategoriesSheet: View {
             .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
 
             HStack(spacing: 10) {
-                AddAgentActionButton(title: "Show All", systemImage: "eye") {
+                AddAgentActionButton(title: L("sheet.hide.showall"), systemImage: "eye") {
                     hiddenIDs.removeAll()
                 }
 
                 Spacer(minLength: 0)
 
-                AddAgentActionButton(title: "Cancel", systemImage: "xmark", action: onCancel)
+                AddAgentActionButton(title: L("sheet.action.cancel"), systemImage: "xmark", action: onCancel)
                 AddAgentActionButton(
-                    title: "Save",
+                    title: L("sheet.action.save"),
                     systemImage: "checkmark",
                     prominent: true
                 ) {
@@ -1178,6 +1173,7 @@ private struct CategorySheetHeader: View {
 }
 
 private struct HideCategoryRow: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let category: CapabilityCategory
     let isHidden: Bool
     let isLocked: Bool
@@ -1191,7 +1187,7 @@ private struct HideCategoryRow: View {
                 Text(category.title)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Text(isLocked ? "Always visible" : isHidden ? "Hidden" : "Visible")
+                Text(isLocked ? L("sheet.hide.row.alwaysvisible") : isHidden ? L("sheet.hide.row.hidden") : L("sheet.hide.row.visible"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1259,6 +1255,7 @@ private extension CapabilityCategory {
 }
 
 struct ApplyPlanSheet: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let plan: ApplyPlan
     let onCancel: () -> Void
     let onApply: () -> Void
@@ -1266,16 +1263,16 @@ struct ApplyPlanSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Confirm Changes")
+                Text(L("sheet.apply.title"))
                     .font(.title2.weight(.semibold))
-                Text("Nothing has been changed yet. Review the file operations before applying.")
+                Text(L("sheet.apply.subtitle"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            LabeledContent("Action", value: plan.action.displayTitle)
-            LabeledContent("Capability", value: plan.capabilityID)
-            LabeledContent("Operations", value: "\(plan.operations.count)")
-            LabeledContent("Confirmation", value: plan.requiresConfirmation ? "Required" : "Not required")
+            LabeledContent(L("sheet.apply.row.action"), value: plan.action.displayTitle)
+            LabeledContent(L("sheet.apply.row.capability"), value: plan.capabilityID)
+            LabeledContent(L("sheet.apply.row.operations"), value: "\(plan.operations.count)")
+            LabeledContent(L("sheet.apply.row.confirmation"), value: plan.requiresConfirmation ? L("sheet.apply.confirmation.required") : L("sheet.apply.confirmation.notrequired"))
 
             List(plan.operations, id: \.self) { operation in
                 VStack(alignment: .leading, spacing: 4) {
@@ -1296,7 +1293,7 @@ struct ApplyPlanSheet: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     if let target = operation.target {
-                        Text("Target: \(target)")
+                        Text(String(format: L("sheet.apply.operation.target"), target))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -1306,8 +1303,8 @@ struct ApplyPlanSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", action: onCancel)
-                Button("Apply", action: onApply)
+                Button(L("sheet.action.cancel"), action: onCancel)
+                Button(L("sheet.action.apply"), action: onApply)
                     .keyboardShortcut(.defaultAction)
             }
         }

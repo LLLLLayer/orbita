@@ -15,6 +15,7 @@ private final class DisplayDerivationCache {
 }
 
 struct ContentView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     @StateObject private var store = ProjectCapabilityStore()
     @StateObject private var fullDiskAccess = FullDiskAccessGate()
     @AppStorage("customAgentsJSON") private var customAgentsJSON = "[]"
@@ -272,7 +273,7 @@ struct ContentView: View {
                         selectedCapability: $selectedCapability,
                         expandedGroupIDs: $expandedGroupIDs,
                         onAddAgent: {
-                            showComingSoonToast()
+                            addingAgentPresented = true
                         },
                         onMoveAgent: moveAgent,
                         onPinAgent: pinAgent,
@@ -497,8 +498,8 @@ struct ContentView: View {
                 prepareStoreIfPermitted()
             } else {
                 didPreflightUserDirectoryAccess = false
-                let path = result.deniedURLs.first?.abbreviatedPath ?? "a required folder"
-                userDirectoryAccessMessage = "Orbita still cannot read \(path). Allow the macOS prompt, then try again or enable Full Disk Access."
+                let path = result.deniedURLs.first?.abbreviatedPath ?? L("app.access.requiredFolder")
+                userDirectoryAccessMessage = String(format: L("app.access.stillCannotRead"), path)
             }
         }
     }
@@ -585,14 +586,14 @@ struct ContentView: View {
                 return CapabilityCollectionSection(
                     id: kind.rawValue,
                     title: kind.title,
-                    subtitle: "\(sectionItems.count) items",
+                    subtitle: String(format: L("app.section.itemCount"), sectionItems.count),
                     subsections: allTabSubsections(for: sortedSectionItems)
                 )
             }
             return CapabilityCollectionSection(
                 id: kind.rawValue,
                 title: kind.title,
-                subtitle: "\(sectionItems.count) items",
+                subtitle: String(format: L("app.section.itemCount"), sectionItems.count),
                 items: sortedSectionItems
             )
         }
@@ -650,7 +651,7 @@ struct ContentView: View {
             return CapabilityCollectionSubsection(
                 id: kind.id,
                 title: kind.title,
-                subtitle: "\(sectionItems.count) items",
+                subtitle: String(format: L("app.section.itemCount"), sectionItems.count),
                 items: sectionItems
             )
         }
@@ -1022,7 +1023,7 @@ struct ContentView: View {
                     store.reload(force: true)
                 } else {
                     let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-                    store.errorMessage = output.isEmpty ? "Delete command failed: \(command)" : output
+                    store.errorMessage = output.isEmpty ? String(format: L("app.error.deleteCommandFailed"), command) : output
                 }
             }
         }
@@ -1159,12 +1160,13 @@ private enum CapabilitySectionKind: String, CaseIterable {
         }
     }
 
+    @MainActor
     var title: String {
         switch self {
         case .enabled:
-            return "Enabled"
+            return L("app.section.enabled")
         case .disabled:
-            return "Disabled"
+            return L("app.section.disabled")
         }
     }
 }
@@ -1203,12 +1205,13 @@ private enum AllTabSubsectionKind: Hashable {
         }
     }
 
+    @MainActor
     var title: String {
         switch self {
         case let .category(category):
             return category.title
         case .other:
-            return "Other"
+            return L("app.subsection.other")
         }
     }
 }
@@ -1234,31 +1237,35 @@ private struct PendingScopedCapabilityAction: Identifiable {
         "\(kind):\(plan.id)"
     }
 
+    @MainActor
     var title: String {
         switch kind {
         case .delete:
-            return "Delete \(name)?"
+            return String(format: L("app.confirm.deleteTitle"), name)
         case .disable:
-            return "Disable \(name)?"
+            return String(format: L("app.confirm.disableTitle"), name)
         }
     }
 
+    @MainActor
     var primaryButtonTitle: String {
         switch kind {
         case .delete:
-            return "Delete Current"
+            return L("app.confirm.deleteCurrent")
         case .disable:
-            return "Disable Current"
+            return L("app.confirm.disableCurrent")
         }
     }
 
+    @MainActor
     var secondaryConfirmationMessage: String? {
         guard kind == .delete, !linkedSymlinkAgentNames.isEmpty else {
             return nil
         }
-        return "This will also delete linked symlinks for \(linkedAgentList). Confirm delete?"
+        return String(format: L("app.confirm.alsoDeleteSymlinks"), linkedAgentList)
     }
 
+    @MainActor
     var message: String {
         switch kind {
         case .delete:
@@ -1268,26 +1275,28 @@ private struct PendingScopedCapabilityAction: Identifiable {
         }
     }
 
+    @MainActor
     private var deleteMessage: String {
-        let agentText = currentAgentName.map { " for \($0)" } ?? ""
+        let agentText = currentAgentName.map { String(format: L("app.confirm.forAgentSuffix"), $0) } ?? ""
         if !linkedSymlinkAgentNames.isEmpty {
-            return "This will permanently delete the current capability source\(agentText). \(linkedAgentList) are symlinks to this source and will be deleted together to avoid broken links."
+            return String(format: L("app.confirm.deleteSourceWithSymlinks"), agentText, linkedAgentList)
         }
         let count = affectedCount(in: plan)
         if count > 1 {
-            return "This will permanently delete the current selection\(agentText), including \(count) grouped capability sources."
+            return String(format: L("app.confirm.deleteSelectionGrouped"), agentText, count)
         }
-        return "This will permanently delete the current capability source\(agentText)."
+        return String(format: L("app.confirm.deleteSource"), agentText)
     }
 
+    @MainActor
     private var disableMessage: String {
         let scopedText: String
         let count = affectedCount(in: plan)
-        let agentText = currentAgentName.map { " for \($0)" } ?? ""
+        let agentText = currentAgentName.map { String(format: L("app.confirm.forAgentSuffix"), $0) } ?? ""
         if count > 1 {
-            scopedText = "This will disable the current selection\(agentText), including \(count) grouped capability sources."
+            scopedText = String(format: L("app.confirm.disableSelectionGrouped"), agentText, count)
         } else {
-            scopedText = "This will disable the current capability source\(agentText)."
+            scopedText = String(format: L("app.confirm.disableSource"), agentText)
         }
 
         let operations = plan.operations
@@ -1296,15 +1305,15 @@ private struct PendingScopedCapabilityAction: Identifiable {
             operation.kind == .removePath && operation.description.localizedCaseInsensitiveContains("symbolic link")
         }
         if hasCache && hasSymlinkRemoval {
-            return "\(scopedText) Symbolic links are removed as links only. Real files are copied to .orbita/cache/disabled and restored when enabled."
+            return String(format: L("app.confirm.disableCacheAndSymlink"), scopedText)
         }
         if hasCache {
-            return "\(scopedText) Real files are copied to .orbita/cache/disabled and restored when enabled."
+            return String(format: L("app.confirm.disableCache"), scopedText)
         }
         if hasSymlinkRemoval {
-            return "\(scopedText) Symbolic links are removed as links only; their targets remain untouched."
+            return String(format: L("app.confirm.disableSymlinkOnly"), scopedText)
         }
-        return "\(scopedText) Orbita will record disabled intent in .agents."
+        return String(format: L("app.confirm.disableIntent"), scopedText)
     }
 
     private func affectedCount(in plan: ApplyPlan) -> Int {

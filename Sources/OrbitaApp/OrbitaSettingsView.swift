@@ -57,6 +57,14 @@ enum ScanRefreshPolicy: String, CaseIterable, Identifiable {
             return nil
         }
     }
+
+    /// Plain-language description of *when* this policy re-scans, shown live under the
+    /// picker so the user understands what "Automatic" actually does (its TTL is
+    /// scope-dependent — 30 min for a project, 60 min for This Mac).
+    @MainActor
+    var explanation: String {
+        L("refresh.explain.\(rawValue)")
+    }
 }
 
 enum CapabilitySortOption: String, CaseIterable, Identifiable {
@@ -80,6 +88,10 @@ enum CapabilitySortOption: String, CaseIterable, Identifiable {
 }
 
 struct OrbitaSettingsView: View {
+    // Observe the language manager so this view (and its L() calls) re-render on a
+    // language switch via normal dependency tracking — no `.id()` rebuild, so the
+    // selected page and other local state survive the switch.
+    @ObservedObject private var localization = LocalizationManager.shared
     @Binding var refreshPolicy: String
     @Binding var languageCode: String
     @Binding var sortOption: String
@@ -97,7 +109,7 @@ struct OrbitaSettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             settingsSidebar
-                .frame(width: 208)
+                .frame(width: OrbitaLayoutMetrics.sidebarWidth)
             Divider()
             settingsDetail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -178,14 +190,31 @@ struct OrbitaSettingsView: View {
                     title: L("settings.general.refresh.title"),
                     subtitle: L("settings.general.refresh.subtitle")
                 ) {
-                    Picker(L("settings.general.refresh.title"), selection: $refreshPolicy) {
-                        ForEach(ScanRefreshPolicy.allCases) { policy in
-                            Text(policy.title).tag(policy.rawValue)
+                    VStack(alignment: .leading, spacing: 9) {
+                        Picker(L("settings.general.refresh.title"), selection: $refreshPolicy) {
+                            ForEach(ScanRefreshPolicy.allCases) { policy in
+                                Text(policy.title).tag(policy.rawValue)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
+
+                        // Live, plain-language explanation of the selected policy — this is the
+                        // line that finally tells the user what "Automatic" means.
+                        Label {
+                            Text((ScanRefreshPolicy(rawValue: refreshPolicy) ?? .automatic).explanation)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } icon: {
+                            Image(systemName: "info.circle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
+                        .animation(.easeInOut(duration: 0.18), value: refreshPolicy)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
                 }
 
                 SettingsDivider()
@@ -305,19 +334,23 @@ struct OrbitaSettingsView: View {
                 projectRootPath: projectRootPath
             )
 
-            SettingsCard(title: L("settings.release.pipeline"), systemImage: "shippingbox") {
+            // The old single "Pipeline" card crammed 9 read-only rows into three
+            // unlabeled divider groups. Split into three demoted (flat, no-shadow)
+            // reference cards so each concern is named: what gets built, how it's
+            // trusted, how it auto-updates.
+            SettingsReferenceCard(title: L("settings.release.group.build"), systemImage: "hammer") {
                 SettingsInfoRow(title: L("settings.release.row.workflow"), value: ".github/workflows/release.yml")
                 SettingsInfoRow(title: L("settings.release.row.tag"), value: "v\(VersionInfo.current.version)")
                 SettingsInfoRow(title: L("settings.release.row.artifact"), value: "Orbita-v\(VersionInfo.current.version).dmg")
+            }
 
-                SettingsDivider()
-
+            SettingsReferenceCard(title: L("settings.release.group.trust"), systemImage: "checkmark.seal") {
                 SettingsInfoRow(title: L("settings.release.row.signing"), value: "Developer ID Application")
                 SettingsInfoRow(title: L("settings.release.row.runtime"), value: "Hardened Runtime")
                 SettingsInfoRow(title: L("settings.release.row.notary"), value: "xcrun notarytool + stapler")
+            }
 
-                SettingsDivider()
-
+            SettingsReferenceCard(title: L("settings.release.group.update"), systemImage: "arrow.down.circle") {
                 SettingsInfoRow(title: L("settings.release.row.updater"), value: "Sparkle runtime + appcast")
                 SettingsInfoRow(title: L("settings.release.row.feed"), value: "SUFeedURL over HTTPS")
                 SettingsInfoRow(title: L("settings.release.row.security"), value: "SUPublicEDKey + EdDSA archive signatures")
@@ -339,6 +372,7 @@ struct OrbitaSettingsView: View {
                     detail: L("settings.release.action.tag.detail"),
                     command: "script/release_github.sh v\(VersionInfo.current.version)",
                     isRunning: isRunningCommand,
+                    isPrimary: true,
                     onRun: { runCommand("script/release_github.sh v\(VersionInfo.current.version)") }
                 )
             }
@@ -493,7 +527,42 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
+/// A demoted variant of `SettingsCard` for read-only reference facts: flat
+/// `controlFill` background, no shadow, and a small uppercase caption header. The
+/// lack of elevation visually ranks these below the actionable (elevated) cards so
+/// the page reads as "reference, then actions" instead of one flat wall of rows.
+private struct SettingsReferenceCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(.secondary)
+            } icon: {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+            }
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+    }
+}
+
 private struct ReleaseSummaryCard: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let versionInfo: VersionInfo
     let projectName: String
     let projectRootPath: String?
@@ -510,7 +579,7 @@ private struct ReleaseSummaryCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Orbita")
                         .font(.title3.weight(.semibold))
-                    Text("Build \(versionInfo.build) for \(projectName)")
+                    Text(String(format: L("settings.release.buildFor"), versionInfo.build, projectName))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -614,10 +683,14 @@ private struct SettingsInfoRow: View {
 }
 
 private struct CommandRow: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let title: String
     let detail: String
     let command: String
     let isRunning: Bool
+    // Defaulted so the plugins-page call sites keep compiling without it; only the
+    // release "Tag current version" row sets it, making it the page's lead action.
+    var isPrimary: Bool = false
     let onRun: () -> Void
 
     var body: some View {
@@ -638,10 +711,21 @@ private struct CommandRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: onRun) {
-                Label(isRunning ? L("settings.command.running") : L("settings.command.run"), systemImage: isRunning ? "hourglass" : "play")
+            // .buttonStyle(.borderedProminent) vs (.bordered) are different concrete
+            // types, so the primary/secondary split is branched rather than ternary'd.
+            Group {
+                if isPrimary {
+                    Button(action: onRun) {
+                        Label(isRunning ? L("settings.command.running") : L("settings.command.run"), systemImage: isRunning ? "hourglass" : "play")
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button(action: onRun) {
+                        Label(isRunning ? L("settings.command.running") : L("settings.command.run"), systemImage: isRunning ? "hourglass" : "play")
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
-            .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(isRunning)
         }

@@ -11,6 +11,7 @@ enum OrbitaLayoutMetrics {
 }
 
 struct OrbitaSidebarView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let projects: [ProjectRecord]
     @Binding var selection: String?
     let onCollapse: () -> Void
@@ -38,16 +39,16 @@ struct OrbitaSidebarView: View {
                         .orbitaIconControlSurface()
                 }
                 .buttonStyle(.plain)
-                .help("Collapse sidebar")
+                .help(L("sidebar.collapse"))
             }
             .frame(height: 54)
             .padding(.horizontal, 14)
 
             VStack(alignment: .leading, spacing: 18) {
-                SidebarSection(title: "Environment") {
+                SidebarSection(title: L("sidebar.section.environment")) {
                     SidebarNavigationRow(
-                        title: "This Mac",
-                        subtitle: "User and device scope",
+                        title: L("sidebar.thismac.title"),
+                        subtitle: L("sidebar.thismac.subtitle"),
                         systemImage: "desktopcomputer",
                         isSelected: selection == ProjectCapabilityStore.environmentSelectionID,
                         action: onSelectThisMac
@@ -55,7 +56,7 @@ struct OrbitaSidebarView: View {
                 }
 
                 SidebarSection(
-                    title: "Projects",
+                    title: L("sidebar.section.projects"),
                     trailing: {
                         Button(action: onAddProject) {
                             Image(systemName: "plus")
@@ -63,13 +64,13 @@ struct OrbitaSidebarView: View {
                                 .frame(width: 22, height: 20)
                         }
                         .buttonStyle(.plain)
-                        .help("Open project")
+                        .help(L("sidebar.openProject"))
                     },
                     content: {
                         if projects.isEmpty {
                             SidebarNavigationRow(
-                                title: "Open Project...",
-                                subtitle: "Choose a repository",
+                                title: L("sidebar.openProject.row.title"),
+                                subtitle: L("sidebar.openProject.row.subtitle"),
                                 systemImage: "folder.badge.plus",
                                 isSelected: false,
                                 action: onAddProject
@@ -105,7 +106,7 @@ struct OrbitaSidebarView: View {
                                             onMoveProjects: onMoveProjects
                                         )
                                     )
-                                    .help("Drag to reorder")
+                                    .help(L("sidebar.dragToReorder"))
                                 }
                             }
                         }
@@ -116,8 +117,8 @@ struct OrbitaSidebarView: View {
             Spacer(minLength: 16)
 
             SidebarSettingsRow(
-                title: "Settings",
-                subtitle: "Preferences",
+                title: L("settings.title"),
+                subtitle: L("sidebar.settings.subtitle"),
                 systemImage: "gearshape",
                 action: onOpenSettings
             )
@@ -130,6 +131,7 @@ struct OrbitaSidebarView: View {
 }
 
 struct OrbitaSidebarRail: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let selection: String?
     let onExpand: () -> Void
     let onSelectThisMac: () -> Void
@@ -140,19 +142,19 @@ struct OrbitaSidebarRail: View {
         VStack(spacing: 0) {
             HStack {
                 RailButton(systemImage: "sidebar.left", isSelected: false, action: onExpand)
-                    .help("Expand sidebar")
+                    .help(L("sidebar.expand"))
             }
             .frame(height: 86, alignment: .bottom)
             .padding(.bottom, 8)
 
             VStack(spacing: 8) {
                 RailButton(systemImage: "desktopcomputer", isSelected: selection == ProjectCapabilityStore.environmentSelectionID, action: onSelectThisMac)
-                    .help("This Mac")
+                    .help(L("sidebar.thismac.title"))
                 RailButton(systemImage: "folder.badge.plus", isSelected: false, action: onAddProject)
-                    .help("Open project")
+                    .help(L("sidebar.openProject"))
                 Spacer(minLength: 12)
                 RailButton(systemImage: "gearshape", isSelected: false, action: onOpenSettings)
-                    .help("Settings")
+                    .help(L("settings.title"))
             }
             .padding(.top, 12)
             .padding(.bottom, 16)
@@ -226,6 +228,7 @@ private struct SidebarSection<Content: View, Trailing: View>: View {
 }
 
 private struct ProjectSidebarRow: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let project: ProjectRecord
     let isSelected: Bool
     let canPin: Bool
@@ -270,12 +273,12 @@ private struct ProjectSidebarRow: View {
         .onTapGesture(perform: onSelect)
         .contextMenu {
             Button(action: onPin) {
-                Label("Pin to Top", systemImage: "pin")
+                Label(L("sidebar.menu.pinToTop"), systemImage: "pin")
             }
             .disabled(!canPin)
             Divider()
             Button(role: .destructive, action: onRemove) {
-                Label("Delete", systemImage: "trash")
+                Label(L("sidebar.menu.delete"), systemImage: "trash")
             }
         }
         .accessibilityAddTraits(.isButton)

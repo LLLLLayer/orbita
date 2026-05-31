@@ -4,6 +4,7 @@ import AppKit
 import OrbitaCore
 
 struct CapabilityInspectorView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability?
     let selectedAgent: AgentSelection?
     let onClose: () -> Void
@@ -98,40 +99,42 @@ struct CapabilityInspectorView: View {
 
                     VStack(alignment: .leading, spacing: 16) {
                         InspectorSection {
-                            InspectorField("Scope", value: capability.scope.rawValue)
-                            InspectorField("Status", value: CapabilityVisuals.statusLabel(for: capability))
+                            InspectorField(L("inspector.field.scope"), value: localizedCapabilityScope(capability.scope.rawValue))
+                            InspectorField(L("inspector.field.status"), value: CapabilityVisuals.statusLabel(for: capability))
                             if let installedVersion = capability.metadata["installedVersion"],
                                !installedVersion.isEmpty {
-                                InspectorField("Version", value: installedVersion)
+                                InspectorField(L("inspector.field.version"), value: installedVersion)
                             }
-                            InspectorField("Access", value: CapabilityDisplayText.accessSummary(for: capability.risks))
-                            InspectorPathField("Source", path: sourcePath(for: capability))
+                            InspectorField(L("inspector.field.access"), value: CapabilityDisplayText.accessSummary(for: capability.risks))
+                            InspectorPathField(L("inspector.field.source"), path: sourcePath(for: capability))
                             if let canonicalPath = canonicalPathToDisplay(for: capability) {
-                                InspectorPathField("Canon", path: canonicalPath)
+                                InspectorPathField(L("inspector.field.canon"), path: canonicalPath)
                             }
                             if let installedAgents = capability.metadata["skillsInstalledAgents"], !installedAgents.isEmpty {
-                                InspectorField("Agents", value: installedAgents)
+                                InspectorField(L("inspector.field.agents"), value: installedAgents)
                             }
                             if let lockSource = capability.metadata["skillsLockSource"], !lockSource.isEmpty {
-                                InspectorField("Lock", value: lockSource)
+                                InspectorField(L("inspector.field.lock"), value: lockSource)
                             } else if let lockStatus = capability.metadata["skillsLockStatus"], !lockStatus.isEmpty {
-                                InspectorField("Lock", value: lockStatus)
+                                InspectorField(L("inspector.field.lock"), value: lockStatus)
                             }
                             if let lockRef = capability.metadata["skillsLockRef"], !lockRef.isEmpty {
-                                InspectorField("Ref", value: lockRef)
+                                InspectorField(L("inspector.field.ref"), value: lockRef)
                             }
                             if let skillPath = capability.metadata["skillsLockSkillPath"], !skillPath.isEmpty {
-                                InspectorField("Skill", value: skillPath)
+                                InspectorField(L("inspector.field.skill"), value: skillPath)
                             }
                             if let hash = capability.metadata["skillsLockHash"], !hash.isEmpty {
-                                InspectorField("Hash", value: shortHash(hash))
+                                InspectorField(L("inspector.field.hash"), value: shortHash(hash))
                             }
                             if let childCount = capability.metadata["childCount"] {
-                                InspectorField("Children", value: childCount)
+                                InspectorField(L("inspector.field.children"), value: childCount)
                             }
                         }
 
                         StatusReasonSection(capability: capability)
+
+                        DriftLocationsSection(capability: capability)
                     }
 
                     if !nativeSecondaryActions.isEmpty {
@@ -174,6 +177,7 @@ struct CapabilityInspectorView: View {
     }
 
     private struct NativePluginDeleteConfirmationSheet: View {
+        @ObservedObject private var localization = LocalizationManager.shared
         let capability: Capability
         let command: String
         let onDelete: () -> Void
@@ -187,7 +191,7 @@ struct CapabilityInspectorView: View {
 
                 HStack(spacing: 10) {
                     NativeDeleteSheetButton(
-                        title: "Cancel",
+                        title: L("inspector.delete.cancel"),
                         systemImage: "xmark",
                         action: onCancel
                     )
@@ -195,7 +199,7 @@ struct CapabilityInspectorView: View {
                     Spacer(minLength: 0)
 
                     NativeDeleteSheetButton(
-                        title: "Delete",
+                        title: L("inspector.action.delete"),
                         systemImage: "trash",
                         isDestructive: true,
                         action: onDelete
@@ -226,11 +230,11 @@ struct CapabilityInspectorView: View {
                 .frame(width: 42, height: 42)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Delete \(capability.name)?")
+                    Text(String(format: L("inspector.delete.title"), capability.name))
                         .font(.title2.weight(.semibold))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Native plugin action")
+                    Text(L("inspector.delete.subtitle"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -252,9 +256,9 @@ struct CapabilityInspectorView: View {
                     }
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Permanent delete")
+                    Text(L("inspector.delete.permanent.title"))
                         .font(.headline.weight(.semibold))
-                    Text("This removes the selected capability through its native lifecycle command. The list will update immediately; if the command fails, Orbita will restore the previous state.")
+                    Text(L("inspector.delete.permanent.detail"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -268,7 +272,7 @@ struct CapabilityInspectorView: View {
 
         private var commandPanel: some View {
             VStack(alignment: .leading, spacing: 8) {
-                Label("Command", systemImage: "terminal")
+                Label(L("inspector.command.label"), systemImage: "terminal")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
@@ -673,6 +677,7 @@ struct CapabilityInspectorView: View {
 }
 
 private struct EmptyInspectorSelectionView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: "sidebar.right")
@@ -681,9 +686,9 @@ private struct EmptyInspectorSelectionView: View {
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 6) {
-                Text("No Selection")
+                Text(L("inspector.empty.title"))
                     .font(.title2.weight(.semibold))
-                Text("Select a capability to inspect source, scope, access, and loading path.")
+                Text(L("inspector.empty.subtitle"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -696,6 +701,7 @@ private struct EmptyInspectorSelectionView: View {
 }
 
 private struct InspectorActionStrip: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability
     let nativePrimaryAction: NativePluginAction?
     let nativeDeleteAction: NativePluginAction?
@@ -715,7 +721,7 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: nativePrimaryAction.systemImage,
                     tint: nativePrimaryAction.kind == .enable ? .green : .secondary,
-                    title: runningNativeActionID == nativePrimaryAction.id ? "Running" : nativePrimaryAction.title,
+                    title: runningNativeActionID == nativePrimaryAction.id ? L("inspector.action.running") : nativePrimaryAction.title,
                     help: nativePrimaryAction.command,
                     isDisabled: runningNativeActionID != nil
                 ) {
@@ -725,8 +731,8 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: "checkmark.circle",
                     tint: .green,
-                    title: "Enable",
-                    help: "Enable"
+                    title: L("inspector.action.enable"),
+                    help: L("inspector.action.enable")
                 ) {
                     onEnable(capability)
                 }
@@ -734,8 +740,8 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: "minus.circle",
                     tint: .secondary,
-                    title: "Disable",
-                    help: "Disable"
+                    title: L("inspector.action.disable"),
+                    help: L("inspector.action.disable")
                 ) {
                     onDisable(capability)
                 }
@@ -757,7 +763,7 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: "trash",
                     tint: .red,
-                    help: "Delete",
+                    help: L("inspector.action.delete"),
                     isDestructive: true
                 ) {
                     onDelete(capability)
@@ -767,7 +773,7 @@ private struct InspectorActionStrip: View {
             InspectorToolbarButton(
                 systemImage: "sidebar.right",
                 tint: .secondary,
-                help: "Hide inspector"
+                help: L("inspector.action.hide")
             ) {
                 onClose()
             }
@@ -879,6 +885,7 @@ private struct NativePluginVersionCheck: Codable, Equatable {
 }
 
 private struct NativePluginActionSection: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability
     let actions: [NativePluginAction]
     let runningActionID: String?
@@ -895,14 +902,14 @@ private struct NativePluginActionSection: View {
                             Label(sectionTitle, systemImage: sectionIcon)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
-                            Text(capability.metadata["manager"] ?? "plugin")
+                            Text(capability.metadata["manager"] ?? L("inspector.native.managerFallback"))
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                         if let versionCheck, versionCheck.hasUpdate {
-                            Text("New version available \(versionCheck.compactChangeText)")
+                            Text(String(format: L("inspector.native.newVersion"), versionCheck.compactChangeText))
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.orange)
                                 .lineLimit(1)
@@ -923,7 +930,7 @@ private struct NativePluginActionSection: View {
                     Spacer(minLength: 0)
                     ForEach(actions) { action in
                         NativePluginInlineButton(
-                            title: runningActionID == action.id ? "Running" : action.title,
+                            title: runningActionID == action.id ? L("inspector.action.running") : action.title,
                             systemImage: runningActionID == action.id ? "hourglass" : action.systemImage,
                             isDisabled: runningActionID != nil
                         ) {
@@ -941,7 +948,7 @@ private struct NativePluginActionSection: View {
     }
 
     private var sectionTitle: String {
-        capability.metadata["manager"] == "agents-skills" ? "Skills CLI" : "Native Plugin"
+        capability.metadata["manager"] == "agents-skills" ? L("inspector.section.skillsCLI") : L("inspector.section.nativePlugin")
     }
 
     private var sectionIcon: String {
@@ -1033,12 +1040,13 @@ private struct NativePluginActionResultView: View {
 }
 
 private struct NativePluginVersionRows: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let versionCheck: NativePluginVersionCheck
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            versionRow(title: "Current", value: versionCheck.currentVersion ?? "Unknown")
-            versionRow(title: "Latest", value: versionCheck.latestVersion ?? "Unknown")
+            versionRow(title: L("inspector.version.current"), value: versionCheck.currentVersion ?? L("inspector.version.unknown"))
+            versionRow(title: L("inspector.version.latest"), value: versionCheck.latestVersion ?? L("inspector.version.unknown"))
         }
         .padding(.top, 2)
     }
@@ -1071,10 +1079,11 @@ private struct NativePluginResultSummary {
     let tone: Tone
     let versionCheck: NativePluginVersionCheck?
 
+    @MainActor
     init(capability: Capability, action: NativePluginAction, result: CommandRunResult) {
         if result.exitCode != 0 {
-            self.title = "\(action.title) failed"
-            self.detail = Self.conciseOutput(result.output, fallback: "The command failed before returning readable plugin details.")
+            self.title = String(format: L("inspector.result.failed.title"), action.title)
+            self.detail = Self.conciseOutput(result.output, fallback: L("inspector.result.failed.detail"))
             self.systemImage = "exclamationmark.triangle"
             self.tone = .failure
             self.versionCheck = nil
@@ -1083,8 +1092,8 @@ private struct NativePluginResultSummary {
 
         switch action.kind {
         case .install:
-            self.title = "Installed"
-            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) was installed from its Skills CLI lock source.")
+            self.title = L("inspector.result.installed.title")
+            self.detail = Self.conciseOutput(result.output, fallback: String(format: L("inspector.result.installed.detail"), capability.name))
             self.systemImage = "checkmark.circle"
             self.tone = .success
             self.versionCheck = nil
@@ -1093,20 +1102,20 @@ private struct NativePluginResultSummary {
         case .update:
             self = Self.updateSummary(capability: capability, output: result.output)
         case .enable:
-            self.title = "Enabled"
-            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) is enabled. Restart the host app if it does not pick up the change immediately.")
+            self.title = L("inspector.result.enabled.title")
+            self.detail = Self.conciseOutput(result.output, fallback: String(format: L("inspector.result.enabled.detail"), capability.name))
             self.systemImage = "checkmark.circle"
             self.tone = .success
             self.versionCheck = nil
         case .disable:
-            self.title = "Disabled"
-            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) is disabled. Restart the host app if it does not pick up the change immediately.")
+            self.title = L("inspector.result.disabled.title")
+            self.detail = Self.conciseOutput(result.output, fallback: String(format: L("inspector.result.disabled.detail"), capability.name))
             self.systemImage = "minus.circle"
             self.tone = .success
             self.versionCheck = nil
         case .delete:
-            self.title = "Deleted"
-            self.detail = Self.conciseOutput(result.output, fallback: "\(capability.name) was deleted. Restart the host app if it does not pick up the change immediately.")
+            self.title = L("inspector.result.deleted.title")
+            self.detail = Self.conciseOutput(result.output, fallback: String(format: L("inspector.result.deleted.detail"), capability.name))
             self.systemImage = "trash"
             self.tone = .success
             self.versionCheck = nil
@@ -1124,6 +1133,7 @@ private struct NativePluginResultSummary {
         }
     }
 
+    @MainActor
     private static func checkSummary(capability: Capability, output: String) -> NativePluginResultSummary {
         if let update = updateVersionChange(in: output) {
             let versionCheck = NativePluginVersionCheck(
@@ -1133,8 +1143,8 @@ private struct NativePluginResultSummary {
                 checkedAt: Date()
             )
             return NativePluginResultSummary(
-                title: "Update available",
-                detail: "\(capability.name) can move from \(update.from) to \(update.to). Use Update to apply it.",
+                title: L("inspector.result.updateAvailable.title"),
+                detail: String(format: L("inspector.result.updateAvailable.detail"), capability.name, update.from, update.to),
                 systemImage: "arrow.down.circle",
                 tone: .warning,
                 versionCheck: versionCheck
@@ -1143,10 +1153,10 @@ private struct NativePluginResultSummary {
 
         if let versionCheck = pluginVersionCheck(in: output, capability: capability) {
             return NativePluginResultSummary(
-                title: versionCheck.hasUpdate ? "Update available" : "Checked",
+                title: versionCheck.hasUpdate ? L("inspector.result.updateAvailable.title") : L("inspector.result.checked.title"),
                 detail: versionCheck.hasUpdate
-                    ? "\(capability.name) can move from \(versionCheck.currentVersion ?? "unknown") to \(versionCheck.latestVersion ?? "unknown")."
-                    : "\(capability.name) is checked.",
+                    ? String(format: L("inspector.result.canMove.detail"), capability.name, versionCheck.currentVersion ?? L("inspector.version.unknown.lower"), versionCheck.latestVersion ?? L("inspector.version.unknown.lower"))
+                    : String(format: L("inspector.result.isChecked.detail"), capability.name),
                 systemImage: versionCheck.hasUpdate ? "arrow.down.circle" : "checkmark.circle",
                 tone: versionCheck.hasUpdate ? .warning : .success,
                 versionCheck: versionCheck
@@ -1155,7 +1165,7 @@ private struct NativePluginResultSummary {
 
         if let codexLine = matchingCodexListLine(in: output, capability: capability) {
             return NativePluginResultSummary(
-                title: "Checked",
+                title: L("inspector.result.checked.title"),
                 detail: codexLine,
                 systemImage: "checkmark.circle",
                 tone: .success
@@ -1163,13 +1173,14 @@ private struct NativePluginResultSummary {
         }
 
         return NativePluginResultSummary(
-            title: "Checked",
-            detail: conciseOutput(output, fallback: "The plugin command completed, but did not return version details for this plugin."),
+            title: L("inspector.result.checked.title"),
+            detail: conciseOutput(output, fallback: L("inspector.result.checked.noVersion")),
             systemImage: "checkmark.circle",
             tone: .success
         )
     }
 
+    @MainActor
     private static func updateSummary(capability: Capability, output: String) -> NativePluginResultSummary {
         if let update = updateVersionChange(in: output) {
             let versionCheck = NativePluginVersionCheck(
@@ -1179,8 +1190,8 @@ private struct NativePluginResultSummary {
                 checkedAt: Date()
             )
             return NativePluginResultSummary(
-                title: "Updated",
-                detail: "\(capability.name) moved from \(update.from) to \(update.to). Restart the host app if it does not pick up the new version immediately.",
+                title: L("inspector.result.updated.title"),
+                detail: String(format: L("inspector.result.updated.detail"), capability.name, update.from, update.to),
                 systemImage: "checkmark.circle",
                 tone: .success,
                 versionCheck: versionCheck
@@ -1198,8 +1209,8 @@ private struct NativePluginResultSummary {
                 )
             }
             return NativePluginResultSummary(
-                title: "Already up to date",
-                detail: conciseOutput(output, fallback: "\(capability.name) is already on the latest available version."),
+                title: L("inspector.result.upToDate.title"),
+                detail: conciseOutput(output, fallback: String(format: L("inspector.result.upToDate.detail"), capability.name)),
                 systemImage: "checkmark.circle",
                 tone: .success,
                 versionCheck: versionCheck
@@ -1207,8 +1218,8 @@ private struct NativePluginResultSummary {
         }
 
         return NativePluginResultSummary(
-            title: "Update completed",
-            detail: conciseOutput(output, fallback: "\(capability.name) was updated. Restart the host app if it does not pick up the change immediately."),
+            title: L("inspector.result.updateCompleted.title"),
+            detail: conciseOutput(output, fallback: String(format: L("inspector.result.updateCompleted.detail"), capability.name)),
             systemImage: "checkmark.circle",
             tone: .success
         )
@@ -1463,6 +1474,7 @@ private struct NativePluginAction: Identifiable {
         }
     }
 
+    @MainActor
     static func actions(for capability: Capability) -> [NativePluginAction] {
         guard let manager = capability.metadata["manager"] else { return [] }
         var actions: [NativePluginAction] = []
@@ -1470,20 +1482,20 @@ private struct NativePluginAction: Identifiable {
         // manual "Check" action (checkCommand) is intentionally not surfaced —
         // updates/installs are left to the user via Update / Reinstall.
         if let command = capability.metadata["installCommand"] {
-            actions.append(NativePluginAction(id: "install", title: "Reinstall", systemImage: "arrow.down.doc", command: command, manager: manager, kind: .install))
+            actions.append(NativePluginAction(id: "install", title: L("inspector.action.reinstall"), systemImage: "arrow.down.doc", command: command, manager: manager, kind: .install))
         }
         if capability.statuses.contains(.disabled), let command = capability.metadata["enableCommand"] {
-            actions.append(NativePluginAction(id: "enable", title: "Enable", systemImage: "checkmark.circle", command: command, manager: manager, kind: .enable))
+            actions.append(NativePluginAction(id: "enable", title: L("inspector.action.enable"), systemImage: "checkmark.circle", command: command, manager: manager, kind: .enable))
         }
         if capability.statuses.contains(.enabled), let command = capability.metadata["disableCommand"] {
-            actions.append(NativePluginAction(id: "disable", title: "Disable", systemImage: "minus.circle", command: command, manager: manager, kind: .disable))
+            actions.append(NativePluginAction(id: "disable", title: L("inspector.action.disable"), systemImage: "minus.circle", command: command, manager: manager, kind: .disable))
         }
         if let command = capability.metadata["updateCommand"] {
-            actions.append(NativePluginAction(id: "update", title: "Update", systemImage: "arrow.down.circle", command: command, manager: manager, kind: .update))
+            actions.append(NativePluginAction(id: "update", title: L("inspector.action.update"), systemImage: "arrow.down.circle", command: command, manager: manager, kind: .update))
         }
         if ["codex", "claude-code"].contains(manager),
            let command = capability.metadata["deleteCommand"] {
-            actions.append(NativePluginAction(id: "delete", title: "Delete", systemImage: "trash", command: command, manager: manager, kind: .delete))
+            actions.append(NativePluginAction(id: "delete", title: L("inspector.action.delete"), systemImage: "trash", command: command, manager: manager, kind: .delete))
         }
         return actions
     }
@@ -1498,6 +1510,7 @@ private struct NativePluginAction: Identifiable {
         return projectPath
     }
 
+    @MainActor
     static func codexSkillConfigAction(for capability: Capability) -> NativePluginAction? {
         guard capability.type == .skill,
               capability.metadata["codexConfigPath"] != nil,
@@ -1513,7 +1526,7 @@ private struct NativePluginAction: Identifiable {
         guard let command = capability.metadata[commandKey] else { return nil }
         return NativePluginAction(
             id: isDisabledForCodex ? "codex-skill-enable" : "codex-skill-disable",
-            title: isDisabledForCodex ? "Enable" : "Disable",
+            title: isDisabledForCodex ? L("inspector.action.enable") : L("inspector.action.disable"),
             systemImage: isDisabledForCodex ? "checkmark.circle" : "minus.circle",
             command: command,
             manager: Self.codexSkillManager,
@@ -1521,6 +1534,7 @@ private struct NativePluginAction: Identifiable {
         )
     }
 
+    @MainActor
     static func claudeSkillOverrideAction(for capability: Capability) -> NativePluginAction? {
         guard capability.type == .skill,
               capability.source.kind == "claude-skill",
@@ -1533,7 +1547,7 @@ private struct NativePluginAction: Identifiable {
         guard let command = capability.metadata[commandKey] else { return nil }
         return NativePluginAction(
             id: isDisabled ? "claude-skill-enable" : "claude-skill-disable",
-            title: isDisabled ? "Enable" : "Disable",
+            title: isDisabled ? L("inspector.action.enable") : L("inspector.action.disable"),
             systemImage: isDisabled ? "checkmark.circle" : "minus.circle",
             command: command,
             manager: Self.claudeSkillManager,
@@ -1541,6 +1555,7 @@ private struct NativePluginAction: Identifiable {
         )
     }
 
+    @MainActor
     static func claudeSkillDeleteAction(for capability: Capability) -> NativePluginAction? {
         guard capability.type == .skill,
               capability.source.kind == "claude-skill",
@@ -1549,7 +1564,7 @@ private struct NativePluginAction: Identifiable {
         }
         return NativePluginAction(
             id: "claude-skill-delete",
-            title: "Delete",
+            title: L("inspector.action.delete"),
             systemImage: "trash",
             command: command,
             manager: Self.claudeSkillManager,
@@ -1557,6 +1572,7 @@ private struct NativePluginAction: Identifiable {
         )
     }
 
+    @MainActor
     static func claudeMCPConfigAction(for capability: Capability) -> NativePluginAction? {
         guard capability.type == .mcpServer,
               capability.source.kind == "mcp-config",
@@ -1569,7 +1585,7 @@ private struct NativePluginAction: Identifiable {
         guard let command = capability.metadata[commandKey] else { return nil }
         return NativePluginAction(
             id: isDisabled ? "claude-mcp-enable" : "claude-mcp-disable",
-            title: isDisabled ? "Enable" : "Disable",
+            title: isDisabled ? L("inspector.action.enable") : L("inspector.action.disable"),
             systemImage: isDisabled ? "checkmark.circle" : "minus.circle",
             command: command,
             manager: Self.claudeMCPManager,
@@ -1577,6 +1593,7 @@ private struct NativePluginAction: Identifiable {
         )
     }
 
+    @MainActor
     static func claudeMCPDeleteAction(for capability: Capability) -> NativePluginAction? {
         guard capability.type == .mcpServer,
               capability.source.kind == "mcp-config",
@@ -1585,7 +1602,7 @@ private struct NativePluginAction: Identifiable {
         }
         return NativePluginAction(
             id: "claude-mcp-delete",
-            title: "Delete",
+            title: L("inspector.action.delete"),
             systemImage: "trash",
             command: command,
             manager: Self.claudeMCPManager,
@@ -1593,6 +1610,7 @@ private struct NativePluginAction: Identifiable {
         )
     }
 
+    @MainActor
     static func claudeHookDeleteAction(for capability: Capability) -> NativePluginAction? {
         guard capability.type == .hook,
               capability.source.kind == "claude-settings-hook",
@@ -1601,7 +1619,7 @@ private struct NativePluginAction: Identifiable {
         }
         return NativePluginAction(
             id: "claude-hook-delete",
-            title: "Delete",
+            title: L("inspector.action.delete"),
             systemImage: "trash",
             command: command,
             manager: Self.claudeHookManager,
@@ -1986,6 +2004,7 @@ private enum JSONFileEditor {
 }
 
 private struct StatusReasonSection: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability
 
     var body: some View {
@@ -1995,7 +2014,7 @@ private struct StatusReasonSection: View {
                     Circle()
                         .fill(CapabilityVisuals.statusColor(for: capability))
                         .frame(width: 8, height: 8)
-                    Text("Status")
+                    Text(L("inspector.field.status"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
@@ -2030,15 +2049,15 @@ private struct StatusReasonSection: View {
 
     private var dotLabel: String {
         if capability.statuses.contains(.broken) {
-            return "Broken"
+            return L("inspector.dot.broken")
         }
         if capability.statuses.contains(.drifted) || capability.statuses.contains(.shadowed) {
-            return "Needs attention"
+            return L("inspector.dot.needsAttention")
         }
         if capability.statuses.contains(.risky) {
-            return "Review needed"
+            return L("inspector.dot.reviewNeeded")
         }
-        return "Ready"
+        return L("inspector.dot.ready")
     }
 
     private var reasons: [StatusReason] {
@@ -2046,8 +2065,8 @@ private struct StatusReasonSection: View {
 
         if capability.statuses.contains(.broken) {
             items.append(StatusReason(
-                title: "Broken source",
-                detail: "Orbita found a record for this capability, but the source path is missing, unreadable, or could not be resolved.",
+                title: L("inspector.reason.broken.title"),
+                detail: L("inspector.reason.broken.detail"),
                 systemImage: "xmark.octagon",
                 color: .red
             ))
@@ -2055,8 +2074,8 @@ private struct StatusReasonSection: View {
 
         if capability.statuses.contains(.shadowed) {
             items.append(StatusReason(
-                title: "Overridden by a higher-priority scope",
-                detail: "Another capability with the same type and name exists in a higher-priority scope. Priority is project, user, installed, then environment.",
+                title: L("inspector.reason.shadowed.title"),
+                detail: L("inspector.reason.shadowed.detail"),
                 systemImage: "square.on.square",
                 color: .orange
             ))
@@ -2064,7 +2083,7 @@ private struct StatusReasonSection: View {
 
         if capability.statuses.contains(.drifted) {
             items.append(StatusReason(
-                title: "Drift detected",
+                title: L("inspector.reason.drift.title"),
                 detail: driftDetail,
                 systemImage: "arrow.triangle.branch",
                 color: .orange
@@ -2073,8 +2092,8 @@ private struct StatusReasonSection: View {
 
         if capability.statuses.contains(.risky) {
             items.append(StatusReason(
-                title: "Access needs review",
-                detail: "This capability requests \(CapabilityDisplayText.accessSummary(for: capability.risks)).",
+                title: L("inspector.reason.risky.title"),
+                detail: String(format: L("inspector.reason.risky.detail"), CapabilityDisplayText.accessSummary(for: capability.risks)),
                 systemImage: "exclamationmark.triangle",
                 color: .yellow
             ))
@@ -2082,7 +2101,7 @@ private struct StatusReasonSection: View {
 
         if capability.statuses.contains(.disabled) {
             items.append(StatusReason(
-                title: "Disabled",
+                title: L("inspector.reason.disabled.title"),
                 detail: disabledDetail,
                 systemImage: "minus.circle",
                 color: .secondary
@@ -2091,16 +2110,19 @@ private struct StatusReasonSection: View {
 
         if capability.metadata["codexSkillEnabled"] == "false", !capability.statuses.contains(.disabled) {
             items.append(StatusReason(
-                title: "Disabled for Codex",
+                title: L("inspector.reason.disabledCodex.title"),
                 detail: codexSkillDisabledDetail,
                 systemImage: "minus.circle",
                 color: .secondary
             ))
         }
 
-        if capability.statuses.contains(.duplicate) {
+        // When the drift-locations panel is shown it already enumerates every copy *and* their
+        // divergence, so the generic "duplicate name" prose row would just repeat it. Keep the
+        // duplicate row only for non-drift duplicates (e.g. identical copied mirrors).
+        if capability.statuses.contains(.duplicate), !showsDriftLocationsPanel {
             items.append(StatusReason(
-                title: "Duplicate name",
+                title: L("inspector.reason.duplicate.title"),
                 detail: duplicateDetail,
                 systemImage: "doc.on.doc",
                 color: .secondary
@@ -2109,8 +2131,8 @@ private struct StatusReasonSection: View {
 
         if items.isEmpty {
             items.append(StatusReason(
-                title: "Ready",
-                detail: "Orbita found this capability and did not detect broken links, drift, overrides, or review flags.",
+                title: L("inspector.reason.ready.title"),
+                detail: L("inspector.reason.ready.detail"),
                 systemImage: "checkmark.circle",
                 color: .green
             ))
@@ -2119,33 +2141,48 @@ private struct StatusReasonSection: View {
         return items
     }
 
+    /// True when the dedicated DriftLocationsSection below will actually render its per-copy
+    /// comparison, so the status reasons can defer the "where / which differs" detail to it.
+    /// Mirrors the panel's own `locations.count > 1` gate (not just JSON presence) so a malformed
+    /// or under-populated payload never suppresses the duplicate row *and* hides the panel.
+    private var showsDriftLocationsPanel: Bool {
+        capability.statuses.contains(.drifted)
+            && decodedDriftLocations(for: capability).count > 1
+    }
+
     private var driftDetail: String {
         if let reason = capability.metadata["driftReason"], !reason.isEmpty {
             return reason
         }
-        return "A capability with the same type and name exists in multiple places, and the content hash is different."
+        // When the resolver enumerated the conflicting locations, the dedicated
+        // DriftLocationsSection below spells out *where* — so keep this line a short,
+        // count-aware summary instead of repeating the generic sentence.
+        if let count = capability.metadata["driftLocationCount"], !count.isEmpty {
+            return String(format: L("inspector.drift.summary"), count)
+        }
+        return L("inspector.drift.detail")
     }
 
     private var duplicateDetail: String {
         if let detail = capability.metadata["duplicateDetail"], !detail.isEmpty {
             return detail
         }
-        return "Orbita found more than one capability with this type and name."
+        return L("inspector.duplicate.detail")
     }
 
     private var disabledDetail: String {
         if let manager = capability.metadata["manager"], !manager.isEmpty {
-            return "\(manager) marks this plugin as disabled."
+            return String(format: L("inspector.disabled.byManager"), manager)
         }
         if capability.metadata["codexSkillEnabled"] == "false" {
             return codexSkillDisabledDetail
         }
-        return "The .agents manifest marks this capability as disabled."
+        return L("inspector.disabled.byManifest")
     }
 
     private var codexSkillDisabledDetail: String {
         let configPath = capability.metadata["codexConfigPath"] ?? "~/.codex/config.toml"
-        return "Codex config disables this SKILL.md path in \(configPath). Other agents may still load the same file."
+        return String(format: L("inspector.disabled.codexSkill"), configPath)
     }
 }
 
@@ -2155,6 +2192,227 @@ private struct StatusReason: Identifiable {
     let detail: String
     let systemImage: String
     let color: Color
+}
+
+/// "Where did it drift?" — the dedicated panel answering the question the one-line drift
+/// reason can't: it lists every physical copy the resolver found in the conflicting group,
+/// flags the one currently being inspected, marks which copies' content diverges from it,
+/// and ends with concrete guidance on how to converge them. Renders nothing unless the
+/// resolver attached `driftLocationsJSON` (so older snapshots / non-hash drifts are unaffected).
+private struct DriftLocationsSection: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let capability: Capability
+
+    var body: some View {
+        if locations.count > 1 {
+            InspectorSection {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    Text(String(format: L("inspector.drift.locations.intro"), String(locations.count)))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(spacing: 8) {
+                        ForEach(locations) { location in
+                            DriftLocationRow(location: location, currentHash: currentHash)
+                        }
+                    }
+
+                    guidance
+                }
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+            Text(L("inspector.drift.locations.title"))
+                .font(.caption.weight(.semibold))
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var guidance: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "lightbulb")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.yellow)
+                .frame(width: 14, alignment: .center)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("inspector.drift.guidance.title"))
+                    .font(.caption.weight(.semibold))
+                Text(L("inspector.drift.guidance"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private var currentHash: String {
+        locations.first(where: { $0.location.current })?.location.hash ?? ""
+    }
+
+    private var locations: [DriftLocationDisplay] {
+        decodedDriftLocations(for: capability).enumerated().map { index, value in
+            DriftLocationDisplay(index: index, location: value)
+        }
+    }
+}
+
+/// Decode the resolver's drift-location records for a capability. Returns `[]` when the metadata
+/// is absent or malformed, so both the panel and the duplicate-row suppression agree on whether a
+/// usable comparison exists. Shared by `DriftLocationsSection` and `StatusReasonSection`.
+private func decodedDriftLocations(for capability: Capability) -> [DriftLocation] {
+    guard let raw = capability.metadata["driftLocationsJSON"],
+          let data = raw.data(using: .utf8),
+          let decoded = try? JSONDecoder().decode([DriftLocation].self, from: data) else {
+        return []
+    }
+    return decoded
+}
+
+/// Identifiable wrapper keyed by position in the decoded list, so `ForEach` stays stable even when
+/// two copies share an identical display path (the path is not unique; the list position is).
+private struct DriftLocationDisplay: Identifiable {
+    let index: Int
+    let location: DriftLocation
+    var id: Int { index }
+}
+
+private struct DriftLocationRow: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let location: DriftLocationDisplay
+    let currentHash: String
+
+    private var record: DriftLocation { location.location }
+
+    private var sourceKind: CapabilitySourceClassifier.SourceKind {
+        CapabilitySourceClassifier.sourceKind(forPath: record.path, sourceKind: record.kind)
+    }
+
+    /// A non-current copy whose content hash matches the inspected tile is identical; any other
+    /// known hash is a genuine divergence worth flagging in orange. Both hashes must be known —
+    /// when either is empty (unhashable file) we can't claim divergence, so we stay silent.
+    private var divergesFromCurrent: Bool {
+        !record.current
+            && !record.hash.isEmpty
+            && !currentHash.isEmpty
+            && record.hash != currentHash
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: sourceKind.systemImage)
+                .font(.caption)
+                .foregroundStyle(record.current ? Color.accentColor : .secondary)
+                .frame(width: 16, alignment: .center)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(sourceKind.title)
+                        .font(.caption.weight(.semibold))
+                    DriftScopeTag(scope: record.scope)
+                    if record.current {
+                        DriftStateTag(text: L("inspector.drift.location.current"), tint: .accentColor)
+                    } else if divergesFromCurrent {
+                        DriftStateTag(text: L("inspector.drift.location.differs"), tint: .orange)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                Text(displayPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(record.path)
+            }
+
+            if !record.hash.isEmpty {
+                Text(shortHash)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(divergesFromCurrent ? .orange : .secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(divergesFromCurrent ? Color.orange.opacity(0.5) : OrbitaTheme.border)
+                    }
+                    .padding(.top, 1)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .orbitaControlSurface(selected: record.current)
+    }
+
+    private var shortHash: String {
+        record.hash.count > 12 ? String(record.hash.prefix(12)) : record.hash
+    }
+
+    private var displayPath: String {
+        // Core already home-abbreviated the path; collapse very long ones to the tail.
+        let path = record.path
+        guard path.count > 48 else { return path }
+        let components = path.split(separator: "/").map(String.init)
+        guard components.count > 3 else { return path }
+        return "…/" + components.suffix(3).joined(separator: "/")
+    }
+}
+
+private struct DriftScopeTag: View {
+    let scope: String
+
+    var body: some View {
+        Text(localizedScope)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(OrbitaTheme.border)
+            }
+    }
+
+    @MainActor
+    private var localizedScope: String {
+        localizedCapabilityScope(scope)
+    }
+}
+
+/// Localized label for a `CapabilityScope` raw value, falling back to the raw value for any
+/// unknown scope so the field never renders a bare key.
+@MainActor
+func localizedCapabilityScope(_ scope: String) -> String {
+    let key = "scope.\(scope)"
+    let localized = L(key)
+    return localized == key ? scope : localized
+}
+
+private struct DriftStateTag: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.12), in: Capsule())
+    }
 }
 
 private struct InspectorSection<Content: View>: View {
@@ -2240,6 +2498,7 @@ private struct InspectorPathField: View {
 }
 
 private struct SourceFolderButton: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let path: String
 
     var body: some View {
@@ -2252,7 +2511,7 @@ private struct SourceFolderButton: View {
         }
         .buttonStyle(.plain)
         .orbitaControlSurface(cornerRadius: 8)
-        .help("Open source folder")
+        .help(L("inspector.source.openFolder"))
         .disabled(!canOpen)
         .opacity(canOpen ? 1 : 0.45)
     }
@@ -2293,6 +2552,7 @@ private struct SourceFolderButton: View {
 }
 
 private struct MarkdownPreviewCard: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let sourcePath: String
     let onOpenPreview: (MarkdownPreviewDocument) -> Void
 
@@ -2302,7 +2562,7 @@ private struct MarkdownPreviewCard: View {
         InspectorSection {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Label("Markdown Preview", systemImage: "doc.richtext")
+                    Label(L("inspector.markdown.title"), systemImage: "doc.richtext")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -2311,14 +2571,14 @@ private struct MarkdownPreviewCard: View {
                         Button {
                             onOpenPreview(document)
                         } label: {
-                            Label("Preview", systemImage: "arrow.up.forward.square")
+                            Label(L("inspector.markdown.preview"), systemImage: "arrow.up.forward.square")
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 10)
                                 .frame(height: 28)
                         }
                         .buttonStyle(.plain)
                         .orbitaControlSurface(cornerRadius: 10)
-                        .help("Open full Markdown preview")
+                        .help(L("inspector.markdown.openFull"))
                     }
                 }
 
@@ -2327,12 +2587,12 @@ private struct MarkdownPreviewCard: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Loading preview")
+                        Text(L("inspector.markdown.loading"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 case .unavailable:
-                    Text("No markdown preview available.")
+                    Text(L("inspector.markdown.unavailable"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case let .rendered(_, markdown):
@@ -2377,6 +2637,7 @@ private enum MarkdownPreviewState {
         }
     }
 
+    @MainActor
     static func load(path: String) -> MarkdownPreviewState {
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
@@ -2409,10 +2670,11 @@ private enum MarkdownPreviewState {
                 return .raw(document)
             }
         } catch {
-            return .failed("Unable to read markdown: \(error.localizedDescription)")
+            return .failed(String(format: L("inspector.markdown.readError"), error.localizedDescription))
         }
     }
 
+    @MainActor
     private static func trimmedMarkdown(_ text: String) -> String {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         let body = stripFrontmatter(from: normalized)
@@ -2422,7 +2684,7 @@ private enum MarkdownPreviewState {
             return body
         }
         let endIndex = body.index(body.startIndex, offsetBy: maxLength)
-        return String(body[..<endIndex]) + "\n\nPreview truncated."
+        return String(body[..<endIndex]) + "\n\n" + L("inspector.markdown.truncated")
     }
 
     private static func stripFrontmatter(from text: String) -> String {

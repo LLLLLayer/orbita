@@ -31,12 +31,36 @@ public final class AgentViewResolver {
         return visible.sorted { $0.id < $1.id }
     }
 
+    /// The agent(s) whose ecosystem a capability BELONGS to, ignoring its current
+    /// enabled/disabled/broken state. This is the structural classification used for the
+    /// host **brand icon** — so a disabled or broken tile (e.g. a quarantined Trae skill,
+    /// or a Codex skill turned off via `[[skills.config]]`) still shows its origin app
+    /// icon, even though it is absent from every agent's *active* view. Distinct from
+    /// `visibleCapabilities`, which intentionally excludes disabled/broken tiles.
+    public func hostAgentIDs(for capability: Capability) -> [AgentID] {
+        AgentID.allCases.filter { classifies(capability, to: $0) }
+    }
+
     private func isVisible(_ capability: Capability, to agent: AgentID) -> Bool {
         guard !capability.statuses.contains(.broken) else { return false }
         guard !capability.statuses.contains(.disabled) else { return false }
+        // Per-agent enable-state gates apply to the active view only; host classification
+        // (`classifies`) ignores them so the brand icon survives a disabled state.
         switch agent {
         case .codex:
-            guard capability.metadata["codexSkillEnabled"] != "false" else { return false }
+            if capability.metadata["codexSkillEnabled"] == "false" { return false }
+        case .claudeCode:
+            if capability.type == .mcpServer, capability.metadata["claudeMCPEnabled"] == "false" { return false }
+        case .cursor, .trae:
+            break
+        }
+        return classifies(capability, to: agent)
+    }
+
+    /// Pure type/source structural classification — no broken/disabled/enable-state gates.
+    private func classifies(_ capability: Capability, to agent: AgentID) -> Bool {
+        switch agent {
+        case .codex:
             switch capability.type {
             case .skill:
                 return isCodexSkillCapability(capability)
@@ -61,7 +85,7 @@ public final class AgentViewResolver {
             case .instruction:
                 return true
             case .mcpServer:
-                return capability.metadata["claudeMCPEnabled"] != "false"
+                return true
             case .command:
                 return capability.source.kind == "claude-command"
                     || capability.source.kind == "claude-plugin-command"
