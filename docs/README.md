@@ -1,7 +1,7 @@
 ---
 created_at: 2026-05-23
 created_by: Codex
-updated_at: 2026-05-30
+updated_at: 2026-06-01
 updated_by: Codex
 tags:
   - docs
@@ -74,3 +74,7 @@ Codex app 的 Run action 已指向同一个脚本。
 ## 扩展机制调研
 
 - `docs/agent-extension-landscape.zh-CN.md`：面向公开的调研参考，讲清 Codex、Claude Code、Cursor、Trae 各自如何在磁盘上**发现**扩展组件、各类型的**禁用**策略，以及 `npm` / `npx skills` 生态与 `.agents/` 目录的关系（区分官方规范与社区约定）。同时说明 Orbita 如何用「三层、三处位置」模型协调这一切，并明确标注与官方文档的已知分歧及待核实项。
+
+## 能力治理
+
+- `docs/agent-capability-control-plane.zh-CN.md`：面向公开的知识文档，讲清 Agent 接入大量 Skills / 工具 / MCP / 子 agent 后为什么会「选错工具、撑爆上下文」，以及业界如何按痛点选治理手段（精简描述、按需加载、检索路由、分级触发、结果预算……），并收敛到一个理想的「控制面治理」参考架构。面向公司同学与团队 leader，vendor-neutral。

@@ -10,19 +10,21 @@
 
 ## TL;DR
 
-> 五类扩展、两家（Claude Code / Codex）异同一页速查；细节见下文各节。
+> 一条主线：这些扩展**怎么进入你的 Coding Agent、引擎眼里它们是什么、又怎么占用你的上下文**。两家（Claude Code / Codex）的差异穿插在表里，细节见下文各节。
 
-**心智模型**：任何扩展都拆三问——**① 什么格式、放哪（认得出）· ② 怎么来的（分发）· ③ 这次用不用（启用）**。作用域「企业 > 用户 > 项目 > 本地」多按"越具体越优先（项目 > 用户）"，唯独 **Claude 的 skill 反过来：个人 > 项目**。
+**心智模型**：任何扩展都是**放在约定位置的一个文件 / 目录**，拆三问看透——**① 什么格式、放哪（引擎据此认出它）· ② 怎么来的（手写 / marketplace / `npx skills`）· ③ 这次用不用（开关）**。
 
-| 类型（层） | 一句话 | Claude vs Codex 关键差异 |
-|---|---|---|
-| **Skill**（方法层） | 含 `SKILL.md` 的目录，渐进披露（名片→正文→资源），`description` 决定被不被选中 | 名片清单预算 Claude **1%** / Codex **2%（或 8K 字符）**；禁用 `skillOverrides` vs `[[skills.config]]` |
-| **Hook**（自动化层） | 生命周期事件上自动跑命令；三段「事件 + matcher + 处理器」，`exit 2` 拦截、stdout JSON 注入 | 事件都约 10 个；处理器 Claude 5 种 / Codex 只 `command`（**但同样能注入**）；都无 per-hook 禁用 |
-| **MCP**（集成层） | 标准协议连外部系统，工具定义**延迟加载**（只露名字、用时才取） | Tool Search 仅 Claude（省 ~85% 上下文）；配置 Claude `.mcp.json` + 三作用域 / Codex `config.toml` |
-| **Plugin**（分发层） | 把上面这些**打包 + 版本化 + 分发**，装进每用户缓存 | `CLAUDE.md`/`AGENTS.md` **不是组件**；Claude 四作用域 / Codex 仅电脑级 |
-| **Rules**（指令层） | 进项目即加载的"总则"，多层**拼接**非覆盖 | Claude 读 `CLAUDE.md`（项目 > 用户）/ Codex 读 `AGENTS.md`（根在前、32 KiB、`override` 替换）；互不原生读对方 |
+| 类型 | ① 引擎怎么认出它（格式 + 位置） | ② 怎么进来 / 开关 | ③ 怎么影响上下文 |
+|---|---|---|---|
+| **Skill** | 含 `SKILL.md` 的目录（Claude `.claude/skills`、Codex `.agents/skills`） | 手写 / `npx skills` / 插件带；关：`skillOverrides`、`[[skills.config]]` | **渐进披露**：启动只进"名片"（name+description，预算 Claude 1% / Codex 2%），正文用时才进 |
+| **Hook** | `settings.json` / `hooks.json` 里的「事件 + matcher + 处理器」 | 配置 / 插件 / skill frontmatter；关：仅全局 `disableAllHooks` | **几乎不占**：平时不进上下文，事件触发才跑命令；可主动 `additionalContext` 注入 |
+| **MCP** | `.mcp.json` / `config.toml` 的 `mcp_servers` | `claude mcp add` / `codex mcp add`；关：`disabledMcpjsonServers` / 改 config | **上下文大户**：工具定义**每条消息全量重发**（58 工具 ≈ 55K token）；Tool Search（仅 Claude）延迟加载省 ~85% |
+| **Plugin** | `plugin.json` 容器（把上面这些打包在一起） | marketplace 安装、复制进每用户缓存；关：`enabledPlugins` | **本身不占**：只是打包；真正占上下文的是它带进来的 skill / MCP 等组件 |
+| **Rules** | 根目录的 `CLAUDE.md` / `AGENTS.md`（纯 Markdown） | 直接写进仓库；无开关（要关只能删文件） | **进项目即全量进上下文**：沿"根 ↔ cwd"目录链逐层拼接（Codex 上限 32 KiB） |
 
-**三个最反直觉的坑**：① Skill 名片预算实按 **~200K 基线**算，1M 模型反而更早被截断；② Codex 的 skill 家是中立 **`.agents`**（不是 `.codex`），只有 Claude 才需 symlink 桥；③ **`CLAUDE.md`/`AGENTS.md` 既进不了 plugin、也不是 MCP 上下文**——想随 plugin 发指令必须写成 skill。
+**记一笔"上下文账"**：启动就吃上下文的是 **Rules（全量拼接）+ 每个 Skill 的名片**；**MCP 工具定义最贵**（每条消息重发、可达数万 token）；**Hook / Plugin 本身几乎不占**。
+
+**三个最反直觉的坑**：① Skill 名片预算实按 **~200K 基线**算，上下文越大反而越早被截断；② Codex 的 skill 家是中立 **`.agents`**（不是 `.codex`），只有 Claude 才需 symlink 桥；③ **`CLAUDE.md` / `AGENTS.md` 既进不了 plugin、也不是 MCP 上下文**——想随 plugin 发指令必须写成 skill。
 
 ---
 
@@ -294,8 +296,6 @@ enabled = false
 > **这正好印证维度差异**：Codex 的**项目级** `skills.config` 过滤被报告有 bug、**用户级最可靠**——所以 Codex 的禁用实务上偏用户维度；Claude 两档都稳，项目级还能随 `.claude/settings.json` 团队共享。
 
 > **`.agents` 本身没有禁用能力。** 它只是存放目录；管它的 `npx skills` CLI 也只有 `install`/`remove`——**`remove` 是删掉 canonical 那份文件、波及所有读 `.agents` 的 agent，不是可逆开关**。所以禁用永远归**消费方 agent**（用上面各自的 `skillOverrides` / `[[skills.config]]`），且只对那个 agent 生效：`.agents/skills` 里同一份 skill，在 Codex 关了不影响别的读它的 agent。
-
-- https://github.com/agentsmd/agents.md
 
 ---
 
