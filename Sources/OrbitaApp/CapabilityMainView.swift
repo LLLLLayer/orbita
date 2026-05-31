@@ -615,6 +615,7 @@ private struct FilterIconButton: View {
         .buttonStyle(.plain)
         .orbitaControlSurface(cornerRadius: 10)
         .help(help)
+        .accessibilityLabel(help)
     }
 }
 

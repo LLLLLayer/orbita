@@ -132,6 +132,7 @@ struct OrbitaSettingsView: View {
                 .buttonStyle(.plain)
                 .orbitaControlSurface(cornerRadius: 8)
                 .help(L("settings.close"))
+                .accessibilityLabel(L("settings.close"))
             }
             .padding(.top, 26)
             .padding(.horizontal, 16)

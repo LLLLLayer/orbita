@@ -42,6 +42,7 @@ struct MarkdownPreviewPage: View {
             }
             .buttonStyle(.plain)
             .help(L("main.markdownPreview.back"))
+            .accessibilityLabel(L("main.markdownPreview.back"))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(document.title)

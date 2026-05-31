@@ -2527,6 +2527,7 @@ private struct SourceFolderButton: View {
         .buttonStyle(.plain)
         .orbitaControlSurface(cornerRadius: 8)
         .help(L("inspector.source.openFolder"))
+        .accessibilityLabel(L("inspector.source.openFolder"))
         .disabled(!canOpen)
         .opacity(canOpen ? 1 : 0.45)
     }

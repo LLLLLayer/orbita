@@ -40,6 +40,7 @@ struct OrbitaSidebarView: View {
                 }
                 .buttonStyle(.plain)
                 .help(L("sidebar.collapse"))
+                .accessibilityLabel(L("sidebar.collapse"))
             }
             .frame(height: 54)
             .padding(.horizontal, 14)
@@ -65,6 +66,7 @@ struct OrbitaSidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .help(L("sidebar.openProject"))
+                        .accessibilityLabel(L("sidebar.openProject"))
                     },
                     content: {
                         if projects.isEmpty {
@@ -141,20 +143,16 @@ struct OrbitaSidebarRail: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                RailButton(systemImage: "sidebar.left", isSelected: false, action: onExpand)
-                    .help(L("sidebar.expand"))
+                RailButton(systemImage: "sidebar.left", isSelected: false, help: L("sidebar.expand"), action: onExpand)
             }
             .frame(height: 86, alignment: .bottom)
             .padding(.bottom, 8)
 
             VStack(spacing: 8) {
-                RailButton(systemImage: "desktopcomputer", isSelected: selection == ProjectCapabilityStore.environmentSelectionID, action: onSelectThisMac)
-                    .help(L("sidebar.thismac.title"))
-                RailButton(systemImage: "folder.badge.plus", isSelected: false, action: onAddProject)
-                    .help(L("sidebar.openProject"))
+                RailButton(systemImage: "desktopcomputer", isSelected: selection == ProjectCapabilityStore.environmentSelectionID, help: L("sidebar.thismac.title"), action: onSelectThisMac)
+                RailButton(systemImage: "folder.badge.plus", isSelected: false, help: L("sidebar.openProject"), action: onAddProject)
                 Spacer(minLength: 12)
-                RailButton(systemImage: "gearshape", isSelected: false, action: onOpenSettings)
-                    .help(L("settings.title"))
+                RailButton(systemImage: "gearshape", isSelected: false, help: L("settings.title"), action: onOpenSettings)
             }
             .padding(.top, 12)
             .padding(.bottom, 16)
@@ -371,6 +369,7 @@ private struct SidebarSettingsRow: View {
 private struct RailButton: View {
     let systemImage: String
     let isSelected: Bool
+    var help: String = ""
     let action: () -> Void
 
     var body: some View {
@@ -382,5 +381,7 @@ private struct RailButton: View {
         }
         .buttonStyle(.plain)
         .frame(width: OrbitaLayoutMetrics.sidebarRailWidth, height: 44)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }

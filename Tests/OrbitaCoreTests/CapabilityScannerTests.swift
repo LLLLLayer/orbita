@@ -933,6 +933,18 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(skill.metadata["deleteCommand"]?.contains("codex plugin remove 'superpowers@openai-curated'") == true)
         XCTAssertNil(skill.metadata["codexDisableCommand"])
         XCTAssertNil(skill.metadata["codexEnableCommand"])
+
+        // Native-first gating: the bundled skill carries a plugin `disableCommand`, so disabling it must
+        // flow through the plugin's config lifecycle — NEVER the destructive disabled-store quarantine.
+        // This locks in that hasNativeDisable() recognizes the generic `disableCommand` key.
+        XCTAssertTrue(skill.metadata["disableCommand"]?.contains("enabled = false") == true)
+        let graph = CapabilityResolver().resolve(scanResult: result)
+        let resolvedSkill = try XCTUnwrap(graph.capabilities.first { $0.name == "brainstorming" && $0.type == .skill })
+        let disablePlan = try ApplyPlanBuilder().planDisable(capabilityID: resolvedSkill.id, graph: graph)
+        XCTAssertFalse(
+            disablePlan.operations.contains { $0.kind == .cachePath },
+            "a plugin-bundled Codex skill must not be physically quarantined; its disable is native (config)"
+        )
     }
 
     func testBrokenAgentsSkillSymlinkIsReported() throws {
