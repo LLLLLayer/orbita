@@ -2893,6 +2893,76 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(rollback.operations.contains { $0.kind == .appendLog && ($0.content ?? "").contains("rollback") })
     }
 
+    /// A forked command (its source is a symlink) must survive a disable→enable round trip: disabling it
+    /// removes the link from the agent's command dir, but re-enabling restores it. Before rollback symmetry,
+    /// disable bare-removed the link and enable could not reconstruct it (only skills could), silently
+    /// leaving the manifest "enabled" while the link stayed gone.
+    func testDisableEnableRoundTripRestoresForkedCommandSymlink() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaRollback-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let realCommand = projectRoot.appendingPathComponent("shared/review.md")
+        let forkLink = projectRoot.appendingPathComponent(".codex/commands/review.md")
+        try fm.createDirectory(at: realCommand.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: forkLink.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Review\n".write(to: realCommand, atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(atPath: forkLink.path, withDestinationPath: realCommand.path)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(projectRoot))
+        let command = try XCTUnwrap(graph.capabilities.first { $0.type == .command && $0.name == "review" })
+
+        let executor = ApplyPlanExecutor()
+        _ = try executor.apply(try ApplyPlanBuilder().planDisable(capabilityID: command.id, graph: graph))
+        XCTAssertNil(
+            try? fm.destinationOfSymbolicLink(atPath: forkLink.path),
+            "disabling a forked command should remove its link from the agent's command dir"
+        )
+
+        let disabledGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(projectRoot))
+        let disabledCommand = try XCTUnwrap(disabledGraph.capabilities.first { $0.type == .command && $0.name == "review" })
+        _ = try executor.apply(try ApplyPlanBuilder().planEnable(capabilityID: disabledCommand.id, graph: disabledGraph))
+
+        let restoredTarget = try fm.destinationOfSymbolicLink(atPath: forkLink.path)
+        XCTAssertEqual(restoredTarget, realCommand.path, "re-enabling a forked command must restore its symlink")
+    }
+
+    /// Rolling back a disable must restore a forked command's symlink — not just a skill's. Before rollback
+    /// symmetry, planRollback only re-created `.agents/skills/<name>` links, so a command/agent fork stayed
+    /// gone while the manifest flipped back to enabled.
+    func testRollbackRestoresDisabledForkedCommandSymlink() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaRollback-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let realCommand = projectRoot.appendingPathComponent("shared/review.md")
+        let forkLink = projectRoot.appendingPathComponent(".codex/commands/review.md")
+        try fm.createDirectory(at: realCommand.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: forkLink.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Review\n".write(to: realCommand, atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(atPath: forkLink.path, withDestinationPath: realCommand.path)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(projectRoot))
+        let command = try XCTUnwrap(graph.capabilities.first { $0.type == .command && $0.name == "review" })
+
+        let executor = ApplyPlanExecutor()
+        _ = try executor.apply(try ApplyPlanBuilder().planDisable(capabilityID: command.id, graph: graph))
+        XCTAssertNil(try? fm.destinationOfSymbolicLink(atPath: forkLink.path))
+
+        let disabledGraph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(projectRoot))
+        let rollback = try ApplyPlanBuilder().planRollback(graph: disabledGraph)
+        XCTAssertEqual(rollback.action, .rollback)
+        _ = try executor.apply(rollback)
+
+        XCTAssertEqual(
+            try fm.destinationOfSymbolicLink(atPath: forkLink.path),
+            realCommand.path,
+            "rolling back the disable of a forked command must restore its symlink"
+        )
+    }
+
     func testRollbackPlanRejectsMergeLogEntryWithSpecificError() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")

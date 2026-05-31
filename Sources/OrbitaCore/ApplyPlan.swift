@@ -747,9 +747,15 @@ public final class ApplyPlanBuilder {
             agentsRoot: agentsRoot
         )
 
-        if capability.type == .skill {
-            switch inverseAction {
-            case .enable:
+        // Reuse the SAME source-operation builders as a normal enable/disable so rollback is symmetric for
+        // every capability type by construction — not just skills. A rolled-back disable restores the source
+        // (from the disabled store for a quarantined command/agent fork, or by reconstructing a skill's
+        // `.agents/skills/<name>` link); a rolled-back enable re-runs the disable source ops.
+        switch inverseAction {
+        case .enable:
+            if let restore = restoreOperation(for: capability, graph: graph) {
+                operations.append(restore)
+            } else if capability.type == .skill {
                 let skillsRoot = agentsRoot.appendingPathComponent("skills")
                 operations.append(ApplyOperation(
                     kind: .createDirectory,
@@ -764,16 +770,11 @@ public final class ApplyPlanBuilder {
                     risk: .write,
                     description: "Restore project skill link"
                 ))
-            case .disable:
-                operations.append(ApplyOperation(
-                    kind: .removePath,
-                    path: agentsRoot.appendingPathComponent("skills").appendingPathComponent(capability.name).path,
-                    risk: .write,
-                    description: "Remove project skill link during rollback"
-                ))
-            case .delete, .merge, .rollback, .clean:
-                break
             }
+        case .disable:
+            operations.append(contentsOf: disableSourceOperations(for: capability, graph: graph, agentsRoot: agentsRoot))
+        case .delete, .merge, .rollback, .clean:
+            break
         }
 
         operations.append(ApplyOperation(
@@ -1447,14 +1448,17 @@ public final class ApplyPlanBuilder {
 
     private func disableSourceOperations(for capability: Capability, graph: CapabilityGraph, agentsRoot: URL) -> [ApplyOperation] {
         if let symlinkPath = symbolicDisablePath(for: capability, agentsRoot: agentsRoot) {
-            return [
-                ApplyOperation(
-                    kind: .removePath,
-                    path: symlinkPath,
-                    risk: .write,
-                    description: "Remove symbolic link so the current host stops loading this capability; linked target content remains"
-                )
-            ]
+            // A skill's `.agents/skills/<name>` link is reconstructed from the capability on enable, so a
+            // bare removal round-trips. A non-skill fork (command/agent symlink) has NO such reconstruction,
+            // so removing the link would be irreversible — quarantine the LINK instead (copyItem preserves
+            // the symlink), which the type-agnostic restoreOperation() puts back on enable/rollback.
+            // Native-first still wins: a capability the host can disable in place must never be moved, so a
+            // native-disable symlink keeps the pre-existing bare removal (it carries no quarantine sidecar).
+            // We also fall back to removal if the link can't be quarantined (outside agent storage).
+            if capability.type != .skill, !hasNativeDisable(capability), isCacheableAgentSourcePath(symlinkPath) {
+                return quarantineOperations(for: capability, sourcePath: symlinkPath, graph: graph)
+            }
+            return [removeSymlinkOperation(symlinkPath)]
         }
 
         // Native-first: a capability the host can disable IN PLACE (Codex `[[skills.config]] enabled=false`,
@@ -1475,6 +1479,22 @@ public final class ApplyPlanBuilder {
             return []
         }
 
+        return quarantineOperations(for: capability, sourcePath: sourcePath, graph: graph)
+    }
+
+    private func removeSymlinkOperation(_ symlinkPath: String) -> ApplyOperation {
+        ApplyOperation(
+            kind: .removePath,
+            path: symlinkPath,
+            risk: .write,
+            description: "Remove symbolic link so the current host stops loading this capability; linked target content remains"
+        )
+    }
+
+    /// Move a capability's source into the scope-correct Orbita disabled store with a co-located restore
+    /// sidecar. Shared by the no-native-disable fallback and the non-skill-fork case so both round-trip
+    /// through the type-agnostic restoreOperation() on enable.
+    private func quarantineOperations(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> [ApplyOperation] {
         let quarantinePath = disabledQuarantineContentPath(for: capability, sourcePath: sourcePath, graph: graph)
         let entryDirectory = URL(fileURLWithPath: quarantinePath).deletingLastPathComponent()
         return [
