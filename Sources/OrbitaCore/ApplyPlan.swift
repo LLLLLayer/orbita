@@ -1577,8 +1577,15 @@ public final class ApplyPlanBuilder {
             includeUserScope: true
         )
         let capabilityID = manifestCapabilityID(for: capability)
-        if let entry = OrbitaDisabledStore.entries(roots: roots, fileManager: fileManager)
-            .first(where: { $0.capabilityID == capabilityID }) {
+        let preferredSource = manifestSourcePath(for: capability)
+        // `entries()` returns filesystem-enumeration order, which is non-deterministic. When more than one
+        // entry shares a capabilityID (entry dirs are keyed by fnv1a(capabilityID|sourcePath), so distinct
+        // source paths collide on id), pick stably: prefer the entry whose original source matches this
+        // capability, otherwise the lexicographically-first contentPath — never whatever the FS yields first.
+        let matches = OrbitaDisabledStore.entries(roots: roots, fileManager: fileManager)
+            .filter { $0.capabilityID == capabilityID }
+            .sorted { $0.contentPath < $1.contentPath }
+        if let entry = matches.first(where: { $0.originalSourcePath == preferredSource }) ?? matches.first {
             return ApplyOperation(
                 kind: .restorePath,
                 path: entry.contentPath,

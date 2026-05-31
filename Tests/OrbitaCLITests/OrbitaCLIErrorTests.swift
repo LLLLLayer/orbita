@@ -248,6 +248,11 @@ final class OrbitaCLIErrorTests: XCTestCase {
             XCTAssertTrue(result.stdout.contains("plan"), "help should list the plan command for \(arguments)")
             XCTAssertTrue(result.stdout.contains("EXIT CODES"), "help should document exit codes for \(arguments)")
         }
+
+        // A help token that is NOT in the command position (e.g. a capability id passed as a flag value)
+        // must not hijack the command into help. Here `-h` is the --disable value, so this is a plan, not help.
+        let notHelp = OrbitaCLI.runForTesting(arguments: ["plan", "/tmp/nonexistent-project", "--disable", "-h"])
+        XCTAssertFalse(notHelp.stdout.contains("USAGE"), "a help token used as a flag value must not trigger help")
     }
 
     func testAgentTextOutputAlsoListsHiddenCapabilities() throws {

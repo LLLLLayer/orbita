@@ -455,10 +455,11 @@ struct ParsedCommand {
     var clean: Bool
 
     init(arguments: [String]) throws {
-        // Help is discoverable before anything else: no args, `help`, `--help`, or `-h` anywhere
-        // resolves to the help command instead of failing with "Missing project root"/"Missing command".
+        // Help is discoverable before anything else: no args, or a help token in the COMMAND position
+        // (`orbita`, `orbita help`, `orbita --help`, `orbita -h`). We deliberately do NOT scan the whole
+        // argument list — a capability id passed as a flag value (`--disable -h`) must not be hijacked.
         let helpTokens: Set<String> = ["help", "--help", "-h"]
-        if arguments.isEmpty || arguments.contains(where: { helpTokens.contains($0) }) {
+        if arguments.isEmpty || helpTokens.contains(arguments[0]) {
             name = "help"
             projectRoot = ""
             json = false
