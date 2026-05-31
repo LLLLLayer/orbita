@@ -1307,9 +1307,11 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(cursor.visibleCapabilities.contains { $0.name == "review" && $0.source.kind == "claude-command" })
     }
 
-    func testTraeAgentViewExcludesUnsyncedAgentsSkillsAndNativeOnes() throws {
-        // Trae reads its own .trae/skills, not the shared .agents workspace — so an .agents
-        // skill is hidden from Trae UNTIL it's synced/installed for Trae (the exception below).
+    func testTraeAgentViewExcludesAgentsSkillsAndNativeOnes() throws {
+        // Trae reads its own .trae/skills, not the shared .agents workspace. An .agents skill is
+        // managed in the .agents tab and stays hidden from Trae — even when its skills-CLI lock lists
+        // trae (those are just symlinks back into .agents, which the scanner collapses). Only a skill
+        // the host genuinely owns (a real .trae dir) shows in Trae.
         let agentsSkill = Capability(
             id: "skill:.agents:shared-doc",
             name: "shared-doc",
@@ -1319,7 +1321,7 @@ final class CapabilityScannerTests: XCTestCase {
             risks: [.read],
             source: CapabilitySource(kind: "agents-skill", path: "/tmp/project/.agents/skills/shared-doc/SKILL.md")
         )
-        let syncedAgentsSkill = Capability(
+        let lockListedAgentsSkill = Capability(
             id: "skill:.agents:synced-doc",
             name: "synced-doc",
             type: .skill,
@@ -1390,21 +1392,52 @@ final class CapabilityScannerTests: XCTestCase {
         )
         let graph = CapabilityGraph(
             projectRoot: "/tmp/project",
-            capabilities: [agentsSkill, syncedAgentsSkill, codexSkill, claudeSkill, claudePlugin, traeNativeSkill, codexPluginSkill, mcpServer],
+            capabilities: [agentsSkill, lockListedAgentsSkill, codexSkill, claudeSkill, claudePlugin, traeNativeSkill, codexPluginSkill, mcpServer],
             issues: []
         )
 
         let traeView = AgentViewResolver().view(for: .trae, graph: graph)
         let visibleIDs = Set(traeView.visibleCapabilities.map { $0.id })
 
-        XCTAssertFalse(visibleIDs.contains(agentsSkill.id), "Trae must NOT auto-load shared .agents/skills until it is synced to Trae")
-        XCTAssertTrue(visibleIDs.contains(syncedAgentsSkill.id), "Trae should see an .agents skill once it is installed/synced for Trae")
-        XCTAssertTrue(visibleIDs.contains(traeNativeSkill.id), "Trae should pick up skills under ~/.trae/")
+        XCTAssertFalse(visibleIDs.contains(agentsSkill.id), "Trae must NOT auto-load shared .agents/skills")
+        XCTAssertFalse(visibleIDs.contains(lockListedAgentsSkill.id), "An .agents skill stays gated from Trae even when its lock lists trae; only a real .trae copy shows")
+        XCTAssertTrue(visibleIDs.contains(traeNativeSkill.id), "Trae should pick up skills genuinely under ~/.trae/")
         XCTAssertTrue(visibleIDs.contains(mcpServer.id), "Trae should see project MCP servers")
         XCTAssertFalse(visibleIDs.contains(codexSkill.id), "Trae must not see Codex-native skills")
         XCTAssertFalse(visibleIDs.contains(claudeSkill.id), "Trae must not see Claude-native skills")
         XCTAssertFalse(visibleIDs.contains(claudePlugin.id), "Trae has no plugin surface and should ignore Claude plugins")
         XCTAssertFalse(visibleIDs.contains(codexPluginSkill.id), "Trae must not surface Codex plugin-bundled skills as Trae data")
+    }
+
+    func testTraeViewExcludesSkillSymlinkedFromAgentsWorkspace() throws {
+        // Mirrors the real setup: ~/.trae/skills full of symlinks back into ~/.agents/skills (created by
+        // `npx skills`). The scanner flags such a symlink as agents-shared, and the Trae view excludes it
+        // — so the host's tab isn't cluttered with skills it doesn't own. (A skill Trae genuinely owns,
+        // i.e. a real `.trae/skills` directory, stays visible — covered by the trae-skill case in
+        // testTraeAgentViewExcludesAgentsSkillsAndNativeOnes.)
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaTraeSymlink-\(UUID().uuidString)")
+        let agentsSharedDir = projectRoot.appendingPathComponent(".agents/skills/lark-doc")
+        let traeSkillsRoot = projectRoot.appendingPathComponent(".trae/skills")
+        let traeSymlink = traeSkillsRoot.appendingPathComponent("lark-doc")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        try FileManager.default.createDirectory(at: agentsSharedDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: traeSkillsRoot, withIntermediateDirectories: true)
+        try skillText(name: "lark-doc", body: "Shared lark doc skill.")
+            .write(to: agentsSharedDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: traeSymlink, withDestinationURL: agentsSharedDir)
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: false, userSkillRoots: [])
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let traeSymlinkRecord = try XCTUnwrap(graph.capabilities.first { $0.name == "lark-doc" && $0.source.kind == "trae-skill" })
+        XCTAssertEqual(traeSymlinkRecord.metadata["mirrorsAgentsWorkspace"], "true", "A .trae symlink into .agents is flagged as agents-shared")
+
+        let traeVisible = Set(AgentViewResolver().visibleCapabilities(for: .trae, graph: graph).map(\.name))
+        XCTAssertFalse(traeVisible.contains("lark-doc"), "Trae must not show a skill that is only symlinked in from .agents")
     }
 
     func testTraeAndCursorGateAllAgentsScopedCapabilitiesUntilSynced() throws {

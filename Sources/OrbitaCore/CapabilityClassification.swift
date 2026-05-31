@@ -46,6 +46,9 @@ enum CapabilityClassifier {
     /// — they only see it once it's been synced into their own agent dir or installed for that
     /// agent via the skills CLI.
     static func isAgentsShared(_ capability: Capability) -> Bool {
+        // A host-dir symlink the scanner flagged as pointing back into `.agents` counts as shared,
+        // so the generic-host view gates it even though its own path is under `.trae`/`.cursor`.
+        if capability.metadata["mirrorsAgentsWorkspace"] == "true" { return true }
         let kind = capability.source.kind
         return kind == "agents-skill"
             || kind.hasPrefix("agents-")
@@ -69,9 +72,13 @@ enum CapabilityClassifier {
     /// `AgentViewResolver` (view) and `AdapterPreviewBuilder` (preview) so view-visible and
     /// preview-supported agree by construction.
     static func isVisibleToGenericAgent(_ capability: Capability, agentID: String, agentDirComponent: String) -> Bool {
+        // Shared `.agents` content is managed in the `.agents` tab and is NOT surfaced in this host's
+        // tab — even if its skills-CLI lock lists this agent (those entries are usually just symlinks
+        // back into `.agents`, which the scanner already collapses). Gated first so a lock claim can't
+        // re-introduce it. A capability whose real content lives under the host's own dir is unaffected.
+        if isAgentsShared(capability) { return false }
         if isInstalledForSkillsAgent(capability, agentID: agentID) { return true }
         if sourcePathComponents(for: capability).contains(agentDirComponent) { return true }
-        if isAgentsShared(capability) { return false }
         switch capability.type {
         case .skill:
             let kind = capability.source.kind

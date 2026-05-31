@@ -1402,6 +1402,16 @@ public final class CapabilityScanner {
             }
 
             if isSymbolicLink {
+                // A symlink in a host's OWN skills dir (.trae/.cursor) that points into the shared
+                // `.agents/skills` tree is a skills-CLI link back to a canonical `.agents` skill the host
+                // does not own. Flag it so the generic-host view (Trae/Cursor) treats it as `.agents`-shared
+                // and keeps it in the `.agents` tab rather than cluttering the host's own tab. The record
+                // is still emitted (Claude's own `.claude/skills` symlink bridge and linked-mirror grouping
+                // are unaffected — those use path/kind classification, not this flag).
+                var symlinkMetadata = baseMetadata
+                if sourceKind != "agents-skill", resolvesIntoAgentsWorkspace(url) {
+                    symlinkMetadata["mirrorsAgentsWorkspace"] = "true"
+                }
                 let skillFile = url.appendingPathComponent("SKILL.md")
                 var isSkillDirectory: ObjCBool = false
                 if fileManager.fileExists(atPath: skillFile.path, isDirectory: &isSkillDirectory), !isSkillDirectory.boolValue {
@@ -1423,7 +1433,7 @@ public final class CapabilityScanner {
                         claudeSkillStates: claudeSkillStates,
                         forcedPackageInfo: forcedPackageInfo,
                         inheritedEnabled: inheritedEnabled,
-                        metadata: baseMetadata
+                        metadata: symlinkMetadata
                     ))
                 } else if url.deletingLastPathComponent().standardizedFileURL.path == root.standardizedFileURL.path,
                           let broken = brokenSkillSymlinkCapability(at: url, scope: scope, sourceKind: sourceKind) {
@@ -1605,6 +1615,14 @@ public final class CapabilityScanner {
             }
         }
         return false
+    }
+
+    /// True when `url` (a symlink in a host's own skills dir) resolves into the shared
+    /// `.agents/skills` tree — i.e. it's a skills-CLI link back to a canonical `.agents` skill
+    /// rather than a skill the host genuinely owns.
+    private func resolvesIntoAgentsWorkspace(_ url: URL) -> Bool {
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        return containsPathComponentPair(".agents", "skills", in: resolved.pathComponents)
     }
 
     private func scanSkill(
