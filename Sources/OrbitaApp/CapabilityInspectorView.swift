@@ -902,7 +902,7 @@ private struct NativePluginActionSection: View {
                             Label(sectionTitle, systemImage: sectionIcon)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
-                            Text(capability.metadata["manager"] ?? L("inspector.native.managerFallback"))
+                            Text(displayManagerName(capability.metadata["manager"]))
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                         }
@@ -2399,6 +2399,21 @@ func localizedCapabilityScope(_ scope: String) -> String {
     let key = "scope.\(scope)"
     let localized = L(key)
     return localized == key ? scope : localized
+}
+
+/// Human-readable label for a plugin `manager` metadata value. The scanner records raw enum
+/// tokens (`codex`, `claude-code`, `agents-skills`); rendering those verbatim next to a localized
+/// section title looks broken. Managers are native-client brand names, so they map to a consistent
+/// branded display (not a translation), with the raw value as a safe fallback for unknowns.
+@MainActor
+func displayManagerName(_ manager: String?) -> String {
+    guard let manager, !manager.isEmpty else { return L("inspector.native.managerFallback") }
+    switch manager {
+    case "codex": return "Codex"
+    case "claude-code", "claude": return "Claude Code"
+    case "agents-skills", "agents": return "Agents"
+    default: return manager
+    }
 }
 
 private struct DriftStateTag: View {

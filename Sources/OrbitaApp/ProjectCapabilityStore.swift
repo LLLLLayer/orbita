@@ -29,6 +29,11 @@ final class ProjectCapabilityStore: ObservableObject {
 
     @Published var graph: CapabilityGraph?
     @Published var errorMessage: String?
+    /// Transient confirmation shown after a successful apply, so a destructive enable/disable/delete
+    /// reads as "done" instead of a silent re-scan. Cleared on the next apply and auto-dismissed by
+    /// the banner. Bumped token lets the banner restart its dismiss timer on repeated identical text.
+    @Published var successMessage: String?
+    @Published private(set) var successMessageToken = 0
     @Published var isScanning = false
     @Published var scanMessage: String?
     @Published var scanProgress = 0.0
@@ -567,6 +572,7 @@ final class ProjectCapabilityStore: ObservableObject {
         let affectedCapabilities = affectedCapabilities(for: plan)
         let previousGraph = graph
         errorMessage = nil
+        successMessage = nil
 
         let didOptimisticallyApply = optimisticallyApply(plan)
         let optimisticRevision = didOptimisticallyApply ? graphRevision : nil
@@ -620,11 +626,35 @@ final class ProjectCapabilityStore: ObservableObject {
         optimisticRevision: Int?
     ) {
         OrbitaTelemetry.apply.notice("apply.finish action=\(plan.action.rawValue, privacy: .public) operations=\(result.completedOperations.count, privacy: .public)")
+        showApplySuccess(for: plan, affectedCount: affectedCapabilities.count)
         if plan.action == .delete, isCurrentOptimisticRevision(optimisticRevision) {
             finishFastDeleteSync(affectedCapabilities: affectedCapabilities)
         } else {
             reload(force: true, preserveCurrentGraph: true)
         }
+    }
+
+    /// Publish a localized, action-aware confirmation. Count-based actions (enable/disable/delete)
+    /// report how many items changed; workspace actions (merge/rollback/clean) report the operation.
+    private func showApplySuccess(for plan: ApplyPlan, affectedCount: Int) {
+        let count = max(affectedCount, 1)
+        let message: String
+        switch plan.action {
+        case .enable:
+            message = String(format: L("apply.success.enable"), String(count))
+        case .disable:
+            message = String(format: L("apply.success.disable"), String(count))
+        case .delete:
+            message = String(format: L("apply.success.delete"), String(count))
+        case .merge:
+            message = L("apply.success.merge")
+        case .rollback:
+            message = L("apply.success.rollback")
+        case .clean:
+            message = L("apply.success.clean")
+        }
+        successMessageToken += 1
+        successMessage = message
     }
 
     private func failApply(

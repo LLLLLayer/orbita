@@ -163,6 +163,7 @@ enum LocalizationCatalog {
         "onboarding.tile.skill": "skill",
         "onboarding.tile.rule": "rule",
         "main.markdownPreview.back": "Back",
+        "markdown.preview.engine": "Markdown",
         "settings.release.buildFor": "Build %@ for %@",
 
         // === i18n full-coverage (home-side views) — auto-generated ===
@@ -458,6 +459,12 @@ enum LocalizationCatalog {
         "app.access.stillCannotRead": "Orbita still cannot read %@. Allow the macOS prompt, then try again or enable Full Disk Access.",
         "app.access.requiredFolder": "a required folder",
         "app.error.deleteCommandFailed": "Delete command failed: %@",
+        "apply.success.clean": "Workspace cleaned.",
+        "apply.success.delete": "Deleted %@ item(s).",
+        "apply.success.disable": "Disabled %@ item(s).",
+        "apply.success.enable": "Enabled %@ item(s).",
+        "apply.success.merge": "Workspace merged.",
+        "apply.success.rollback": "Rolled back.",
         "app.section.itemCount": "%d items",
         "app.section.enabled": "Enabled",
         "app.section.disabled": "Disabled",
@@ -649,6 +656,7 @@ enum LocalizationCatalog {
         "onboarding.tile.skill": "技能",
         "onboarding.tile.rule": "规范",
         "main.markdownPreview.back": "返回",
+        "markdown.preview.engine": "Markdown",
         "settings.release.buildFor": "为 %2$@ 构建 %1$@",
 
         // === i18n full-coverage (home-side views) — auto-generated ===
@@ -944,6 +952,12 @@ enum LocalizationCatalog {
         "app.access.stillCannotRead": "Orbita 仍无法读取 %@。请允许 macOS 弹出的授权提示,然后重试,或开启“完全磁盘访问权限”。",
         "app.access.requiredFolder": "某个必需的文件夹",
         "app.error.deleteCommandFailed": "删除命令失败:%@",
+        "apply.success.clean": "已清理工作区。",
+        "apply.success.delete": "已删除 %@ 项。",
+        "apply.success.disable": "已禁用 %@ 项。",
+        "apply.success.enable": "已启用 %@ 项。",
+        "apply.success.merge": "已合并工作区。",
+        "apply.success.rollback": "已回滚。",
         "app.section.itemCount": "%d 项",
         "app.section.enabled": "已启用",
         "app.section.disabled": "已停用",
@@ -1126,6 +1140,7 @@ enum LocalizationCatalog {
         "onboarding.tile.skill": "技能",
         "onboarding.tile.rule": "規範",
         "main.markdownPreview.back": "返回",
+        "markdown.preview.engine": "Markdown",
         "settings.release.buildFor": "為 %2$@ 建置 %1$@",
 
         // === i18n full-coverage (home-side views) — auto-generated ===
@@ -1421,6 +1436,12 @@ enum LocalizationCatalog {
         "app.access.stillCannotRead": "Orbita 仍無法讀取 %@。請允許 macOS 彈出的授權提示,然後重試,或開啟「完整磁碟取用權限」。",
         "app.access.requiredFolder": "某個必要的資料夾",
         "app.error.deleteCommandFailed": "刪除指令失敗:%@",
+        "apply.success.clean": "已清理工作區。",
+        "apply.success.delete": "已刪除 %@ 項。",
+        "apply.success.disable": "已停用 %@ 項。",
+        "apply.success.enable": "已啟用 %@ 項。",
+        "apply.success.merge": "已合併工作區。",
+        "apply.success.rollback": "已回滾。",
         "app.section.itemCount": "%d 項",
         "app.section.enabled": "已啟用",
         "app.section.disabled": "已停用",

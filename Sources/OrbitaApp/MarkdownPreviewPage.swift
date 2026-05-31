@@ -56,7 +56,7 @@ struct MarkdownPreviewPage: View {
 
             Spacer(minLength: 0)
 
-            Label("Textual", systemImage: "doc.richtext")
+            Label(L("markdown.preview.engine"), systemImage: "doc.richtext")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)

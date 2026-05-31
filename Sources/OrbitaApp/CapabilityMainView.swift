@@ -13,6 +13,7 @@ struct CapabilityMainView: View {
     let scanProgress: Double
     let lastRefreshLabel: String
     let errorMessage: String?
+    let successMessage: String?
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     let agentOptions: [AgentSelection]
@@ -56,6 +57,11 @@ struct CapabilityMainView: View {
 
                             if let errorMessage, !errorMessage.isEmpty {
                                 InlineErrorBanner(message: errorMessage)
+                            }
+
+                            if let successMessage, !successMessage.isEmpty {
+                                InlineSuccessBanner(message: successMessage)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
                             }
 
                             CapabilityFilterBar(
@@ -233,6 +239,33 @@ private struct InlineErrorBanner: View {
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color.red.opacity(0.18))
+        }
+    }
+}
+
+/// Green confirmation banner shown briefly after an apply succeeds — the success-side mirror of
+/// InlineErrorBanner, so a completed action reads as "done" rather than a silent re-scan.
+private struct InlineSuccessBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.green)
+                .frame(width: 18)
+            Text(message)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.green.opacity(0.20))
         }
     }
 }

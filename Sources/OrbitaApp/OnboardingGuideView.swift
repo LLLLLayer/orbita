@@ -534,7 +534,7 @@ private struct AgentTabsIllustration: View {
 
             HStack(spacing: 14) {
                 GuideTile(symbol: "wand.and.stars", caption: L("onboarding.tile.skill"))
-                GuideTile(symbol: "server.rack", caption: "mcp")
+                GuideTile(symbol: "server.rack", caption: "MCP")
                 GuideTile(symbol: "doc.text", caption: L("onboarding.tile.rule"))
             }
         }

@@ -261,6 +261,7 @@ struct ContentView: View {
                         scanProgress: store.scanProgress,
                         lastRefreshLabel: store.lastRefreshLabel,
                         errorMessage: store.errorMessage,
+                        successMessage: store.successMessage,
                         selectedAgent: $selectedAgent,
                         selectedGroup: $selectedGroup,
                         agentOptions: agentOptions,
@@ -295,6 +296,14 @@ struct ContentView: View {
                         }
                     )
                     .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(.snappy(duration: 0.25), value: store.successMessage)
+                    .task(id: store.successMessageToken) {
+                        // Auto-dismiss the success banner ~2.6s after each apply.
+                        guard store.successMessage != nil else { return }
+                        try? await Task.sleep(nanoseconds: 2_600_000_000)
+                        guard !Task.isCancelled else { return }
+                        store.successMessage = nil
+                    }
 
                     if store.hasActiveContext, inspectorVisible {
                         Divider()
