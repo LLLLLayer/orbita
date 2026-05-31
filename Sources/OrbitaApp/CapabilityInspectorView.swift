@@ -2731,13 +2731,25 @@ private struct DriftLocationRow: View {
                     Spacer(minLength: 0)
                 }
 
-                Text(displayPath)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+                Button {
+                    revealInFinder(record.path)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(displayPath)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Image(systemName: "arrow.up.forward.app")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help(record.path)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(L("issues.reveal"))
+                .accessibilityLabel(L("issues.reveal"))
             }
 
             if !record.hash.isEmpty {
@@ -2757,6 +2769,12 @@ private struct DriftLocationRow: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .orbitaControlSurface(selected: record.current)
+    }
+
+    private func revealInFinder(_ path: String) {
+        guard !path.isEmpty else { return }
+        let expanded = (path as NSString).expandingTildeInPath
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: expanded)])
     }
 
     private var shortHash: String {
