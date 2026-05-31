@@ -20,6 +20,7 @@ struct CapabilityInspectorView: View {
     @State private var runningNativeActionID: String?
     @State private var nativeActionResult: NativePluginActionResult?
     @State private var pendingNativeDeleteAction: NativePluginDeleteRequest?
+    @State private var pendingNativeCommand: NativePluginCommandRequest?
     @AppStorage("nativePluginVersionChecksJSON") private var nativePluginVersionChecksJSON = "{}"
     @State private var autoCheckInFlight: Set<String> = []
 
@@ -173,6 +174,22 @@ struct CapabilityInspectorView: View {
                 },
                 onCancel: {
                     pendingNativeDeleteAction = nil
+                }
+            )
+        }
+        .sheet(item: $pendingNativeCommand) { request in
+            NativePluginCommandConfirmationSheet(
+                capability: request.capability,
+                action: request.action,
+                workingDirectory: request.action.workingDirectory(for: request.capability),
+                onRun: {
+                    let action = request.action
+                    let capability = request.capability
+                    pendingNativeCommand = nil
+                    runNativePluginAction(action, capability: capability, confirmed: true)
+                },
+                onCancel: {
+                    pendingNativeCommand = nil
                 }
             )
         }
@@ -589,8 +606,14 @@ struct CapabilityInspectorView: View {
         saveNativePluginVersionCheck(versionCheck, for: capability)
     }
 
-    private func runNativePluginAction(_ action: NativePluginAction, capability: Capability) {
+    private func runNativePluginAction(_ action: NativePluginAction, capability: Capability, confirmed: Bool = false) {
         guard runningNativeActionID == nil else { return }
+        // Network-touching commands (reinstall / update from a source registry) get a
+        // pre-flight review showing the exact command + working directory before they run.
+        if action.requiresCommandConfirmation, !confirmed {
+            pendingNativeCommand = NativePluginCommandRequest(action: action, capability: capability)
+            return
+        }
         runningNativeActionID = action.id
         nativeActionResult = nil
         let optimisticMutation = action.optimisticMutation
@@ -1032,6 +1055,183 @@ private struct NativePluginDeleteRequest: Identifiable {
     var id: String { "\(capability.id):\(action.id):\(action.command)" }
     let action: NativePluginAction
     let capability: Capability
+}
+
+private struct NativePluginCommandRequest: Identifiable {
+    var id: String { "\(capability.id):\(action.id):\(action.command)" }
+    let action: NativePluginAction
+    let capability: Capability
+}
+
+/// Pre-flight review for a network-touching native command (reinstall / update). Shows the
+/// exact command and working directory so the user sees what runs against their config/registry
+/// before it executes — mirroring Orbita's "transparent, native-CLI-authoritative writes" promise.
+private struct NativePluginCommandConfirmationSheet: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let capability: Capability
+    let action: NativePluginAction
+    let workingDirectory: String?
+    let onRun: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
+            impactPanel
+            commandPanel
+
+            HStack(spacing: 10) {
+                CommandSheetButton(
+                    title: L("inspector.delete.cancel"),
+                    systemImage: "xmark",
+                    isProminent: false,
+                    action: onCancel
+                )
+
+                Spacer(minLength: 0)
+
+                CommandSheetButton(
+                    title: action.title,
+                    systemImage: action.systemImage,
+                    isProminent: true,
+                    action: onRun
+                )
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 560)
+        .background(OrbitaTheme.canvas)
+        .presentationBackground(OrbitaTheme.canvas)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(OrbitaTheme.prominentControlFill.opacity(0.12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(OrbitaTheme.prominentControlFill.opacity(0.24))
+                    }
+                Image(systemName: "terminal")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(OrbitaTheme.prominentControlFill)
+            }
+            .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("inspector.confirm.command.heading"))
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(capability.name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var impactPanel: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "network")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 44, height: 44)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.22))
+                }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(action.title)
+                    .font(.headline.weight(.semibold))
+                Text(action.commandImpactDetail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .orbitaCard(cornerRadius: 18, shadowRadius: 8, shadowY: 4)
+    }
+
+    private var commandPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(L("inspector.command.label"), systemImage: "terminal")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(action.command)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(3)
+                    .truncationMode(.middle)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(OrbitaTheme.border)
+                    }
+            }
+
+            if let workingDirectory, !workingDirectory.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(L("inspector.confirm.command.workdir"), systemImage: "folder")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(workingDirectory)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(OrbitaTheme.border)
+                        }
+                }
+            }
+        }
+    }
+
+    private struct CommandSheetButton: View {
+        let title: String
+        let systemImage: String
+        let isProminent: Bool
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                Label(title, systemImage: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .foregroundStyle(isProminent ? OrbitaTheme.prominentControlForeground : Color.primary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(
+                isProminent ? OrbitaTheme.prominentControlFill : OrbitaTheme.controlFill,
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(isProminent ? Color.clear : OrbitaTheme.border)
+            }
+        }
+    }
 }
 
 private struct NativePluginActionResultView: View {
@@ -1495,6 +1695,25 @@ private struct NativePluginAction: Identifiable {
 
     var isEnablementToggle: Bool {
         kind == .enable || kind == .disable
+    }
+
+    /// Reinstall / update pull from a source registry and may reach the network, so they
+    /// get a pre-flight review of the exact command before running. Quick reversible
+    /// toggles (enable/disable) stay direct; delete has its own destructive confirmation.
+    var requiresCommandConfirmation: Bool {
+        kind == .install || kind == .update
+    }
+
+    @MainActor
+    var commandImpactDetail: String {
+        switch kind {
+        case .update:
+            return L("inspector.confirm.command.impact.update")
+        case .install:
+            return L("inspector.confirm.command.impact.install")
+        default:
+            return L("inspector.confirm.command.subtitle")
+        }
     }
 
     var optimisticMutation: CapabilityOptimisticMutation? {
