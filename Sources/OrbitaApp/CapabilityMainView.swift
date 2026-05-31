@@ -22,8 +22,6 @@ struct CapabilityMainView: View {
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     @Binding var searchText: String
-    let availableFlags: [CapabilityFlag]
-    @Binding var selectedFlags: Set<CapabilityFlag>
     @Binding var selectedCapabilityIDs: Set<String>
     let onBulkEnable: () -> Void
     let onBulkDisable: () -> Void
@@ -89,11 +87,9 @@ struct CapabilityMainView: View {
                             CapabilityFilterBar(
                                 agentOptions: agentOptions,
                                 categoryOptions: categoryOptions,
-                                availableFlags: availableFlags,
                                 selectedAgent: $selectedAgent,
                                 selectedGroup: $selectedGroup,
                                 searchText: $searchText,
-                                selectedFlags: $selectedFlags,
                                 onAddAgent: onAddAgent,
                                 onMoveAgent: onMoveAgent,
                                 onPinAgent: onPinAgent,
@@ -121,8 +117,7 @@ struct CapabilityMainView: View {
 
                             if displaySections.isEmpty {
                                 EmptyCapabilitiesState(
-                                    searchQuery: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    hasActiveFilters: !selectedFlags.isEmpty
+                                    searchQuery: searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                                 )
                                     .frame(
                                         width: contentWidth,
@@ -674,11 +669,9 @@ struct CapabilityFilterBar: View {
     @ObservedObject private var localization = LocalizationManager.shared
     let agentOptions: [AgentSelection]
     let categoryOptions: [CapabilityCategory]
-    let availableFlags: [CapabilityFlag]
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     @Binding var searchText: String
-    @Binding var selectedFlags: Set<CapabilityFlag>
     let onAddAgent: () -> Void
     let onMoveAgent: (_ sourceID: String, _ targetID: String) -> Void
     let onPinAgent: (_ agentID: String) -> Void
@@ -739,10 +732,6 @@ struct CapabilityFilterBar: View {
                         .disabled(agent.isDeleteProtected)
                     }
                 }
-
-                Spacer(minLength: 12)
-
-                CapabilitySearchField(text: $searchText)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -787,115 +776,8 @@ struct CapabilityFilterBar: View {
                 }
             }
 
-            if !availableFlags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 7) {
-                        Image(systemName: "line.3.horizontal.decrease")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, height: 26)
-                            .help(L("main.filter.flags.help"))
-                            .accessibilityLabel(L("main.filter.flags.help"))
-
-                        ForEach(availableFlags) { flag in
-                            FlagFilterChip(flag: flag, isSelected: selectedFlags.contains(flag)) {
-                                withAnimation(.snappy(duration: 0.16)) {
-                                    if selectedFlags.contains(flag) {
-                                        selectedFlags.remove(flag)
-                                    } else {
-                                        selectedFlags.insert(flag)
-                                    }
-                                }
-                            }
-                        }
-
-                        if !selectedFlags.isEmpty {
-                            Button {
-                                withAnimation(.snappy(duration: 0.16)) {
-                                    selectedFlags.removeAll()
-                                }
-                            } label: {
-                                Text(L("main.filter.clearFlags"))
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 8)
-                                    .frame(height: 26)
-                            }
-                            .buttonStyle(.plain)
-                            .help(L("main.filter.clearFlags"))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// A capability "flag" the user can filter the grid by — each maps to a
-/// `CapabilityStatus` worth triaging. Defined at file scope so both the filter
-/// bar and `ContentView`'s filter/prune logic share one source of truth.
-enum CapabilityFlag: String, CaseIterable, Identifiable {
-    case broken
-    case drifted
-    case shadowed
-    case risky
-    case disabled
-
-    var id: String { rawValue }
-
-    var status: CapabilityStatus {
-        switch self {
-        case .broken: return .broken
-        case .drifted: return .drifted
-        case .shadowed: return .shadowed
-        case .risky: return .risky
-        case .disabled: return .disabled
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .broken: return "exclamationmark.triangle"
-        case .drifted: return "arrow.triangle.branch"
-        case .shadowed: return "square.on.square"
-        case .risky: return "exclamationmark.shield"
-        case .disabled: return "pause.circle"
-        }
-    }
-
-    @MainActor
-    var title: String {
-        L("main.flag.\(rawValue)")
-    }
-}
-
-private struct FlagFilterChip: View {
-    let flag: CapabilityFlag
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: flag.systemImage)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(flag.title)
-                    .font(.caption.weight(isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .foregroundStyle(isSelected ? OrbitaTheme.prominentControlForeground : Color.primary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? OrbitaTheme.prominentControlFill : OrbitaTheme.controlFill)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(isSelected ? Color.clear : OrbitaTheme.border)
+            CapabilitySearchField(text: $searchText)
+                .frame(maxWidth: 320, alignment: .leading)
         }
     }
 }
@@ -1089,10 +971,9 @@ private struct EmptyCapabilitiesState: View {
     @ObservedObject private var localization = LocalizationManager.shared
     @Environment(\.colorScheme) private var colorScheme
     var searchQuery: String = ""
-    var hasActiveFilters: Bool = false
 
     private var isFiltered: Bool {
-        !searchQuery.isEmpty || hasActiveFilters
+        !searchQuery.isEmpty
     }
 
     var body: some View {
@@ -1126,9 +1007,6 @@ private struct EmptyCapabilitiesState: View {
     private var messageText: String {
         if !searchQuery.isEmpty {
             return String(format: L("main.empty.noSearchResults"), searchQuery)
-        }
-        if hasActiveFilters {
-            return L("main.empty.noFilterResults")
         }
         return L("main.empty.noCapabilities")
     }

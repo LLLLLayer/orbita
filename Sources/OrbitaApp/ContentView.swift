@@ -34,7 +34,6 @@ struct ContentView: View {
     @State private var selectedAgent: AgentSelection?
     @State private var selectedGroup = CapabilityCategory.all
     @State private var searchText = ""
-    @State private var selectedFlags: Set<CapabilityFlag> = []
     @State private var selectedCapabilityIDs: Set<String> = []
     @State private var selectedCapability: Capability?
     @State private var expandedGroupIDs: Set<String> = []
@@ -237,11 +236,7 @@ struct ContentView: View {
         .onChange(of: selectedAgent) { _, _ in
             expandedGroupIDs.removeAll()
             selectedCapabilityIDs.removeAll()
-            pruneFlagsToAvailable()
             reconcileSelectedCapabilityWithDisplayedItems()
-        }
-        .onChange(of: hideMacScopeInProject) { _, _ in
-            pruneFlagsToAvailable()
         }
         .onChange(of: scanRefreshPolicy) { _, value in
             store.configure(refreshPolicy: value)
@@ -284,8 +279,6 @@ struct ContentView: View {
                         selectedAgent: $selectedAgent,
                         selectedGroup: $selectedGroup,
                         searchText: $searchText,
-                        availableFlags: availableFlags,
-                        selectedFlags: $selectedFlags,
                         selectedCapabilityIDs: $selectedCapabilityIDs,
                         onBulkEnable: { runBulkAction(.enable) },
                         onBulkDisable: { runBulkAction(.disable) },
@@ -560,29 +553,12 @@ struct ContentView: View {
     private var displayCacheKey: String {
         let agentKey = selectedAgent?.id ?? "__overview__"
         let hideMac = (hideMacScopeInProject && store.hasProject) ? "1" : "0"
-        let flagsKey = selectedFlags.map(\.rawValue).sorted().joined(separator: "+")
         let query = normalizedSearchQuery.lowercased()
-        return "\(store.graphRevision)|\(agentKey)|\(selectedGroup.rawValue)|\(capabilitySortOption)|\(hideMac)|\(flagsKey)|\(query)"
+        return "\(store.graphRevision)|\(agentKey)|\(selectedGroup.rawValue)|\(capabilitySortOption)|\(hideMac)|\(query)"
     }
 
     private var normalizedSearchQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Flags actually present in the current agent/scope view (before the search
-    /// and flag filters are applied), so we only render chips the user can act on.
-    private var availableFlags: [CapabilityFlag] {
-        let capabilities = derivedDisplay().visible
-        return CapabilityFlag.allCases.filter { flag in
-            capabilities.contains { $0.statuses.contains(flag.status) }
-        }
-    }
-
-    private func pruneFlagsToAvailable() {
-        let available = Set(availableFlags)
-        if !selectedFlags.isSubset(of: available) {
-            selectedFlags.formIntersection(available)
-        }
     }
 
     private func derivedDisplay() -> DisplayDerivationCache {
@@ -633,7 +609,6 @@ struct ContentView: View {
                 .filter { selectedGroup.matches($0) }
                 .sorted(by: currentSortOption.comparator)
         }
-        let activeFlagStatuses = Set(selectedFlags.map(\.status))
         let query = normalizedSearchQuery
         let items = CapabilityDisplayGrouper()
             .items(
@@ -642,10 +617,6 @@ struct ContentView: View {
                 groupsPluginChildren: selectedGroup == .all || selectedGroup == .plugin
             )
             .filter(displayItemMatchesSelectedGroup)
-            .filter { item in
-                guard !activeFlagStatuses.isEmpty else { return true }
-                return item.capabilities.contains { !Set($0.statuses).isDisjoint(with: activeFlagStatuses) }
-            }
             .filter { item in
                 guard !query.isEmpty else { return true }
                 return displayItemMatchesSearch(item, query: query)
