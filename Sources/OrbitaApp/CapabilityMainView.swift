@@ -14,6 +14,11 @@ struct CapabilityMainView: View {
     let lastRefreshLabel: String
     let errorMessage: String?
     let successMessage: String?
+    let successDetail: String?
+    let successUndoable: Bool
+    let onUndo: () -> Void
+    let scanIssues: [ScanIssue]
+    let onRevealIssue: (String) -> Void
     @Binding var selectedAgent: AgentSelection?
     @Binding var selectedGroup: CapabilityCategory
     @Binding var searchText: String
@@ -67,7 +72,17 @@ struct CapabilityMainView: View {
                             }
 
                             if let successMessage, !successMessage.isEmpty {
-                                InlineSuccessBanner(message: successMessage)
+                                InlineSuccessBanner(
+                                    message: successMessage,
+                                    detail: successDetail,
+                                    canUndo: successUndoable,
+                                    onUndo: onUndo
+                                )
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+
+                            if !scanIssues.isEmpty {
+                                ScanIssuesBanner(issues: scanIssues, onReveal: onRevealIssue)
                                     .transition(.move(edge: .top).combined(with: .opacity))
                             }
 
@@ -285,9 +300,14 @@ private struct InlineErrorBanner: View {
 }
 
 /// Green confirmation banner shown briefly after an apply succeeds — the success-side mirror of
-/// InlineErrorBanner, so a completed action reads as "done" rather than a silent re-scan.
+/// InlineErrorBanner, so a completed action reads as "done" rather than a silent re-scan. Carries
+/// a "what changed on disk" receipt line and, for reversible actions, a one-click Undo.
 private struct InlineSuccessBanner: View {
+    @ObservedObject private var localization = LocalizationManager.shared
     let message: String
+    var detail: String? = nil
+    var canUndo: Bool = false
+    var onUndo: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -295,11 +315,28 @@ private struct InlineSuccessBanner: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.green)
                 .frame(width: 18)
-            Text(message)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
             Spacer(minLength: 0)
+            if canUndo {
+                Button(action: onUndo) {
+                    Label(L("apply.undo"), systemImage: "arrow.uturn.backward")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.green)
+                .help(L("apply.undo.help"))
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -307,6 +344,110 @@ private struct InlineSuccessBanner: View {
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color.green.opacity(0.20))
+        }
+    }
+}
+
+/// Persistent warning strip listing scan issues (malformed manifest.json, unparseable
+/// .mcp.json, etc.) that the CLI already reports via exit code 2 but the GUI previously
+/// only logged to telemetry — so capabilities could silently vanish. Expandable, with a
+/// reveal-in-Finder jump per issue.
+private struct ScanIssuesBanner: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let issues: [ScanIssue]
+    let onReveal: (String) -> Void
+    @State private var expanded = false
+
+    private var hasError: Bool {
+        issues.contains { $0.severity == .error }
+    }
+
+    private var tint: Color { hasError ? .red : .orange }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: hasError ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(String(format: L("issues.banner.title"), String(issues.count)))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(L("issues.banner.subtitle"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(expanded ? L("issues.collapse") : L("issues.expand"))
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(issues.enumerated()), id: \.offset) { _, issue in
+                        ScanIssueRow(issue: issue, onReveal: onReveal)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(tint.opacity(0.20))
+        }
+    }
+}
+
+private struct ScanIssueRow: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let issue: ScanIssue
+    let onReveal: (String) -> Void
+
+    private var isError: Bool { issue.severity == .error }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isError ? "xmark.octagon" : "exclamationmark.triangle")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isError ? .red : .orange)
+                .frame(width: 14, alignment: .center)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(issue.message)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !issue.path.isEmpty {
+                    Button {
+                        onReveal(issue.path)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.forward.app")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(issue.path)
+                                .font(.caption2.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("issues.reveal"))
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 }

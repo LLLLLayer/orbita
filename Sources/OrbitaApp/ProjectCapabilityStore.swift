@@ -33,6 +33,13 @@ final class ProjectCapabilityStore: ObservableObject {
     /// reads as "done" instead of a silent re-scan. Cleared on the next apply and auto-dismissed by
     /// the banner. Bumped token lets the banner restart its dismiss timer on repeated identical text.
     @Published var successMessage: String?
+    /// Human-language "receipt" of what an apply changed on disk (e.g. "Moved 1 to the
+    /// disabled store · updated intent"), shown under the success banner so the user
+    /// sees the concrete effect instead of just a count.
+    @Published var successDetail: String?
+    /// Whether the just-applied change can be reversed in one click (enable/disable —
+    /// intent or quarantine moves). Delete and workspace actions are not offered as undo.
+    @Published private(set) var successUndoable = false
     @Published private(set) var successMessageToken = 0
     @Published var isScanning = false
     @Published var scanMessage: String?
@@ -641,6 +648,8 @@ final class ProjectCapabilityStore: ObservableObject {
         let previousGraph = graph
         errorMessage = nil
         successMessage = nil
+        successDetail = nil
+        successUndoable = false
 
         let didOptimisticallyApply = optimisticallyApply(plan)
         let optimisticRevision = didOptimisticallyApply ? graphRevision : nil
@@ -694,7 +703,7 @@ final class ProjectCapabilityStore: ObservableObject {
         optimisticRevision: Int?
     ) {
         OrbitaTelemetry.apply.notice("apply.finish action=\(plan.action.rawValue, privacy: .public) operations=\(result.completedOperations.count, privacy: .public)")
-        showApplySuccess(for: plan, affectedCount: affectedCapabilities.count)
+        showApplySuccess(for: plan, result: result, affectedCount: affectedCapabilities.count)
         if plan.action == .delete, isCurrentOptimisticRevision(optimisticRevision) {
             finishFastDeleteSync(affectedCapabilities: affectedCapabilities)
         } else {
@@ -704,7 +713,7 @@ final class ProjectCapabilityStore: ObservableObject {
 
     /// Publish a localized, action-aware confirmation. Count-based actions (enable/disable/delete)
     /// report how many items changed; workspace actions (merge/rollback/clean) report the operation.
-    private func showApplySuccess(for plan: ApplyPlan, affectedCount: Int) {
+    private func showApplySuccess(for plan: ApplyPlan, result: ApplyExecutionResult, affectedCount: Int) {
         let count = max(affectedCount, 1)
         let message: String
         switch plan.action {
@@ -721,8 +730,32 @@ final class ProjectCapabilityStore: ObservableObject {
         case .clean:
             message = L("apply.success.clean")
         }
+        successDetail = applyReceiptDetail(for: result)
+        // Only enable/disable are cleanly reversible (intent flip or quarantine move);
+        // delete and workspace-wide actions are not offered as a one-click undo.
+        successUndoable = (plan.action == .enable || plan.action == .disable)
         successMessageToken += 1
         successMessage = message
+    }
+
+    /// Condense the executed operations into a short, human "what changed on disk" line.
+    /// Noise operations (read/createDirectory/appendLog) are omitted.
+    private func applyReceiptDetail(for result: ApplyExecutionResult) -> String? {
+        func count(_ kind: ApplyOperationKind) -> Int {
+            result.completedOperations.filter { $0.kind == kind }.count
+        }
+        var parts: [String] = []
+        let moved = count(.cachePath)
+        if moved > 0 { parts.append(String(format: L("apply.receipt.moved"), String(moved))) }
+        let restored = count(.restorePath)
+        if restored > 0 { parts.append(String(format: L("apply.receipt.restored"), String(restored))) }
+        let removed = count(.removePath)
+        if removed > 0 { parts.append(String(format: L("apply.receipt.removed"), String(removed))) }
+        let linked = count(.createSymlink) + count(.copyPath)
+        if linked > 0 { parts.append(String(format: L("apply.receipt.linked"), String(linked))) }
+        if count(.writeFile) > 0 { parts.append(L("apply.receipt.intent")) }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
     }
 
     private func failApply(

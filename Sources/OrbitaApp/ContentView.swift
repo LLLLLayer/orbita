@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import OrbitaCore
@@ -273,6 +274,11 @@ struct ContentView: View {
                         lastRefreshLabel: store.lastRefreshLabel,
                         errorMessage: store.errorMessage,
                         successMessage: store.successMessage,
+                        successDetail: store.successDetail,
+                        successUndoable: store.successUndoable,
+                        onUndo: undoLastApply,
+                        scanIssues: store.graph?.issues ?? [],
+                        onRevealIssue: revealIssuePath,
                         selectedAgent: $selectedAgent,
                         selectedGroup: $selectedGroup,
                         searchText: $searchText,
@@ -316,11 +322,14 @@ struct ContentView: View {
                     .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
                     .animation(.snappy(duration: 0.25), value: store.successMessage)
                     .task(id: store.successMessageToken) {
-                        // Auto-dismiss the success banner ~2.6s after each apply.
+                        // Auto-dismiss the success banner after each apply. Linger longer when
+                        // an Undo is offered so the user has time to reach for it.
                         guard store.successMessage != nil else { return }
-                        try? await Task.sleep(nanoseconds: 2_600_000_000)
+                        let delay: UInt64 = store.successUndoable ? 6_000_000_000 : 2_600_000_000
+                        try? await Task.sleep(nanoseconds: delay)
                         guard !Task.isCancelled else { return }
                         store.successMessage = nil
+                        store.successDetail = nil
                     }
 
                     if store.hasActiveContext, inspectorVisible {
@@ -1090,6 +1099,21 @@ struct ContentView: View {
         } else if let updatedCapability = store.capability(id: plan.capabilityID) {
             selectedCapability = updatedCapability
         }
+    }
+
+    private func undoLastApply() {
+        store.successMessage = nil
+        store.successDetail = nil
+        guard let plan = store.planRollback() else {
+            return
+        }
+        apply(plan)
+    }
+
+    private func revealIssuePath(_ path: String) {
+        guard !path.isEmpty else { return }
+        let expanded = (path as NSString).expandingTildeInPath
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: expanded)])
     }
 
     private func runBulkAction(_ kind: ProjectCapabilityStore.BulkActionKind) {
