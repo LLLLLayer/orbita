@@ -1939,6 +1939,66 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(claude.metadata["duplicateDetail"]?.contains("Linked mirror") == true)
     }
 
+    func testLinkedMirrorAcrossAgentDirsStaysCleanDespiteHashSkewAndDanglingSibling() throws {
+        // One physical skill in `.agents/skills`, symlinked into Claude's dir, reached through two agent
+        // homes — PLUS a dangling project symlink (the common relative `../../.agents/skills/x` link in a
+        // repo that has no project-level `.agents/skills`). Even though the per-source-kind content hashes
+        // differ (the `agents-skill` whole-directory hash vs the `claude-skill` file hash of the same real
+        // dir), the healthy records must read as ONE clean linked mirror — not duplicate / shadowed /
+        // drifted — and the broken sibling must not contaminate them. Regression for the real-world
+        // `iac-ai-setup` case that surfaced "duplicate + shadowed + drifted" badges for a single skill.
+        let root = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaLinkedMirror-\(UUID().uuidString)")
+        let agentsSkillDir = root.appendingPathComponent(".agents/skills/iac-ai-setup")
+        let agentsSkillFile = agentsSkillDir.appendingPathComponent("SKILL.md")
+        let claudeSkillDir = root.appendingPathComponent(".claude/skills/iac-ai-setup")
+        try FileManager.default.createDirectory(at: claudeSkillDir.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: agentsSkillDir, withIntermediateDirectories: true)
+        try skillText(name: "iac-ai-setup", body: "Set up.").write(to: agentsSkillFile, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: claudeSkillDir, withDestinationURL: agentsSkillDir)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let claudeSkillFile = claudeSkillDir.appendingPathComponent("SKILL.md")
+        let agents = Capability(
+            id: "skill:\(agentsSkillFile.path)", name: "iac-ai-setup", type: .skill, scope: .user,
+            statuses: [.enabled],
+            source: CapabilitySource(kind: "agents-skill", path: agentsSkillFile.path),
+            metadata: ["contentHash": "agents-directory-hash"]
+        )
+        let claude = Capability(
+            id: "skill:\(claudeSkillFile.path)", name: "iac-ai-setup", type: .skill, scope: .user,
+            statuses: [.enabled],
+            source: CapabilitySource(kind: "claude-skill", path: claudeSkillFile.path),
+            metadata: ["contentHash": "claude-file-hash"]
+        )
+        let danglingProjectLink = Capability(
+            id: "skill:\(root.path)/proj/.trae/skills/iac-ai-setup", name: "iac-ai-setup", type: .skill, scope: .project,
+            statuses: [.broken],
+            source: CapabilitySource(kind: "trae-symlink", path: "\(root.path)/proj/.trae/skills/iac-ai-setup")
+        )
+
+        let graph = CapabilityResolver().resolve(
+            scanResult: ScanResult(projectRoot: root.path, capabilities: [agents, claude, danglingProjectLink], issues: [])
+        )
+
+        let resolvedAgents = try XCTUnwrap(graph.capabilities.first { $0.source.kind == "agents-skill" })
+        let resolvedClaude = try XCTUnwrap(graph.capabilities.first { $0.source.kind == "claude-skill" })
+        let resolvedBroken = try XCTUnwrap(graph.capabilities.first { $0.source.kind == "trae-symlink" })
+
+        for cap in [resolvedAgents, resolvedClaude] {
+            XCTAssertEqual(cap.metadata["duplicateRelationship"], "linked-mirror")
+            XCTAssertFalse(cap.statuses.contains(.duplicate), "symlinked copies of one skill are not duplicates")
+            XCTAssertFalse(cap.statuses.contains(.shadowed), "symlinked copies of one skill do not shadow each other")
+            XCTAssertFalse(cap.statuses.contains(.drifted), "a per-source-kind hash difference on the same real file is not drift")
+        }
+
+        XCTAssertTrue(resolvedBroken.statuses.contains(.broken))
+        XCTAssertFalse(resolvedBroken.statuses.contains(.duplicate), "a dangling symlink must not be flagged a duplicate")
+        XCTAssertFalse(resolvedBroken.statuses.contains(.shadowed))
+        XCTAssertFalse(resolvedBroken.statuses.contains(.drifted))
+        XCTAssertNil(resolvedBroken.metadata["duplicateRelationship"], "the broken sibling stays out of the mirror group")
+    }
+
     func testCodexSkillConfigDisablesSharedAgentsSkillOnlyForCodex() throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")

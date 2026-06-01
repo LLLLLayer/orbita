@@ -125,7 +125,15 @@ public final class CapabilityResolver {
         }
 
         for indices in grouped.values where indices.count > 1 {
-            let group = indices.map { capabilities[$0] }
+            // A broken/dangling member (e.g. a project `.trae/skills/x → ../../.agents/skills/x` whose
+            // target is missing because the repo has no project-level `.agents/skills`) carries no real
+            // second copy — only an unresolved path. Letting it into the comparison flips an otherwise
+            // clean linked mirror into a "conflicting duplicate" and pins duplicate/shadowed badges on its
+            // healthy siblings. Decide the relationship over the live members only; the broken tile stays
+            // surfaced as [.broken] on its own, just unflagged.
+            let liveIndices = indices.filter { !capabilities[$0].statuses.contains(.broken) }
+            guard liveIndices.count > 1 else { continue }
+            let group = liveIndices.map { capabilities[$0] }
             let relationship = duplicateRelationship(for: group)
             // A shared name alone is not enough to call two capabilities "conflicting duplicates":
             // two unrelated skills both named "helper" from different packages legitimately coexist.
@@ -135,14 +143,14 @@ public final class CapabilityResolver {
             if relationship == .conflicting, groupLikelyUnrelated(group) {
                 continue
             }
-            for index in indices {
+            for index in liveIndices {
                 if relationship != .linkedMirror, !capabilities[index].statuses.contains(.duplicate) {
                     capabilities[index].statuses.append(.duplicate)
                 }
-                let duplicates = indices
+                let duplicates = liveIndices
                     .filter { $0 != index }
                     .map { capabilities[$0] }
-                capabilities[index].metadata["duplicateCount"] = String(indices.count)
+                capabilities[index].metadata["duplicateCount"] = String(liveIndices.count)
                 capabilities[index].metadata["duplicateRelationship"] = relationship.rawValue
                 capabilities[index].metadata["duplicateSources"] = duplicates
                     .map(duplicateSourceDescription)
@@ -280,23 +288,37 @@ public final class CapabilityResolver {
         }
 
         for indices in grouped.values where indices.count > 1 {
-            let winner = indices.min { lhs, rhs in
+            // Broken/dangling members neither shadow nor drift their healthy siblings — a missing
+            // symlink target is not a competing copy. Decide over live members only (mirrors the
+            // same carve-out in `markDuplicates`), so the broken tile can't become the scope "winner"
+            // or manufacture a phantom second location.
+            let liveIndices = indices.filter { !capabilities[$0].statuses.contains(.broken) }
+            guard liveIndices.count > 1 else { continue }
+
+            let winner = liveIndices.min { lhs, rhs in
                 scopeRank(capabilities[lhs].scope) < scopeRank(capabilities[rhs].scope)
             }
-            let ranks = Set(indices.map { scopeRank(capabilities[$0].scope) })
-            let resolvedPaths = Set(indices.map { resolvedSourcePath(capabilities[$0].source.path) })
+            let ranks = Set(liveIndices.map { scopeRank(capabilities[$0].scope) })
+            let resolvedPaths = Set(liveIndices.map { resolvedSourcePath(capabilities[$0].source.path) })
+            let isLinkedMirror = resolvedPaths.count == 1
             let shouldMarkShadowed = ranks.count > 1 && resolvedPaths.count > 1
 
-            for index in indices where index != winner && shouldMarkShadowed {
+            for index in liveIndices where index != winner && shouldMarkShadowed {
                 appendStatus(.shadowed, to: &capabilities[index])
             }
 
-            let hashes = Set(indices.compactMap { capabilities[$0].metadata["contentHash"] }.filter { !$0.isEmpty })
-            if hashes.count > 1, !groupLikelyUnrelated(indices.map { capabilities[$0] }) {
-                for index in indices {
+            // A linked mirror is the SAME real file reached through several agent dirs, so a content-hash
+            // difference between its members is a scanner artifact — e.g. the `agents-skill` whole-directory
+            // hash vs the `claude-skill`/`trae-skill` hash of the symlinked-to dir — not real drift. Only
+            // genuinely separate copies (distinct resolved paths) can drift.
+            guard !isLinkedMirror else { continue }
+
+            let hashes = Set(liveIndices.compactMap { capabilities[$0].metadata["contentHash"] }.filter { !$0.isEmpty })
+            if hashes.count > 1, !groupLikelyUnrelated(liveIndices.map { capabilities[$0] }) {
+                for index in liveIndices {
                     appendStatus(.drifted, to: &capabilities[index])
                 }
-                annotateDriftLocations(forGroup: indices, in: &capabilities)
+                annotateDriftLocations(forGroup: liveIndices, in: &capabilities)
             }
         }
     }

@@ -8,6 +8,13 @@ struct CapabilityInspectorView: View {
     let capability: Capability?
     let selectedAgent: AgentSelection?
     var projectRoot: String = ""
+    /// Linked-mirror siblings of `capability` (the same real file reached through other agent dirs),
+    /// so the loadability panel reasons over the whole mirror set — agreeing with the card's brand
+    /// badges instead of contradicting them.
+    var mirrorSiblings: [Capability] = []
+    /// Per native-agent visible-capability id sets (the same source the brand badges read from), so the
+    /// loadability panel's "loads / does not load" matches the badges by construction.
+    var agentVisibleIDs: [String: Set<String>] = [:]
     /// The native hosts the user actually has in their tab strip — so the loadability
     /// panel doesn't surface agents (e.g. Cursor) the user intentionally omitted.
     var loadabilityAgentIDs: [AgentID] = AgentID.allCases
@@ -141,7 +148,7 @@ struct CapabilityInspectorView: View {
 
                         AccessRiskSection(capability: capability)
 
-                        AgentLoadabilitySection(capability: capability, projectRoot: projectRoot, agentIDs: loadabilityAgentIDs)
+                        AgentLoadabilitySection(capability: capability, siblings: mirrorSiblings, projectRoot: projectRoot, agentIDs: loadabilityAgentIDs, agentVisibleIDs: agentVisibleIDs)
                     }
 
                     if !nativeSecondaryActions.isEmpty {
@@ -2238,23 +2245,50 @@ private enum JSONFileEditor {
 private struct AgentLoadabilitySection: View {
     @ObservedObject private var localization = LocalizationManager.shared
     let capability: Capability
+    var siblings: [Capability] = []
     let projectRoot: String
     let agentIDs: [AgentID]
+    /// Per native-agent visible-capability id sets — the SAME visibility the card's brand badges use
+    /// (`AgentSelection.visibleCapabilityIDs`, which already folds in native views, linked mirrors AND
+    /// skills-CLI installs). Driving `supported` from this makes the panel agree with the badges by
+    /// construction. Re-deriving loadability structurally (the old behaviour) drifted from the badges:
+    /// a skill synced to Trae via the skills CLI, or reached through a `~/.claude/skills` mirror, showed
+    /// a brand badge yet read "does not load" here.
+    var agentVisibleIDs: [String: Set<String>] = [:]
 
     private struct Row: Identifiable {
         let agent: AgentSelection
-        let mapping: AdapterCapabilityMapping
+        let supported: Bool
+        let reason: String
         var id: String { agent.id }
     }
 
     private var rows: [Row] {
         let builder = AdapterPreviewBuilder()
+        // The whole linked-mirror set: the inspected record plus the same real file reached through other
+        // agent dirs. An agent loads the skill if ANY of these ids is in that agent's visible set.
+        let records = [capability] + siblings
+        let recordIDs = Set(records.map(\.id))
         return agentIDs.map { agentID in
-            Row(
-                agent: AgentSelection.builtIn(for: agentID),
-                mapping: builder.mapping(for: agentID, capability: capability, projectRoot: projectRoot)
-            )
+            let agent = AgentSelection.builtIn(for: agentID)
+            let supported = !recordIDs.isDisjoint(with: agentVisibleIDs[agent.id] ?? [])
+            return Row(agent: agent, supported: supported, reason: reason(builder: builder, agentID: agentID, records: records, supported: supported))
         }
+    }
+
+    /// Explanatory text for a row. Prefer a structurally-supported record's reason (so a linked mirror
+    /// that loads via `~/.claude/skills` says exactly that); fall back to a skills-CLI note when the
+    /// capability is visible only because it was synced to the agent; otherwise the structural
+    /// not-loaded reason.
+    private func reason(builder: AdapterPreviewBuilder, agentID: AgentID, records: [Capability], supported: Bool) -> String {
+        let mapped = records.map { builder.mapping(for: agentID, capability: $0, projectRoot: projectRoot) }
+        if let supporting = mapped.first(where: { $0.supported }) {
+            return supporting.reason
+        }
+        if supported {
+            return String(format: L("inspector.loadability.viaSkillsCLI"), agentID.displayName)
+        }
+        return mapped.first?.reason ?? ""
     }
 
     var body: some View {
@@ -2286,10 +2320,10 @@ private struct AgentLoadabilitySection: View {
                             HStack(spacing: 6) {
                                 Text(row.agent.displayName)
                                     .font(.caption.weight(.semibold))
-                                LoadabilityPill(supported: row.mapping.supported)
+                                LoadabilityPill(supported: row.supported)
                                 Spacer(minLength: 0)
                             }
-                            Text(row.mapping.reason)
+                            Text(row.reason)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

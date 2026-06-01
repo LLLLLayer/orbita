@@ -334,6 +334,8 @@ struct ContentView: View {
                             capability: selectedCapability,
                             selectedAgent: selectedAgent,
                             projectRoot: store.graph?.projectRoot ?? "",
+                            mirrorSiblings: inspectorMirrorSiblings,
+                            agentVisibleIDs: inspectorAgentVisibleIDs,
                             loadabilityAgentIDs: loadabilityHostAgentIDs,
                             onClose: {
                                 withAnimation(.snappy(duration: 0.22)) {
@@ -1219,6 +1221,41 @@ struct ContentView: View {
         AgentID.allCases.filter { id in
             agentOptions.contains { $0.id == AgentSelection.builtIn(for: id).id }
         }
+    }
+
+    /// The other records of the inspected capability's linked-mirror set — the SAME real file reached
+    /// through different agent dirs (e.g. one `.agents/skills` skill symlinked into `~/.claude/skills`).
+    /// Passed to the loadability panel so "which agents load it" is decided over the whole mirror, the
+    /// same union the card's brand badges use — otherwise inspecting the `.agents` record alone says
+    /// "Claude Code does not load it" while the badges (correctly) show Claude.
+    private var inspectorMirrorSiblings: [Capability] {
+        guard let capability = selectedCapability, let graph = store.graph else { return [] }
+        let target = resolvedRealPath(capability.source.path)
+        guard !target.isEmpty else { return [] }
+        return graph.capabilities.filter { other in
+            other.id != capability.id
+                && other.type == capability.type
+                && !other.statuses.contains(.broken)
+                && resolvedRealPath(other.source.path) == target
+        }
+    }
+
+    private func resolvedRealPath(_ path: String) -> String {
+        guard !path.isEmpty else { return "" }
+        return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// Per native-agent visible-capability id sets, the exact source the card brand badges read from.
+    /// Handed to the loadability panel so "which agents load it" matches the badges by construction
+    /// (both fold in native views, linked mirrors and skills-CLI installs).
+    private var inspectorAgentVisibleIDs: [String: Set<String>] {
+        guard let graph = store.graph else { return [:] }
+        var map: [String: Set<String>] = [:]
+        for agentID in loadabilityHostAgentIDs {
+            let selection = AgentSelection.builtIn(for: agentID)
+            map[selection.id] = selection.visibleCapabilityIDs(in: graph)
+        }
+        return map
     }
 }
 
