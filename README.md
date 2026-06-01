@@ -4,7 +4,7 @@
   </a>
   <h1>Orbita</h1>
   <p><strong>See what every coding agent on your Mac actually loads — and what drifted, conflicts, or carries risk.</strong></p>
-  <p>A local macOS console and CLI that reconciles Codex Desktop, Claude Code, Trae, Cursor, plugin caches, and the cross-agent <code>.agents</code> workspace into one source of truth. <strong>Not a plugin store.</strong></p>
+  <p>A local macOS console and CLI that reconciles Codex Desktop, Claude Code, plugin caches, and the cross-agent <code>.agents</code> workspace into one source of truth. <strong>Not a plugin store.</strong></p>
 
   <p>
     <a href="https://github.com/LLLLLayer/orbita/releases/latest"><strong>Download for macOS</strong></a> ·
@@ -29,21 +29,21 @@
   <!-- HERO SCREENSHOT — NEEDED (no product screenshot exists in the repo yet).
        Capture: the App's main window on the Overview tab — the project name and summary
        stat row above the capability grid, with the agent tab strip (Agents · Codex ·
-       Claude Code · Trae) visible. Ship light + dark, drop them in docs/assets/screenshots/,
+       Claude Code) visible. Ship light + dark, drop them in docs/assets/screenshots/,
        and uncomment this <picture> block. Until then it stays a comment so the README
        never renders a broken image.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/screenshots/overview-light.png">
-    <img alt="Orbita Overview: one console showing what every agent loads across Codex, Claude Code, Trae, and the .agents workspace" src="docs/assets/screenshots/overview-light.png" width="860">
+    <img alt="Orbita Overview: one console showing what every agent loads across Codex, Claude Code, and the .agents workspace" src="docs/assets/screenshots/overview-light.png" width="860">
   </picture>
   -->
 </div>
 
 ---
 
-You run Codex Desktop, Claude Code, and Trae side by side. The same Skill is enabled for
-one and invisible to another, a plugin path quietly broke, and your project's `.agents`
+You run Codex Desktop and Claude Code side by side. The same Skill is enabled for
+one and invisible to the other, a plugin path quietly broke, and your project's `.agents`
 intent no longer matches what's actually on disk — and nothing tells you.
 
 **Orbita is a local source of truth for what each agent actually loads.** It reads your
@@ -77,9 +77,9 @@ for **Full Disk Access** on first scan — all access is local and read-only exc
 
 1. **Open Orbita** and pick a project folder (or open one from the sidebar).
 2. Orbita **scans** your machine and the project and builds a unified capability graph.
-3. Switch the **Agents · Codex · Claude Code · Trae** tabs to see what each agent loads, then
+3. Switch the **Agents · Codex · Claude Code** tabs to see what each agent loads, then
    click any capability to inspect its source, scope, status, access/risk flags, and
-   skills-lock metadata. (Cursor is fully scannable but is not one of the default tabs.)
+   skills-lock metadata.
 
 **From the CLI** — the same scan, one command:
 
@@ -90,7 +90,7 @@ swift run orbita overview --project-root <path>
 ## What it does
 
 - 🗺️ **Unified capability graph** — one scan across user scope, project scope, native agent configs, plugin caches, and `.agents` intent.
-- 👁️ **Per-agent perspective** — see exactly what Codex, Claude Code, and Trae each load, and what stays hidden.
+- 👁️ **Per-agent perspective** — see exactly what Codex and Claude Code each load, and what stays hidden.
 - 🌊 **Drift & conflict detection** — broken paths, duplicates, shadowed entries, disabled-but-still-discovered, and review flags, each explained.
 - ⚠️ **Risk visibility** — flags for reading files, writing files, command execution, network access, secrets, and global scope.
 - 🔁 **Safe lifecycle** — dry-runnable `merge` / `enable` / `disable` / `delete` / `clean` / `rollback`, plus triggers for native plugin updates.
@@ -105,8 +105,6 @@ What Orbita reads for each agent:
 | **`.agents`** (cross-agent) | `manifest.json` intent, generated adapter previews, lock data |
 | **Codex Desktop** | plugin cache, `~/.codex/config.toml`, project `.codex/` commands & hooks, MCP configs |
 | **Claude Code** | `~/.claude/…` + `installed_plugins.json`, project `.claude/` commands, `settings.json` hooks, instructions |
-| **Trae** | project `.trae/skills` |
-| **Cursor** *(scannable, not a default tab)* | `.cursor/rules`, legacy `.cursorrules`, `.mcp.json`, shared project metadata |
 | **Virtual Plugins** | inferred from package contents, local directories, and plugin caches |
 
 ## How intent works: Source · Intent · Visibility
@@ -155,7 +153,7 @@ swift run orbita status   --project-root <path> [--json]
 swift run orbita graph    --project-root <path> [--json]
 swift run orbita overview --project-root <path> [--json]
 swift run orbita drift    --project-root <path> [--json]
-swift run orbita agent    --project-root <path> [--agent codex|claude-code|cursor|trae] [--json]
+swift run orbita agent    --project-root <path> [--agent codex|claude-code] [--json]
 swift run orbita explain  --project-root <path> <capability-id> [--json]
 swift run orbita preview  --project-root <path> --agent <id> [--json]
 swift run orbita doctor   [--project-root <path>] [--json]
@@ -205,7 +203,7 @@ Three products ship from one SwiftPM package:
 - **`orbita` CLI** — a thin wrapper that calls into `OrbitaCore` and prints text or `--json`.
 - **OrbitaApp** — SwiftUI macOS app over the same core, with Sparkle auto-update and Textual Markdown rendering.
 
-The canonical agents are `codex`, `claude-code`, `cursor`, `trae`. The detailed lifecycle
+The canonical agents are `codex` and `claude-code`. The detailed lifecycle
 contract is in [docs/capability-lifecycle.md](docs/capability-lifecycle.md); the hook model is
 in [docs/hook-logic.md](docs/hook-logic.md).
 
@@ -252,8 +250,7 @@ script/         local build, run, package, sign, release scripts
 <summary>FAQ</summary>
 
 - **macOS blocks the app on first open.** It's signed and notarized via the release workflow; if Gatekeeper still warns, right-click the app → **Open**.
-- **The scan finds nothing.** Point Orbita at a project that has `.agents/`, `.codex/`, `.claude/`, `.trae/`, `.cursor/`, or `.mcp.json`, and grant Full Disk Access so user-scope sources are visible.
-- **Why isn't Cursor a tab?** Cursor is fully scannable and resolvable; it is just omitted from the default tab strip. Use `orbita agent --agent cursor` or `preview --agent cursor`.
+- **The scan finds nothing.** Point Orbita at a project that has `.agents/`, `.codex/`, `.claude/`, or `.mcp.json`, and grant Full Disk Access so user-scope sources are visible.
 - **Where does `--apply` write?** Only inside the project's `.agents/` and `.orbita/`, plus agent-sync destination directories. Everything else is emitted as a command for you to run.
 
 </details>
@@ -269,5 +266,5 @@ Orbita is built on the work of the open-source community. In particular it depen
 - [**Sparkle**](https://github.com/sparkle-project/Sparkle) — software update framework for macOS apps. MIT License.
 - [**Textual**](https://github.com/gonzalezreal/textual) — Markdown rendering for SwiftUI. MIT License.
 
-The project also takes inspiration from Codex Desktop, Claude Code, Trae, Cursor, and the
+The project also takes inspiration from Codex Desktop, Claude Code, and the
 broader Coding Agent ecosystem whose capability formats Orbita reads.

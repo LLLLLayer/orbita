@@ -4,7 +4,7 @@
   </a>
   <h1>Orbita</h1>
   <p><strong>看清你 Mac 上每个 Coding Agent 实际加载了什么 —— 以及哪些漂移、冲突或带有风险。</strong></p>
-  <p>一个本地的 macOS 控制台与 CLI，把 Codex Desktop、Claude Code、Trae、Cursor、插件缓存以及跨 Agent 的 <code>.agents</code> 工作区，统一成一个事实来源。<strong>它不是插件商店。</strong></p>
+  <p>一个本地的 macOS 控制台与 CLI，把 Codex Desktop、Claude Code、插件缓存以及跨 Agent 的 <code>.agents</code> 工作区，统一成一个事实来源。<strong>它不是插件商店。</strong></p>
 
   <p>
     <a href="https://github.com/LLLLLayer/orbita/releases/latest"><strong>下载 macOS 版</strong></a> ·
@@ -29,20 +29,20 @@
   <!-- HERO SCREENSHOT — NEEDED (no product screenshot exists in the repo yet).
        Capture: the App's main window on the Overview tab — the project name and summary
        stat row above the capability grid, with the agent tab strip (Agents · Codex ·
-       Claude Code · Trae) visible. Ship light + dark, drop them in docs/assets/screenshots/,
+       Claude Code) visible. Ship light + dark, drop them in docs/assets/screenshots/,
        and uncomment this <picture> block. Until then it stays a comment so the README
        never renders a broken image.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/screenshots/overview-light.png">
-    <img alt="Orbita Overview: one console showing what every agent loads across Codex, Claude Code, Trae, and the .agents workspace" src="docs/assets/screenshots/overview-light.png" width="860">
+    <img alt="Orbita Overview: one console showing what every agent loads across Codex, Claude Code, and the .agents workspace" src="docs/assets/screenshots/overview-light.png" width="860">
   </picture>
   -->
 </div>
 
 ---
 
-你同时在用 Codex Desktop、Claude Code 和 Trae。同一个 Skill 在一个 Agent 里启用、在另一个里
+你同时在用 Codex Desktop 和 Claude Code。同一个 Skill 在一个 Agent 里启用、在另一个里
 却看不见，某个插件路径悄悄失效，而项目里的 `.agents` 意图也早已和磁盘上的实际情况对不上 ——
 却没有任何东西提醒你。
 
@@ -74,9 +74,8 @@ Orbita 需要读取你的主目录和项目来发现能力，因此首次扫描�
 
 1. **打开 Orbita**，选择一个项目目录（或从侧边栏打开已有项目）。
 2. Orbita 会**扫描**你的本机和该项目，构建一张统一的能力图谱。
-3. 切换 **Agents · Codex · Claude Code · Trae** 这几个标签，看每个 Agent 实际加载了什么，
+3. 切换 **Agents · Codex · Claude Code** 这几个标签，看每个 Agent 实际加载了什么，
    再点开任意一项能力，查看它的 source、scope、status、access/risk 标记和 skills-lock 元数据。
-   （Cursor 完全可被扫描，只是不在默认标签里。）
 
 **用 CLI** —— 同一次扫描，一条命令：
 
@@ -87,7 +86,7 @@ swift run orbita overview --project-root <path>
 ## What it does
 
 - 🗺️ **统一能力图谱** —— 在用户级、项目级、原生 Agent 配置、插件缓存和 `.agents` intent 之间做一次统一扫描。
-- 👁️ **Agent 视角** —— 精确看到 Codex、Claude Code、Trae 各自加载了什么、又有什么被隐藏。
+- 👁️ **Agent 视角** —— 精确看到 Codex、Claude Code 各自加载了什么、又有什么被隐藏。
 - 🌊 **漂移与冲突诊断** —— broken path、duplicate、shadowed、已禁用但仍被发现、review flag，逐项给出解释。
 - ⚠️ **风险可见性** —— 标记读文件、写文件、执行命令、网络访问、secrets 和全局作用域等风险。
 - 🔁 **安全的生命周期** —— 可干跑的 `merge` / `enable` / `disable` / `delete` / `clean` / `rollback`，并能触发原生插件更新。
@@ -102,8 +101,6 @@ Orbita 为每个 Agent 读取的来源：
 | **`.agents`**（跨 Agent） | `manifest.json` intent、生成的 adapter preview、lock 数据 |
 | **Codex Desktop** | 插件缓存、`~/.codex/config.toml`、项目 `.codex/` commands 与 hooks、MCP 配置 |
 | **Claude Code** | `~/.claude/…` + `installed_plugins.json`、项目 `.claude/` commands、`settings.json` hooks、instructions |
-| **Trae** | 项目 `.trae/skills` |
-| **Cursor**（可扫描，但不在默认标签） | `.cursor/rules`、legacy `.cursorrules`、`.mcp.json`、共享项目元数据 |
 | **虚拟 Plugin** | 从 package 内容、本地目录和插件缓存中推断 |
 
 ## How intent works: Source · Intent · Visibility
@@ -149,7 +146,7 @@ swift run orbita status   --project-root <path> [--json]
 swift run orbita graph    --project-root <path> [--json]
 swift run orbita overview --project-root <path> [--json]
 swift run orbita drift    --project-root <path>
-swift run orbita agent    --project-root <path> --agent codex|claude-code|cursor|trae
+swift run orbita agent    --project-root <path> --agent codex|claude-code
 swift run orbita explain  --project-root <path> <capability-id>
 swift run orbita preview  --project-root <path> --agent <id>
 swift run orbita doctor   [--project-root <path>]
@@ -194,7 +191,7 @@ Scan ──▶ Resolve ──▶ Project layers ──────────�
 - **`orbita` CLI** —— 调用 `OrbitaCore`、输出文本或 `--json` 的轻量包装。
 - **OrbitaApp** —— 复用同一份 Core 的 SwiftUI macOS App，内置 Sparkle 自动更新与 Textual Markdown 渲染。
 
-正式支持的 Agent 是 `codex`、`claude-code`、`cursor`、`trae`。完整的生命周期契约见
+正式支持的 Agent 是 `codex` 和 `claude-code`。完整的生命周期契约见
 [docs/capability-lifecycle.md](docs/capability-lifecycle.md)；Hook 模型见
 [docs/hook-logic.md](docs/hook-logic.md)。
 
@@ -241,8 +238,7 @@ script/         本地构建、运行、打包、签名和发版脚本
 <summary>FAQ</summary>
 
 - **首次打开被 macOS 拦截。** App 经由发布工作流签名并公证；若 Gatekeeper 仍然告警，右键点击 App → **打开**。
-- **扫描结果为空。** 把 Orbita 指向一个含有 `.agents/`、`.codex/`、`.claude/`、`.trae/`、`.cursor/` 或 `.mcp.json` 的项目，并授予完全磁盘访问权限，以便看到用户级来源。
-- **为什么 Cursor 不是一个标签？** Cursor 完全可被扫描与解析，只是没有放进默认标签条。可用 `orbita agent --agent cursor` 或 `preview --agent cursor`。
+- **扫描结果为空。** 把 Orbita 指向一个含有 `.agents/`、`.codex/`、`.claude/` 或 `.mcp.json` 的项目，并授予完全磁盘访问权限，以便看到用户级来源。
 - **`--apply` 会写到哪里？** 只写项目的 `.agents/` 和 `.orbita/`，外加 agent-sync 的目标目录。其余一切都以命令形式输出，交给你执行。
 
 </details>
@@ -258,5 +254,5 @@ Orbita 站在开源社区的肩膀上，特别依赖以下项目：
 - [**Sparkle**](https://github.com/sparkle-project/Sparkle) —— macOS App 的软件更新框架。MIT License。
 - [**Textual**](https://github.com/gonzalezreal/textual) —— SwiftUI 的 Markdown 渲染。MIT License。
 
-同时也从 Codex Desktop、Claude Code、Trae、Cursor 以及更广义的 Coding Agent 生态中汲取灵感
+同时也从 Codex Desktop、Claude Code 以及更广义的 Coding Agent 生态中汲取灵感
 —— Orbita 读取的能力格式都来自这些工具。
