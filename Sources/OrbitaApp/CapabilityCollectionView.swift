@@ -82,7 +82,14 @@ struct CapabilityCollectionView: View {
 
                     if !collapsedSectionIDs.contains(section.id) {
                         sectionContent(section, agentVisibilityIndex: agentVisibilityIndex)
+                            // The clip only exists to contain the collapse/expand height animation,
+                            // but it also truncated the card shadows (which extend ~19pt below) —
+                            // most visibly the bottom of a single-row section. Pad vertically before
+                            // clipping so the shadow has room, then strip that padding back out of
+                            // the layout so section spacing is unchanged.
+                            .padding(.vertical, 20)
                             .clipped()
+                            .padding(.vertical, -20)
                             .transition(.opacity)
                     }
                 }

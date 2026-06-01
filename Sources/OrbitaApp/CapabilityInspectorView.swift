@@ -2282,24 +2282,21 @@ private struct AgentLoadabilitySection: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(rows) { row in
-                        HStack(alignment: .top, spacing: 8) {
-                            AgentBrandIcon(agent: row.agent, size: 13)
-                                .frame(width: 18, height: 18)
-                                .padding(.top, 1)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(row.agent.displayName)
-                                        .font(.caption.weight(.semibold))
-                                    LoadabilityPill(supported: row.mapping.supported)
-                                }
-                                Text(row.mapping.reason)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                        // No per-row brand icon: each row is already labelled with the agent name,
+                        // and this is a passive read-only panel, so the icon only restated the name.
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(row.agent.displayName)
+                                    .font(.caption.weight(.semibold))
+                                LoadabilityPill(supported: row.mapping.supported)
+                                Spacer(minLength: 0)
                             }
-                            Spacer(minLength: 0)
+                            Text(row.mapping.reason)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -2745,7 +2742,17 @@ private struct DriftLocationRow: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .orbitaControlSurface(selected: record.current)
+        // The current copy gets a soft accent tint rather than the near-black "prominent" control
+        // fill — that stark surface (designed for toggle buttons) read as a black box dropped among
+        // the light drift rows and pushed its text to low contrast.
+        .background(
+            record.current ? Color.accentColor.opacity(0.10) : OrbitaTheme.controlFill,
+            in: RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous)
+                .strokeBorder(record.current ? Color.accentColor.opacity(0.45) : OrbitaTheme.border)
+        }
     }
 
     private var hashChip: some View {
