@@ -199,21 +199,36 @@ struct CapabilityCollectionView: View {
             }
         case let .group(group):
             let inspectionCapability = inspectionCapability(for: group, in: agentVisibilityIndex)
+            let single = isLinkedMirror(group)
             CapabilityGroupTile(
                 group: group,
                 visibleAgents: visibleAgents(for: item, in: agentVisibilityIndex),
                 isExpanded: expandedGroupIDs.contains(group.id),
                 isSelected: isSelected(group: group, inspectionCapability: inspectionCapability),
+                rendersAsSingleTile: single,
                 onSync: {
                     onSyncCapability(inspectionCapability)
                 }
             ) {
                 withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.08)) {
                     selectedCapability = inspectionCapability
-                    toggleExpandedGroup(group.id)
+                    // A linked mirror is one physical file, so there is nothing meaningful to expand
+                    // into — tapping just selects it.
+                    if !single {
+                        toggleExpandedGroup(group.id)
+                    }
                 }
             }
         }
+    }
+
+    /// A mirror group whose members are all the SAME real file reached through different agent dirs
+    /// (resolver-tagged `linked-mirror`). Rendered as one tile, not an "N copies" group. Copied mirrors
+    /// (genuinely separate files with matching content) keep the expandable group.
+    private func isLinkedMirror(_ group: CapabilityGroup) -> Bool {
+        group.kind == .mirror
+            && !group.capabilities.isEmpty
+            && group.capabilities.allSatisfy { $0.metadata["duplicateRelationship"] == "linked-mirror" }
     }
 
     private func toggleMultiSelect(_ id: String) {
@@ -228,7 +243,7 @@ struct CapabilityCollectionView: View {
 
     private func expandedGroups(for row: CapabilityDisplayRow) -> [CapabilityGroup] {
         row.expandedGroups
-            .filter { expandedGroupIDs.contains($0.id) }
+            .filter { expandedGroupIDs.contains($0.id) && !isLinkedMirror($0) }
             .sorted { expansionRank(for: $0.id) < expansionRank(for: $1.id) }
     }
 
@@ -261,14 +276,22 @@ struct CapabilityCollectionView: View {
     }
 
     private func inspectionCapability(for group: CapabilityGroup, in agentVisibilityIndex: AgentVisibilityIndex) -> Capability {
-        guard group.kind == .mirror,
-              let selectedAgent else {
+        guard group.kind == .mirror else {
             return group.inspectionCapability
         }
-        return selectedAgent.preferredCapability(
-            from: group.capabilities,
-            visibleCapabilityIDs: agentVisibilityIndex[selectedAgent.id]
-        ) ?? group.inspectionCapability
+        if let selectedAgent {
+            return selectedAgent.preferredCapability(
+                from: group.capabilities,
+                visibleCapabilityIDs: agentVisibilityIndex[selectedAgent.id]
+            ) ?? group.inspectionCapability
+        }
+        // No selected agent (Overview): inspect a real member of a linked mirror rather than the
+        // synthesized virtual-mirror rep, so the inspector shows the actual skill and its loadability
+        // sibling resolution works off a real on-disk path.
+        if isLinkedMirror(group), let member = group.capabilities.first {
+            return member
+        }
+        return group.inspectionCapability
     }
 
     private func isSelected(group: CapabilityGroup, inspectionCapability: Capability) -> Bool {
@@ -680,6 +703,12 @@ private struct CapabilityGroupTile: View {
     let isExpanded: Bool
     let isSelected: Bool
     var showsDisclosure = true
+    /// A linked mirror is ONE physical file reached through several agent dirs (e.g. an
+    /// `.agents/skills` skill symlinked into `~/.claude/skills`). On the Overview tab all those
+    /// records land in one list and would otherwise render as an expandable "N copies" group — but
+    /// there is only one file, so we collapse it to a single tile (no count, not expandable). The
+    /// brand badges still union over the members, so it shows every agent that loads it.
+    var rendersAsSingleTile = false
     let onSync: () -> Void
     let action: () -> Void
 
@@ -693,11 +722,13 @@ private struct CapabilityGroupTile: View {
                         isSelected: isSelected
                     )
                     Spacer(minLength: 6)
-                    GroupTopBadge(
-                        text: groupTopBadgeText,
-                        isExpanded: isExpanded,
-                        showsDisclosure: showsDisclosure
-                    )
+                    if !rendersAsSingleTile {
+                        GroupTopBadge(
+                            text: groupTopBadgeText,
+                            isExpanded: isExpanded,
+                            showsDisclosure: showsDisclosure
+                        )
+                    }
                 }
                 .frame(height: CapabilityTileMetrics.headerHeight, alignment: .top)
 
