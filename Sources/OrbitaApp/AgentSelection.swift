@@ -501,7 +501,7 @@ enum CapabilityVisuals {
 
     static func statusColor(for capability: Capability) -> Color {
         if capability.statuses.contains(.broken) { return .red }
-        if capability.statuses.contains(.drifted) || capability.statuses.contains(.shadowed) { return .orange }
+        if capability.statuses.contains(.shadowed) { return .orange }
         if capability.statuses.contains(.risky) { return .yellow }
         return .green
     }
@@ -515,7 +515,7 @@ enum CapabilityVisuals {
         if capability.statuses.contains(.broken) {
             labels.append(L("status.broken"))
         }
-        if capability.statuses.contains(.drifted) || capability.statuses.contains(.shadowed) {
+        if capability.statuses.contains(.shadowed) {
             labels.append(L("status.needsAttention"))
         }
         if capability.statuses.contains(.risky) {

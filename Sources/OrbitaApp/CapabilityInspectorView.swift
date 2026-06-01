@@ -142,8 +142,6 @@ struct CapabilityInspectorView: View {
                         AccessRiskSection(capability: capability)
 
                         AgentLoadabilitySection(capability: capability, projectRoot: projectRoot, agentIDs: loadabilityAgentIDs)
-
-                        DriftLocationsSection(capability: capability)
                     }
 
                     if !nativeSecondaryActions.isEmpty {
@@ -2433,7 +2431,7 @@ private struct StatusReasonSection: View {
         if capability.statuses.contains(.broken) {
             return L("inspector.dot.broken")
         }
-        if capability.statuses.contains(.drifted) || capability.statuses.contains(.shadowed) {
+        if capability.statuses.contains(.shadowed) {
             return L("inspector.dot.needsAttention")
         }
         if capability.statuses.contains(.risky) {
@@ -2459,15 +2457,6 @@ private struct StatusReasonSection: View {
                 title: L("inspector.reason.shadowed.title"),
                 detail: L("inspector.reason.shadowed.detail"),
                 systemImage: "square.on.square",
-                color: .orange
-            ))
-        }
-
-        if capability.statuses.contains(.drifted) {
-            items.append(StatusReason(
-                title: L("inspector.reason.drift.title"),
-                detail: driftDetail,
-                systemImage: "arrow.triangle.branch",
                 color: .orange
             ))
         }
@@ -2499,10 +2488,7 @@ private struct StatusReasonSection: View {
             ))
         }
 
-        // When the drift-locations panel is shown it already enumerates every copy *and* their
-        // divergence, so the generic "duplicate name" prose row would just repeat it. Keep the
-        // duplicate row only for non-drift duplicates (e.g. identical copied mirrors).
-        if capability.statuses.contains(.duplicate), !showsDriftLocationsPanel {
+        if capability.statuses.contains(.duplicate) {
             items.append(StatusReason(
                 title: L("inspector.reason.duplicate.title"),
                 detail: duplicateDetail,
@@ -2521,28 +2507,6 @@ private struct StatusReasonSection: View {
         }
 
         return items
-    }
-
-    /// True when the dedicated DriftLocationsSection below will actually render its per-copy
-    /// comparison, so the status reasons can defer the "where / which differs" detail to it.
-    /// Mirrors the panel's own `locations.count > 1` gate (not just JSON presence) so a malformed
-    /// or under-populated payload never suppresses the duplicate row *and* hides the panel.
-    private var showsDriftLocationsPanel: Bool {
-        capability.statuses.contains(.drifted)
-            && decodedDriftLocations(for: capability).count > 1
-    }
-
-    private var driftDetail: String {
-        if let reason = capability.metadata["driftReason"], !reason.isEmpty {
-            return reason
-        }
-        // When the resolver enumerated the conflicting locations, the dedicated
-        // DriftLocationsSection below spells out *where* — so keep this line a short,
-        // count-aware summary instead of repeating the generic sentence.
-        if let count = capability.metadata["driftLocationCount"], !count.isEmpty {
-            return String(format: L("inspector.drift.summary"), count)
-        }
-        return L("inspector.drift.detail")
     }
 
     private var duplicateDetail: String {
@@ -2576,244 +2540,6 @@ private struct StatusReason: Identifiable {
     let color: Color
 }
 
-/// "Where did it drift?" — the dedicated panel answering the question the one-line drift
-/// reason can't: it lists every physical copy the resolver found in the conflicting group,
-/// flags the one currently being inspected, marks which copies' content diverges from it,
-/// and ends with concrete guidance on how to converge them. Renders nothing unless the
-/// resolver attached `driftLocationsJSON` (so older snapshots / non-hash drifts are unaffected).
-private struct DriftLocationsSection: View {
-    @ObservedObject private var localization = LocalizationManager.shared
-    let capability: Capability
-
-    var body: some View {
-        if locations.count > 1 {
-            InspectorSection {
-                VStack(alignment: .leading, spacing: 12) {
-                    header
-                    Text(String(format: L("inspector.drift.locations.intro"), String(locations.count)))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    VStack(spacing: 8) {
-                        ForEach(locations) { location in
-                            DriftLocationRow(location: location, currentHash: currentHash)
-                        }
-                    }
-
-                    guidance
-                }
-            }
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
-            Text(L("inspector.drift.locations.title"))
-                .font(.caption.weight(.semibold))
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var guidance: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "lightbulb")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.yellow)
-                .frame(width: 14, alignment: .center)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("inspector.drift.guidance.title"))
-                    .font(.caption.weight(.semibold))
-                Text(L("inspector.drift.guidance"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    private var currentHash: String {
-        locations.first(where: { $0.location.current })?.location.hash ?? ""
-    }
-
-    private var locations: [DriftLocationDisplay] {
-        decodedDriftLocations(for: capability).enumerated().map { index, value in
-            DriftLocationDisplay(index: index, location: value)
-        }
-    }
-}
-
-/// Decode the resolver's drift-location records for a capability. Returns `[]` when the metadata
-/// is absent or malformed, so both the panel and the duplicate-row suppression agree on whether a
-/// usable comparison exists. Shared by `DriftLocationsSection` and `StatusReasonSection`.
-private func decodedDriftLocations(for capability: Capability) -> [DriftLocation] {
-    guard let raw = capability.metadata["driftLocationsJSON"],
-          let data = raw.data(using: .utf8),
-          let decoded = try? JSONDecoder().decode([DriftLocation].self, from: data) else {
-        return []
-    }
-    return decoded
-}
-
-/// Identifiable wrapper keyed by position in the decoded list, so `ForEach` stays stable even when
-/// two copies share an identical display path (the path is not unique; the list position is).
-private struct DriftLocationDisplay: Identifiable {
-    let index: Int
-    let location: DriftLocation
-    var id: Int { index }
-}
-
-private struct DriftLocationRow: View {
-    @ObservedObject private var localization = LocalizationManager.shared
-    let location: DriftLocationDisplay
-    let currentHash: String
-
-    private var record: DriftLocation { location.location }
-
-    private var sourceKind: CapabilitySourceClassifier.SourceKind {
-        CapabilitySourceClassifier.sourceKind(forPath: record.path, sourceKind: record.kind)
-    }
-
-    /// A non-current copy whose content hash matches the inspected tile is identical; any other
-    /// known hash is a genuine divergence worth flagging in orange. Both hashes must be known —
-    /// when either is empty (unhashable file) we can't claim divergence, so we stay silent.
-    private var divergesFromCurrent: Bool {
-        !record.current
-            && !record.hash.isEmpty
-            && !currentHash.isEmpty
-            && record.hash != currentHash
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: sourceKind.systemImage)
-                .font(.caption)
-                .foregroundStyle(record.current ? Color.accentColor : .secondary)
-                .frame(width: 16, alignment: .center)
-                .padding(.top, 1)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(sourceKind.title)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                    DriftScopeTag(scope: record.scope)
-                    if record.current {
-                        DriftStateTag(text: L("inspector.drift.location.current"), tint: .accentColor)
-                    } else if divergesFromCurrent {
-                        DriftStateTag(text: L("inspector.drift.location.differs"), tint: .orange)
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                // Path (flexes, truncates in the middle) shares this row with the hash chip so the
-                // chip no longer competes with the title + tags for the narrow first line.
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Button {
-                        revealInFinder(record.path)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(displayPath)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Image(systemName: "arrow.up.forward.app")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(L("issues.reveal"))
-                    .accessibilityLabel(L("issues.reveal"))
-
-                    if !record.hash.isEmpty {
-                        hashChip
-                    }
-                }
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // The current copy gets a soft accent tint rather than the near-black "prominent" control
-        // fill — that stark surface (designed for toggle buttons) read as a black box dropped among
-        // the light drift rows and pushed its text to low contrast.
-        .background(
-            record.current ? Color.accentColor.opacity(0.10) : OrbitaTheme.controlFill,
-            in: RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous)
-                .strokeBorder(record.current ? Color.accentColor.opacity(0.45) : OrbitaTheme.border)
-        }
-    }
-
-    private var hashChip: some View {
-        Text(shortHash)
-            .font(.caption2.monospaced())
-            .foregroundStyle(divergesFromCurrent ? .orange : .secondary)
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(divergesFromCurrent ? Color.orange.opacity(0.5) : OrbitaTheme.border)
-            }
-    }
-
-    private func revealInFinder(_ path: String) {
-        guard !path.isEmpty else { return }
-        let expanded = (path as NSString).expandingTildeInPath
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: expanded)])
-    }
-
-    private var shortHash: String {
-        record.hash.count > 12 ? String(record.hash.prefix(12)) : record.hash
-    }
-
-    private var displayPath: String {
-        // Core already home-abbreviated the path; collapse very long ones to the tail.
-        let path = record.path
-        guard path.count > 48 else { return path }
-        let components = path.split(separator: "/").map(String.init)
-        guard components.count > 3 else { return path }
-        return "…/" + components.suffix(3).joined(separator: "/")
-    }
-}
-
-private struct DriftScopeTag: View {
-    let scope: String
-
-    var body: some View {
-        Text(localizedScope)
-            .font(.caption2.weight(.semibold))
-            .lineLimit(1)
-            .fixedSize()
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(OrbitaTheme.border)
-            }
-    }
-
-    @MainActor
-    private var localizedScope: String {
-        localizedCapabilityScope(scope)
-    }
-}
-
 /// Localized label for a `CapabilityScope` raw value, falling back to the raw value for any
 /// unknown scope so the field never renders a bare key.
 @MainActor
@@ -2835,22 +2561,6 @@ func displayManagerName(_ manager: String?) -> String {
     case "claude-code", "claude": return "Claude Code"
     case "agents-skills", "agents": return "Agents"
     default: return manager
-    }
-}
-
-private struct DriftStateTag: View {
-    let text: String
-    let tint: Color
-
-    var body: some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .lineLimit(1)
-            .fixedSize()
-            .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.12), in: Capsule())
     }
 }
 
