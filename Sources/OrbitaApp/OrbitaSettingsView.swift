@@ -725,9 +725,20 @@ enum ShellCommandRunner {
         process.arguments = ["-lc", command]
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 
+        // A GUI app launched from Finder/Dock inherits only a minimal PATH, so user-installed CLIs
+        // like `claude`/`codex` (under ~/.local/bin, npm-global, nvm, …, usually added to PATH in
+        // ~/.zshrc) aren't found and the command dies with "command not found". Inject the user's
+        // real interactive-login PATH so native lifecycle commands resolve the same binaries the
+        // user's terminal does. `-l` doesn't source ~/.zshrc, so PATH alone wouldn't be enough.
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = userInteractivePath
+        process.environment = environment
+
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        // Never block waiting on stdin if a command (or a sourced rc file) tries to read it.
+        process.standardInput = FileHandle.nullDevice
 
         do {
             try process.run()
@@ -738,5 +749,49 @@ enum ShellCommandRunner {
         } catch {
             return CommandRunResult(command: command, exitCode: 1, output: error.localizedDescription)
         }
+    }
+
+    /// The user's PATH as their terminal sees it, resolved once and cached. We ask an interactive
+    /// login shell (`-ilc`, so it sources ~/.zshrc where PATH customizations usually live) to print
+    /// `$PATH`, tagged with a marker so banner output from heavy rc files can't be mistaken for it.
+    static let userInteractivePath: String = resolveUserInteractivePath()
+
+    private static func resolveUserInteractivePath() -> String {
+        let marker = "__ORBITA_PATH__:"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-ilc", "print -rn -- \"\(marker)$PATH\""]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            if let line = output.split(whereSeparator: \.isNewline).last(where: { $0.contains(marker) }),
+               let range = line.range(of: marker) {
+                let resolved = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                if !resolved.isEmpty { return resolved }
+            }
+        } catch {}
+        return fallbackPath
+    }
+
+    /// Used when shell resolution fails: the inherited PATH plus the common user-CLI install dirs.
+    private static var fallbackPath: String {
+        let home = NSHomeDirectory()
+        let extras = [
+            "\(home)/.local/bin",
+            "\(home)/bin",
+            "\(home)/.npm-global/bin",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ]
+        let inherited = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        return (extras + [inherited]).joined(separator: ":")
     }
 }
