@@ -746,49 +746,8 @@ private struct InspectorActionStrip: View {
     let onNativeAction: (NativePluginAction) -> Void
     let onNativeDelete: (NativePluginAction) -> Void
 
-    /// Help text for whichever action button the cursor is over. Drives the floating hover bubble
-    /// below the strip — an immediate, in-app replacement for the slow/unreliable system tooltip.
-    @State private var hoveredHelp: String?
-
     var body: some View {
         actionRow
-            .overlay(alignment: .topLeading) {
-                if let hoveredHelp {
-                    HoverHelpBubble(text: hoveredHelp)
-                        // Pin just below the 40pt-tall button row; the bubble grows downward and
-                        // floats over the content beneath without nudging the layout.
-                        .offset(y: OrbitaTheme.iconControlSize + 6)
-                        .allowsHitTesting(false)
-                        .zIndex(50)
-                }
-            }
-            .animation(.easeOut(duration: 0.1), value: hoveredHelp)
-    }
-
-    /// Show a button's help while the cursor is over it; clear only when the button we're leaving is
-    /// the one currently shown, so sliding between adjacent buttons never blanks the bubble.
-    private func setHoveredHelp(_ hovering: Bool, _ text: String) {
-        if hovering {
-            hoveredHelp = text
-        } else if hoveredHelp == text {
-            hoveredHelp = nil
-        }
-    }
-
-    /// The consequence notes (reversible / destructive) used to sit as always-on text under the
-    /// strip; they now ride in each button's hover tooltip so the inspector stays quiet until the
-    /// user actually points at an action.
-    private func reversibleHelp(_ base: String) -> String {
-        base + "\n\n" + L("inspector.consequence.reversible")
-    }
-
-    private func deleteHelp(_ base: String) -> String {
-        base + "\n\n" + L("inspector.consequence.delete")
-    }
-
-    private func nativePrimaryHelp(_ action: NativePluginAction) -> String {
-        guard action.kind == .enable || action.kind == .disable else { return action.command }
-        return reversibleHelp(action.command)
     }
 
     private var actionRow: some View {
@@ -798,9 +757,8 @@ private struct InspectorActionStrip: View {
                     systemImage: nativePrimaryAction.systemImage,
                     tint: nativePrimaryAction.kind == .enable ? .green : .secondary,
                     title: runningNativeActionID == nativePrimaryAction.id ? L("inspector.action.running") : nativePrimaryAction.title,
-                    help: nativePrimaryHelp(nativePrimaryAction),
-                    isDisabled: runningNativeActionID != nil,
-                    onHoverHelp: setHoveredHelp
+                    help: nativePrimaryAction.command,
+                    isDisabled: runningNativeActionID != nil
                 ) {
                     onNativeAction(nativePrimaryAction)
                 }
@@ -809,8 +767,7 @@ private struct InspectorActionStrip: View {
                     systemImage: "checkmark.circle",
                     tint: .green,
                     title: L("inspector.action.enable"),
-                    help: reversibleHelp(L("inspector.action.enable")),
-                    onHoverHelp: setHoveredHelp
+                    help: L("inspector.action.enable")
                 ) {
                     onEnable(capability)
                 }
@@ -819,8 +776,7 @@ private struct InspectorActionStrip: View {
                     systemImage: "minus.circle",
                     tint: .secondary,
                     title: L("inspector.action.disable"),
-                    help: reversibleHelp(L("inspector.action.disable")),
-                    onHoverHelp: setHoveredHelp
+                    help: L("inspector.action.disable")
                 ) {
                     onDisable(capability)
                 }
@@ -832,10 +788,9 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: runningNativeActionID == nativeDeleteAction.id ? "hourglass" : "trash",
                     tint: .red,
-                    help: deleteHelp(nativeDeleteAction.command),
+                    help: nativeDeleteAction.command,
                     isDestructive: true,
-                    isDisabled: runningNativeActionID != nil,
-                    onHoverHelp: setHoveredHelp
+                    isDisabled: runningNativeActionID != nil
                 ) {
                     onNativeDelete(nativeDeleteAction)
                 }
@@ -843,9 +798,8 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: "trash",
                     tint: .red,
-                    help: deleteHelp(L("inspector.action.delete")),
-                    isDestructive: true,
-                    onHoverHelp: setHoveredHelp
+                    help: L("inspector.action.delete"),
+                    isDestructive: true
                 ) {
                     onDelete(capability)
                 }
@@ -854,8 +808,7 @@ private struct InspectorActionStrip: View {
             InspectorToolbarButton(
                 systemImage: "sidebar.right",
                 tint: .secondary,
-                help: L("inspector.action.hide"),
-                onHoverHelp: setHoveredHelp
+                help: L("inspector.action.hide")
             ) {
                 onClose()
             }
@@ -871,7 +824,6 @@ private struct InspectorToolbarButton: View {
     let help: String
     var isDestructive = false
     var isDisabled = false
-    var onHoverHelp: ((Bool, String) -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
@@ -899,9 +851,7 @@ private struct InspectorToolbarButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .contentShape(RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous))
-        .onHover { hovering in
-            onHoverHelp?(hovering, help)
-        }
+        .help(help)
         .accessibilityLabel(help)
     }
 
@@ -923,50 +873,6 @@ private struct InspectorToolbarButton: View {
             return Color.green.opacity(0.18)
         }
         return OrbitaTheme.border
-    }
-}
-
-/// Immediate floating help bubble shown while the cursor is over an action button — the in-app
-/// replacement for the slow macOS `.help()` tooltip. Renders the action label/command on the first
-/// line and, when the help carries a consequence note (joined by a blank line), that note beneath it
-/// in a softer style.
-private struct HoverHelpBubble: View {
-    let text: String
-
-    private var parts: [String] {
-        text.components(separatedBy: "\n\n")
-    }
-
-    private var primary: String { parts.first ?? text }
-
-    private var note: String? {
-        guard parts.count > 1 else { return nil }
-        return parts.dropFirst().joined(separator: "\n\n")
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(primary)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
-            if let note {
-                Text(note)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .multilineTextAlignment(.leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: 260, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(OrbitaTheme.border)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 9, y: 3)
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 
