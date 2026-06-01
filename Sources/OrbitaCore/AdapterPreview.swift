@@ -114,12 +114,19 @@ public final class AdapterPreviewBuilder {
 
     private func codexMapping(for capability: Capability, projectRoot: String) -> AdapterCapabilityMapping {
         switch capability.type {
-        case .plugin:
+        case .plugin where isCodexNativePlugin(capability):
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: true,
                 targetPath: adapterFilePath(for: .codex, projectRoot: projectRoot),
                 reason: "Codex can see plugin-provided capabilities through the generated adapter index."
+            )
+        case .plugin:
+            return AdapterCapabilityMapping(
+                capabilityID: capability.id,
+                supported: false,
+                targetPath: nil,
+                reason: "Codex does not load Claude Code plugins."
             )
         case .skill:
             guard isCodexSkillCapability(capability) else {
@@ -272,6 +279,10 @@ public final class AdapterPreviewBuilder {
 
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
         CapabilityClassifier.isCodexSkill(capability)
+    }
+
+    private func isCodexNativePlugin(_ capability: Capability) -> Bool {
+        CapabilityClassifier.isCodexNativePlugin(capability)
     }
 
     private func cursorMapping(for capability: Capability) -> AdapterCapabilityMapping {

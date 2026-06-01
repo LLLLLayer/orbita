@@ -1071,6 +1071,39 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(preview.supportedCapabilities.contains { $0.id == plugin.id })
     }
 
+    /// A Claude Code plugin must not be reported as loadable by Codex. The codex adapter mapping
+    /// previously marked every `.plugin` supported, so a `claude-plugin` showed "Codex loads it" in
+    /// the loadability panel even though the Codex view (correctly) hides it. View and preview must
+    /// agree via the shared `CapabilityClassifier.isCodexNativePlugin`.
+    func testClaudePluginIsNotLoadableByCodexInAdapterPreview() throws {
+        let plugin = Capability(
+            id: "claude-plugin:demo",
+            name: "demo",
+            type: .plugin,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.info],
+            source: CapabilitySource(kind: "claude-plugin", path: "/tmp/plugins/demo"),
+            pluginID: "claude:demo",
+            metadata: ["manager": "claude-code", "pluginSelector": "demo@market"]
+        )
+        let graph = CapabilityGraph(projectRoot: "/tmp/proj", capabilities: [plugin], issues: [])
+
+        let view = AgentViewResolver().view(for: .codex, graph: graph)
+        XCTAssertFalse(
+            view.visibleCapabilities.contains { $0.id == plugin.id },
+            "a claude-plugin must not be visible in the Codex view"
+        )
+
+        let preview = AdapterPreviewBuilder().preview(for: .codex, graph: graph)
+        let mapping = try XCTUnwrap(preview.capabilityMappings.first { $0.capabilityID == plugin.id })
+        XCTAssertFalse(
+            mapping.supported,
+            "Codex must not report it loads a Claude Code plugin in the adapter preview"
+        )
+        XCTAssertFalse(preview.supportedCapabilities.contains { $0.id == plugin.id })
+    }
+
     /// End-to-end coverage for the riskiest write — a user-scope fork into a real agent home (testing-3).
     /// The injectable `homeDirectory` seam lets the builder target, and the executor's write guard allow,
     /// a temporary home instead of the developer's real `~/.codex`. Without the seam this path was build-

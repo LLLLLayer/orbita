@@ -41,6 +41,15 @@ enum CapabilityClassifier {
             || capability.pluginID?.hasPrefix("plugin:codex-cache:") == true
     }
 
+    /// Whether a `.plugin` capability is one Codex itself loads, as opposed to a Claude Code plugin
+    /// group (`claude-plugin` / `claude-plugin-*`), which Codex does not load. Backs both
+    /// `AgentViewResolver` codex visibility and `AdapterPreviewBuilder` codex mapping, so a Claude
+    /// plugin is never shown on the Codex tab yet reported "Codex loads it" in the preview.
+    static func isCodexNativePlugin(_ capability: Capability) -> Bool {
+        let kind = capability.source.kind
+        return kind != "claude-plugin" && !kind.hasPrefix("claude-plugin-")
+    }
+
     /// A capability that lives in the shared `.agents` workspace. Codex reads these in place,
     /// but the generic SKILL.md hosts (Trae, Cursor) and Claude Code do NOT auto-load `.agents`
     /// — they only see it once it's been synced into their own agent dir or installed for that

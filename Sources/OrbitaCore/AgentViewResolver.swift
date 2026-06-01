@@ -126,11 +126,7 @@ public final class AgentViewResolver {
     /// Claude-native ones — even though Claude plugins are also `.plugin` type,
     /// they are not part of Codex's enable surface.
     private func isCodexNativePluginCapability(_ capability: Capability) -> Bool {
-        let kind = capability.source.kind
-        if kind == "claude-plugin" || kind.hasPrefix("claude-plugin-") {
-            return false
-        }
-        return true
+        CapabilityClassifier.isCodexNativePlugin(capability)
     }
 
     private func isCodexSkillCapability(_ capability: Capability) -> Bool {
