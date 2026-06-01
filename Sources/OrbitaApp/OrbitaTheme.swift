@@ -11,6 +11,10 @@ enum OrbitaTheme {
     static let sidebarBackground = gray(light: 0.93, dark: 0.095)
     static let surface = gray(light: 0.965, dark: 0.135)
     static let elevatedSurface = gray(light: 0.99, dark: 0.17)
+    /// Halo separating overlapping agent avatars. It must read as the surface BEHIND the stack — a fixed
+    /// white ring is crisp on a light card but glares on a dark one — so it tracks the card colour
+    /// (near-white in light, near the dark card in dark), keeping the overlap gaps neutral in both modes.
+    static let avatarRing = gray(light: 0.99, dark: 0.14)
     static let controlFill = gray(light: 0.925, dark: 0.205)
     static let controlHoverFill = gray(light: 0.895, dark: 0.255)
     static let prominentControlFill = color(

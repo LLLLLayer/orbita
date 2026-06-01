@@ -113,15 +113,11 @@ struct CapabilityInspectorView: View {
                         InspectorSection {
                             InspectorField(L("inspector.field.scope"), value: localizedCapabilityScope(capability.scope.rawValue))
                             InspectorField(L("inspector.field.status"), value: CapabilityVisuals.statusLabel(for: capability))
-                            if let installedVersion = capability.metadata["installedVersion"],
-                               !installedVersion.isEmpty {
-                                InspectorField(L("inspector.field.version"), value: installedVersion)
+                            if let version = displayVersion(for: capability) {
+                                InspectorField(L("inspector.field.version"), value: version)
                             }
                             InspectorField(L("inspector.field.access"), value: CapabilityDisplayText.accessSummary(for: capability.risks))
-                            InspectorPathField(L("inspector.field.source"), path: sourcePath(for: capability))
-                            if let canonicalPath = canonicalPathToDisplay(for: capability) {
-                                InspectorPathField(L("inspector.field.canon"), path: canonicalPath)
-                            }
+                            sourceFields(for: capability)
                             if let installedAgents = capability.metadata["skillsInstalledAgents"], !installedAgents.isEmpty {
                                 InspectorField(L("inspector.field.agents"), value: installedAgents)
                             }
@@ -350,6 +346,116 @@ struct CapabilityInspectorView: View {
         private var backgroundColor: Color {
             isDestructive ? Color.red.opacity(0.11) : OrbitaTheme.controlFill
         }
+    }
+
+    /// The "Source" row(s). When a capability is reached through a symlink bridge inside the SELECTED
+    /// agent's OWN skills dir (the skills-CLI install pattern, e.g.
+    /// `~/.trae/skills/lark-approval -> ~/.agents/skills/lark-approval`), the primary path is that
+    /// agent-local entry — the symlink — and the canonical `.agents` path it resolves to is annotated
+    /// below it. A real (non-symlink) entry, or anything not bridged into this agent's dir, shows the
+    /// plain source. This stops a Trae/Claude skill from reading as if it lived directly in `.agents`.
+    @ViewBuilder
+    private func sourceFields(for capability: Capability) -> some View {
+        let display = sourceDisplay(for: capability)
+        InspectorPathField(L("inspector.field.source"), path: display.primary)
+        if let canonical = display.canonical {
+            InspectorPathField(L("inspector.field.canon"), path: canonical)
+        }
+    }
+
+    /// The version to surface in the info area: a plugin's installed cache/manifest version when present,
+    /// otherwise a skill's own `version:` declared in its SKILL.md frontmatter. Skills that declare neither
+    /// (e.g. most hand-rolled `.agents`/codex skills) simply omit the row.
+    private func displayVersion(for capability: Capability) -> String? {
+        if let installed = capability.metadata["installedVersion"], !installed.isEmpty {
+            return installed
+        }
+        if let declared = capability.metadata["version"], !declared.isEmpty {
+            return declared
+        }
+        return nil
+    }
+
+    private func sourceDisplay(for capability: Capability) -> (primary: String, canonical: String?) {
+        if let bridged = agentBridgeSource(for: capability) {
+            return bridged
+        }
+        return (sourcePath(for: capability), canonicalPathToDisplay(for: capability))
+    }
+
+    /// If the capability is reached via a symlink inside the selected agent's own skills dir, returns
+    /// `(agent entry, resolved canonical)`; a real entry returns `(entry, nil)`. Returns nil when there
+    /// is no selected agent, no known agent skills dir, or nothing on disk at that entry (so callers fall
+    /// back to the plain source). User-scope (`globalSkillsDir`) only — project-scope falls back.
+    private func agentBridgeSource(for capability: Capability) -> (primary: String, canonical: String?)? {
+        guard capability.scope == .user,
+              let agentID = selectedAgent?.skillsInstallAgentID,
+              let agentDir = SkillsAgentCatalog.agents.first(where: { $0.id == agentID })?.globalSkillsDir,
+              !agentDir.isEmpty else {
+            return nil
+        }
+        let fileManager = FileManager.default
+
+        // A display group (synthesized rep carries childCount): if its first member is bridged into this
+        // agent's dir, show the agent's own skills dir annotated with the canonical dir it mirrors.
+        if capability.metadata["childCount"] != nil {
+            guard let firstChildPath = firstGroupChildPath(capability),
+                  let folder = skillFolder(forSkillMarkdownPath: firstChildPath) else {
+                return nil
+            }
+            let entry = "\(agentDir)/\(folder)"
+            guard isSymlink(entry, fileManager: fileManager) else { return nil }
+            let groupDir = capability.metadata["sourcePath"] ?? capability.source.path
+            return (agentDir, groupDir.isEmpty ? nil : groupDir)
+        }
+
+        // A single skill: the agent's entry is <agentDir>/<skill folder>.
+        let folder = skillFolderName(for: capability)
+        guard !folder.isEmpty else { return nil }
+        let entry = "\(agentDir)/\(folder)"
+        guard fileManager.fileExists(atPath: entry) else { return nil }
+        let entryFile = displayableSkillPath(entry)
+        guard isSymlink(entry, fileManager: fileManager) else {
+            return (entryFile, nil)
+        }
+        let resolved = URL(fileURLWithPath: entry).resolvingSymlinksInPath().path
+        guard standardizedPath(resolved) != standardizedPath(entry) else {
+            return (entryFile, nil)
+        }
+        return (entryFile, displayableSkillPath(resolved))
+    }
+
+    private func isSymlink(_ path: String, fileManager: FileManager) -> Bool {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path) else { return false }
+        return (attributes[.type] as? FileAttributeType) == .typeSymbolicLink
+    }
+
+    private func firstGroupChildPath(_ capability: Capability) -> String? {
+        guard let line = capability.metadata["childIDs"]?
+            .split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) else {
+            return nil
+        }
+        let path = line.hasPrefix("skill:") ? String(line.dropFirst("skill:".count)) : line
+        return path.isEmpty ? nil : path
+    }
+
+    private func skillFolder(forSkillMarkdownPath path: String) -> String? {
+        let url = URL(fileURLWithPath: path)
+        let folder = url.lastPathComponent.caseInsensitiveCompare("SKILL.md") == .orderedSame
+            ? url.deletingLastPathComponent().lastPathComponent
+            : url.lastPathComponent
+        return folder.isEmpty || folder == "/" ? nil : folder
+    }
+
+    private func skillFolderName(for capability: Capability) -> String {
+        let base = capability.metadata["skillsCanonicalPath"]
+            ?? capability.metadata["sourcePath"]
+            ?? capability.source.path
+        return skillFolder(forSkillMarkdownPath: base) ?? capability.name
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private func sourcePath(for capability: Capability) -> String {

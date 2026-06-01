@@ -252,12 +252,15 @@ struct CapabilityCollectionView: View {
     }
 
     private func toggleExpandedGroup(_ groupID: String) {
-        expandedGroupOrder.removeAll { $0 == groupID }
+        // Accordion: opening a group collapses any other open one, so there is only ever a single
+        // expansion drawer on screen and the card it belongs to is unambiguous. (GitHub issue: with
+        // several drawers open at once you couldn't tell which expanded content belonged to which card.)
         if expandedGroupIDs.contains(groupID) {
-            expandedGroupIDs.remove(groupID)
+            expandedGroupIDs = []
+            expandedGroupOrder = []
         } else {
-            expandedGroupIDs.insert(groupID)
-            expandedGroupOrder.insert(groupID, at: 0)
+            expandedGroupIDs = [groupID]
+            expandedGroupOrder = [groupID]
         }
     }
 
@@ -1250,7 +1253,7 @@ private struct AgentSyncButton: View {
                 .frame(width: AgentAvatarMetrics.size, height: AgentAvatarMetrics.size)
                 .background(OrbitaTheme.elevatedSurface, in: Circle())
                 .overlay {
-                    Circle().strokeBorder(Color.white.opacity(0.92), lineWidth: 2)
+                    Circle().strokeBorder(OrbitaTheme.avatarRing, lineWidth: 2)
                     Circle().strokeBorder(OrbitaTheme.border)
                 }
                 .shadow(color: OrbitaTheme.cardShadow, radius: 4, x: 0, y: 2)
@@ -1271,7 +1274,7 @@ private struct AgentOverflowBadge: View {
             .frame(width: AgentAvatarMetrics.size, height: AgentAvatarMetrics.size)
             .background(OrbitaTheme.elevatedSurface, in: Circle())
             .overlay {
-                Circle().strokeBorder(Color.white.opacity(0.92), lineWidth: 2)
+                Circle().strokeBorder(OrbitaTheme.avatarRing, lineWidth: 2)
                 Circle().strokeBorder(OrbitaTheme.border)
             }
             .shadow(color: OrbitaTheme.cardShadow, radius: 4, x: 0, y: 2)
@@ -1286,7 +1289,7 @@ private struct AgentVisibilityBadge: View {
             .frame(width: AgentAvatarMetrics.size, height: AgentAvatarMetrics.size)
             .background(OrbitaTheme.elevatedSurface, in: Circle())
             .overlay {
-                Circle().strokeBorder(Color.white.opacity(0.92), lineWidth: 2)
+                Circle().strokeBorder(OrbitaTheme.avatarRing, lineWidth: 2)
                 Circle().strokeBorder(OrbitaTheme.border)
             }
             .shadow(color: OrbitaTheme.cardShadow, radius: 4, x: 0, y: 2)
