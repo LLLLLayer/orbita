@@ -704,11 +704,13 @@ final class ProjectCapabilityStore: ObservableObject {
     ) {
         OrbitaTelemetry.apply.notice("apply.finish action=\(plan.action.rawValue, privacy: .public) operations=\(result.completedOperations.count, privacy: .public)")
         showApplySuccess(for: plan, result: result, affectedCount: affectedCapabilities.count)
+        // Update UI optimistically, then always trigger a reconciling refresh (preserving the
+        // optimistic graph during the re-scan so there's no flicker). For delete we additionally
+        // sync the environment snapshot for the removed items before the refresh runs.
         if plan.action == .delete, isCurrentOptimisticRevision(optimisticRevision) {
             finishFastDeleteSync(affectedCapabilities: affectedCapabilities)
-        } else {
-            reload(force: true, preserveCurrentGraph: true)
         }
+        reload(force: true, preserveCurrentGraph: true)
     }
 
     /// Publish a localized, action-aware confirmation. Count-based actions (enable/disable/delete)
@@ -798,9 +800,8 @@ final class ProjectCapabilityStore: ObservableObject {
     ) {
         if mutation == .delete, isCurrentOptimisticRevision(token.optimisticRevision) {
             finishFastDeleteSync(affectedCapabilities: token.affectedCapabilities)
-        } else {
-            reload(force: true, preserveCurrentGraph: true)
         }
+        reload(force: true, preserveCurrentGraph: true)
     }
 
     func failOptimisticMutation(_ token: CapabilityOptimisticMutationToken, message: String) {
@@ -878,22 +879,29 @@ final class ProjectCapabilityStore: ObservableObject {
         guard var projected = graph,
               projected.projectRoot == plan.projectRoot
         else {
+            OrbitaTelemetry.apply.notice("optimistic.skip reason=root-or-graph action=\(plan.action.rawValue, privacy: .public)")
             return false
         }
 
+        // Group/bulk plans carry every affected id; apply to all of them (disable previously only
+        // flipped plan.capabilityID, so grouped tiles' children never updated optimistically).
+        let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
+        let before = projected.capabilities
         switch plan.action {
         case .enable:
-            setStatus(.enabled, capabilityID: plan.capabilityID, in: &projected)
+            for id in affectedIDs { setStatus(.enabled, capabilityID: id, in: &projected) }
             applyOptimisticSkillSync(from: plan, in: &projected)
         case .disable:
-            setStatus(.disabled, capabilityID: plan.capabilityID, in: &projected)
+            for id in affectedIDs { setStatus(.disabled, capabilityID: id, in: &projected) }
         case .delete:
-            let affectedIDs = Set(plan.affectedCapabilityIDs ?? [plan.capabilityID])
             projected.capabilities.removeAll { affectedIDs.contains($0.id) }
         case .merge, .rollback, .clean:
             return false
         }
 
+        let changed = projected.capabilities != before
+        OrbitaTelemetry.apply.notice("optimistic.apply action=\(plan.action.rawValue, privacy: .public) ids=\(affectedIDs.count, privacy: .public) changed=\(changed, privacy: .public)")
+        guard changed else { return false }
         projected.generatedAt = ISO8601DateFormatter().string(from: Date())
         setGraph(projected)
         return true
@@ -905,6 +913,7 @@ final class ProjectCapabilityStore: ObservableObject {
         }
 
         let affectedIDs = optimisticCapabilityIDs(for: capability)
+        let before = projected.capabilities
         switch mutation {
         case .enable:
             for capabilityID in affectedIDs {
@@ -918,6 +927,12 @@ final class ProjectCapabilityStore: ObservableObject {
             projected.capabilities.removeAll { affectedIDs.contains($0.id) }
         }
 
+        // Report honestly whether the projection actually changed. If the affected IDs didn't match
+        // anything (e.g. a view-layer id that isn't a raw graph capability), the caller must fall back
+        // to a real reload instead of believing the UI already reflects the change.
+        let changed = projected.capabilities != before
+        OrbitaTelemetry.apply.notice("optimistic.apply kind=\(String(describing: mutation), privacy: .public) ids=\(affectedIDs.count, privacy: .public) changed=\(changed, privacy: .public)")
+        guard changed else { return false }
         projected.generatedAt = ISO8601DateFormatter().string(from: Date())
         setGraph(projected)
         return true
