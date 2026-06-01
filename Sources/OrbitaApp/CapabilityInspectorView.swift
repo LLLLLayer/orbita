@@ -746,38 +746,49 @@ private struct InspectorActionStrip: View {
     let onNativeAction: (NativePluginAction) -> Void
     let onNativeDelete: (NativePluginAction) -> Void
 
-    private var showsReversibleNote: Bool {
-        if let nativePrimaryAction {
-            return nativePrimaryAction.kind == .enable || nativePrimaryAction.kind == .disable
-        }
-        return allowsFallbackEnablement
-    }
-
-    private var showsDeleteNote: Bool {
-        nativeDeleteAction != nil || allowsFallbackDelete
-    }
+    /// Help text for whichever action button the cursor is over. Drives the floating hover bubble
+    /// below the strip — an immediate, in-app replacement for the slow/unreliable system tooltip.
+    @State private var hoveredHelp: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            actionRow
-
-            if showsReversibleNote || showsDeleteNote {
-                VStack(alignment: .leading, spacing: 3) {
-                    if showsReversibleNote {
-                        Label(L("inspector.consequence.reversible"), systemImage: "arrow.uturn.backward")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    if showsDeleteNote {
-                        Label(L("inspector.consequence.delete"), systemImage: "exclamationmark.triangle")
-                            .font(.caption2)
-                            .foregroundStyle(.red.opacity(0.85))
-                    }
+        actionRow
+            .overlay(alignment: .topLeading) {
+                if let hoveredHelp {
+                    HoverHelpBubble(text: hoveredHelp)
+                        // Pin just below the 40pt-tall button row; the bubble grows downward and
+                        // floats over the content beneath without nudging the layout.
+                        .offset(y: OrbitaTheme.iconControlSize + 6)
+                        .allowsHitTesting(false)
+                        .zIndex(50)
                 }
-                .labelStyle(.titleAndIcon)
             }
+            .animation(.easeOut(duration: 0.1), value: hoveredHelp)
+    }
+
+    /// Show a button's help while the cursor is over it; clear only when the button we're leaving is
+    /// the one currently shown, so sliding between adjacent buttons never blanks the bubble.
+    private func setHoveredHelp(_ hovering: Bool, _ text: String) {
+        if hovering {
+            hoveredHelp = text
+        } else if hoveredHelp == text {
+            hoveredHelp = nil
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The consequence notes (reversible / destructive) used to sit as always-on text under the
+    /// strip; they now ride in each button's hover tooltip so the inspector stays quiet until the
+    /// user actually points at an action.
+    private func reversibleHelp(_ base: String) -> String {
+        base + "\n\n" + L("inspector.consequence.reversible")
+    }
+
+    private func deleteHelp(_ base: String) -> String {
+        base + "\n\n" + L("inspector.consequence.delete")
+    }
+
+    private func nativePrimaryHelp(_ action: NativePluginAction) -> String {
+        guard action.kind == .enable || action.kind == .disable else { return action.command }
+        return reversibleHelp(action.command)
     }
 
     private var actionRow: some View {
@@ -787,8 +798,9 @@ private struct InspectorActionStrip: View {
                     systemImage: nativePrimaryAction.systemImage,
                     tint: nativePrimaryAction.kind == .enable ? .green : .secondary,
                     title: runningNativeActionID == nativePrimaryAction.id ? L("inspector.action.running") : nativePrimaryAction.title,
-                    help: nativePrimaryAction.command,
-                    isDisabled: runningNativeActionID != nil
+                    help: nativePrimaryHelp(nativePrimaryAction),
+                    isDisabled: runningNativeActionID != nil,
+                    onHoverHelp: setHoveredHelp
                 ) {
                     onNativeAction(nativePrimaryAction)
                 }
@@ -797,7 +809,8 @@ private struct InspectorActionStrip: View {
                     systemImage: "checkmark.circle",
                     tint: .green,
                     title: L("inspector.action.enable"),
-                    help: L("inspector.action.enable")
+                    help: reversibleHelp(L("inspector.action.enable")),
+                    onHoverHelp: setHoveredHelp
                 ) {
                     onEnable(capability)
                 }
@@ -806,7 +819,8 @@ private struct InspectorActionStrip: View {
                     systemImage: "minus.circle",
                     tint: .secondary,
                     title: L("inspector.action.disable"),
-                    help: L("inspector.action.disable")
+                    help: reversibleHelp(L("inspector.action.disable")),
+                    onHoverHelp: setHoveredHelp
                 ) {
                     onDisable(capability)
                 }
@@ -818,9 +832,10 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: runningNativeActionID == nativeDeleteAction.id ? "hourglass" : "trash",
                     tint: .red,
-                    help: nativeDeleteAction.command,
+                    help: deleteHelp(nativeDeleteAction.command),
                     isDestructive: true,
-                    isDisabled: runningNativeActionID != nil
+                    isDisabled: runningNativeActionID != nil,
+                    onHoverHelp: setHoveredHelp
                 ) {
                     onNativeDelete(nativeDeleteAction)
                 }
@@ -828,8 +843,9 @@ private struct InspectorActionStrip: View {
                 InspectorToolbarButton(
                     systemImage: "trash",
                     tint: .red,
-                    help: L("inspector.action.delete"),
-                    isDestructive: true
+                    help: deleteHelp(L("inspector.action.delete")),
+                    isDestructive: true,
+                    onHoverHelp: setHoveredHelp
                 ) {
                     onDelete(capability)
                 }
@@ -838,7 +854,8 @@ private struct InspectorActionStrip: View {
             InspectorToolbarButton(
                 systemImage: "sidebar.right",
                 tint: .secondary,
-                help: L("inspector.action.hide")
+                help: L("inspector.action.hide"),
+                onHoverHelp: setHoveredHelp
             ) {
                 onClose()
             }
@@ -854,6 +871,7 @@ private struct InspectorToolbarButton: View {
     let help: String
     var isDestructive = false
     var isDisabled = false
+    var onHoverHelp: ((Bool, String) -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
@@ -881,7 +899,9 @@ private struct InspectorToolbarButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .contentShape(RoundedRectangle(cornerRadius: OrbitaTheme.controlRadius, style: .continuous))
-        .help(help)
+        .onHover { hovering in
+            onHoverHelp?(hovering, help)
+        }
         .accessibilityLabel(help)
     }
 
@@ -903,6 +923,50 @@ private struct InspectorToolbarButton: View {
             return Color.green.opacity(0.18)
         }
         return OrbitaTheme.border
+    }
+}
+
+/// Immediate floating help bubble shown while the cursor is over an action button — the in-app
+/// replacement for the slow macOS `.help()` tooltip. Renders the action label/command on the first
+/// line and, when the help carries a consequence note (joined by a blank line), that note beneath it
+/// in a softer style.
+private struct HoverHelpBubble: View {
+    let text: String
+
+    private var parts: [String] {
+        text.components(separatedBy: "\n\n")
+    }
+
+    private var primary: String { parts.first ?? text }
+
+    private var note: String? {
+        guard parts.count > 1 else { return nil }
+        return parts.dropFirst().joined(separator: "\n\n")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(primary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+            if let note {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: 260, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(OrbitaTheme.border)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 9, y: 3)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 
@@ -2730,10 +2794,11 @@ private struct DriftLocationRow: View {
                 .frame(width: 16, alignment: .center)
                 .padding(.top, 1)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(sourceKind.title)
                         .font(.caption.weight(.semibold))
+                        .lineLimit(1)
                     DriftScopeTag(scope: record.scope)
                     if record.current {
                         DriftStateTag(text: L("inspector.drift.location.current"), tint: .accentColor)
@@ -2743,44 +2808,53 @@ private struct DriftLocationRow: View {
                     Spacer(minLength: 0)
                 }
 
-                Button {
-                    revealInFinder(record.path)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(displayPath)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                        Image(systemName: "arrow.up.forward.app")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                // Path (flexes, truncates in the middle) shares this row with the hash chip so the
+                // chip no longer competes with the title + tags for the narrow first line.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Button {
+                        revealInFinder(record.path)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(displayPath)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Image(systemName: "arrow.up.forward.app")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(L("issues.reveal"))
-                .accessibilityLabel(L("issues.reveal"))
-            }
+                    .buttonStyle(.plain)
+                    .help(L("issues.reveal"))
+                    .accessibilityLabel(L("issues.reveal"))
 
-            if !record.hash.isEmpty {
-                Text(shortHash)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(divergesFromCurrent ? .orange : .secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(divergesFromCurrent ? Color.orange.opacity(0.5) : OrbitaTheme.border)
+                    if !record.hash.isEmpty {
+                        hashChip
                     }
-                    .padding(.top, 1)
+                }
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .orbitaControlSurface(selected: record.current)
+    }
+
+    private var hashChip: some View {
+        Text(shortHash)
+            .font(.caption2.monospaced())
+            .foregroundStyle(divergesFromCurrent ? .orange : .secondary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(OrbitaTheme.controlFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(divergesFromCurrent ? Color.orange.opacity(0.5) : OrbitaTheme.border)
+            }
     }
 
     private func revealInFinder(_ path: String) {
@@ -2809,6 +2883,8 @@ private struct DriftScopeTag: View {
     var body: some View {
         Text(localizedScope)
             .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -2856,6 +2932,8 @@ private struct DriftStateTag: View {
     var body: some View {
         Text(text)
             .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
