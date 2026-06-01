@@ -114,6 +114,45 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         )
     }
 
+    /// Capabilities for this tab's LIST: the actively-loaded ones (`visibleCapabilities`) plus the
+    /// agent's own disabled tiles, so turning a capability off moves it into the "Disabled" section
+    /// here instead of making it vanish. The `.agents` tab already surfaces disabled through its
+    /// source filter; only the per-agent tabs (which route through `AgentViewResolver`, which
+    /// excludes disabled from the *active* view) need the addition. `hostAgentIDs` is the structural
+    /// "which agent owns this tile, ignoring enable-state" classification — the same one that drives
+    /// the host brand icon — so a disabled tile lands under its owning agent.
+    func capabilitiesForDisplay(in graph: CapabilityGraph) -> [Capability] {
+        let active = visibleCapabilities(in: graph)
+        guard let hostAgentID = hostViewAgentID else {
+            return active
+        }
+        let resolver = AgentViewResolver()
+        let disabled = graph.capabilities.filter { capability in
+            capability.statuses.contains(.disabled)
+                && !capability.statuses.contains(.broken)
+                && resolver.hostAgentIDs(for: capability).contains(hostAgentID)
+        }
+        guard !disabled.isEmpty else { return active }
+        return deduplicatedCapabilities(active + disabled)
+    }
+
+    /// The single agent whose tab this is, for behaviors that route through `AgentViewResolver`.
+    /// `nil` for `.agents` (already includes disabled) and custom/generic tabs.
+    private var hostViewAgentID: AgentID? {
+        switch behavior {
+        case .codexSource, .codexLike:
+            return .codex
+        case .claudeSource, .claudeLike:
+            return .claudeCode
+        case .cursorSource:
+            return .cursor
+        case .traeSource:
+            return .trae
+        case .agentsSource, .generic, .skillsAgent:
+            return nil
+        }
+    }
+
     func visibleCapabilityIDs(in graph: CapabilityGraph) -> Set<String> {
         var ids: Set<String>
         switch behavior {

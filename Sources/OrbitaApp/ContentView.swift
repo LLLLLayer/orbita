@@ -597,7 +597,9 @@ struct ContentView: View {
     private func computeVisibleCapabilities(in graph: CapabilityGraph?) -> [Capability] {
         guard let graph else { return [] }
         guard let selectedAgent else { return graph.capabilities }
-        return selectedAgent.visibleCapabilities(in: graph)
+        // Include the agent's own disabled tiles so they group into the "Disabled" section rather
+        // than vanishing from the per-agent tab when turned off.
+        return selectedAgent.capabilitiesForDisplay(in: graph)
     }
 
     private func computeDisplaySections(from visible: [Capability]) -> [CapabilityCollectionSection] {
