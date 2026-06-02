@@ -53,6 +53,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     case scope
     case agents
     case organize
+    case groups
     case actions
     case ready
 
@@ -69,6 +70,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .scope:    return L("onboarding.eyebrow.scope")
         case .agents:   return L("onboarding.eyebrow.agents")
         case .organize: return L("onboarding.eyebrow.organize")
+        case .groups:   return L("onboarding.eyebrow.groups")
         case .actions:  return L("onboarding.eyebrow.actions")
         case .ready:    return L("onboarding.eyebrow.ready")
         }
@@ -82,6 +84,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .scope:    return L("onboarding.title.scope")
         case .agents:   return L("onboarding.title.agents")
         case .organize: return L("onboarding.title.organize")
+        case .groups:   return L("onboarding.title.groups")
         case .actions:  return L("onboarding.title.actions")
         case .ready:    return L("onboarding.title.ready")
         }
@@ -99,6 +102,8 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
             return L("onboarding.body.agents")
         case .organize:
             return L("onboarding.body.organize")
+        case .groups:
+            return L("onboarding.body.groups")
         case .actions:
             return L("onboarding.body.actions")
         case .ready:
@@ -214,6 +219,7 @@ struct OnboardingGuideView: View {
             case .scope:    ScopeIllustration()
             case .agents:   AgentTabsIllustration()
             case .organize: OrganizeIllustration()
+            case .groups:   GroupsIllustration()
             case .actions:  ActionsIllustration()
             case .ready:    ReadyIllustration()
             }
@@ -614,6 +620,77 @@ private struct OrganizeIllustration: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(OrbitaTheme.controlFill.opacity(0.6), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+/// One "group" tile that stands for many capabilities, with the members it folds together fanning in
+/// below — the virtual-group concept (Orbita collapses a plugin's items, a linked mirror, or a shared
+/// name prefix into a single counted tile so the grid stays readable).
+private struct GroupsIllustration: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    @State private var revealed = false
+
+    private let members: [(symbol: String, caption: String)] = [
+        ("wand.and.stars", "search"),
+        ("wand.and.stars", "fetch"),
+        ("terminal", "build"),
+        ("link", "lint")
+    ]
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // The single group tile, with a count + disclosure badge like the real grid.
+            HStack(spacing: 12) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 26, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(OrbitaTheme.prominentControlForeground)
+                    .frame(width: 60, height: 52)
+                    .background(OrbitaTheme.prominentControlFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L("onboarding.groups.tile.title"))
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(L("onboarding.groups.tile.subtitle"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 10)
+                HStack(spacing: 4) {
+                    Text("\(members.count)").font(.system(size: 12, weight: .bold)).monospacedDigit()
+                    Image(systemName: revealed ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .bold))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 9)
+                .frame(height: 26)
+                .background(OrbitaTheme.controlFill, in: Capsule())
+            }
+            .padding(12)
+            .frame(maxWidth: 360)
+            .background(OrbitaTheme.elevatedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(OrbitaTheme.strongBorder)
+            }
+
+            Image(systemName: "chevron.compact.down")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .opacity(revealed ? 1 : 0)
+
+            // The members it folds together, fanning in.
+            HStack(spacing: 16) {
+                ForEach(Array(members.enumerated()), id: \.offset) { index, member in
+                    GuideTile(symbol: member.symbol, caption: member.caption)
+                        .opacity(revealed ? 1 : 0)
+                        .offset(y: revealed ? 0 : -10)
+                        .animation(.spring(response: 0.45, dampingFraction: 0.75).delay(0.06 * Double(index)), value: revealed)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.25)) { revealed = true }
+        }
+        .accessibilityLabel(L("onboarding.illustration.groups"))
     }
 }
 
