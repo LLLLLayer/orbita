@@ -370,6 +370,9 @@ struct SyncCapabilitySheet: View {
     let capability: Capability
     let agents: [AgentSelection]
     let visibleAgentIDs: Set<String>
+    /// True when a real project (not "This Mac") is open, so a user-scope source may also be forked
+    /// INTO that project — but only as a deep copy (the core rejects a user→project symlink).
+    let allowsProjectLocation: Bool
     let onSelect: (SyncCapabilityRequest) -> Void
     let onCancel: () -> Void
 
@@ -381,12 +384,14 @@ struct SyncCapabilitySheet: View {
         capability: Capability,
         agents: [AgentSelection],
         visibleAgentIDs: Set<String>,
+        allowsProjectLocation: Bool = false,
         onSelect: @escaping (SyncCapabilityRequest) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.capability = capability
         self.agents = agents
         self.visibleAgentIDs = visibleAgentIDs
+        self.allowsProjectLocation = allowsProjectLocation
         self.onSelect = onSelect
         self.onCancel = onCancel
         _selectedAgentID = State(initialValue: agents.first { !visibleAgentIDs.contains($0.id) }?.id ?? agents.first?.id)
@@ -411,6 +416,13 @@ struct SyncCapabilitySheet: View {
                 }
 
                 syncPreview
+            }
+            .onChange(of: selectedMode) { _, _ in
+                // Switching to symlink can remove `.project` for a user-scope source — fall back to Global
+                // so the selection never points at an option that is no longer offered.
+                if !destinationScopes.contains(selectedDestinationScope) {
+                    selectedDestinationScope = .user
+                }
             }
 
             HStack(spacing: 10) {
@@ -584,7 +596,12 @@ struct SyncCapabilitySheet: View {
     }
 
     private var destinationScopes: [AgentSyncDestinationScope] {
-        capability.scope == .project ? [.project, .user] : [.user]
+        if capability.scope == .project { return [.project, .user] }
+        // A user-scope ("This Mac") source can be forked INTO an open project, but only as a deep copy —
+        // a symlink would commit an absolute link into ~/.agents to the repo. So `.project` appears for a
+        // user-scope source only when a project is open AND the deep-copy method is selected.
+        if allowsProjectLocation, selectedMode == .copy { return [.project, .user] }
+        return [.user]
     }
 
     private var capabilityPreviewIcon: String {

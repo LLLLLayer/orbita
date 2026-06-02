@@ -2546,7 +2546,7 @@ final class CapabilityScannerTests: XCTestCase {
         })
     }
 
-    func testSyncUserCapabilityCannotTargetProjectStorage() throws {
+    func testSyncUserCapabilityTargetsProjectOnlyViaDeepCopy() throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
         let source = FileManager.default.temporaryDirectory
@@ -2569,13 +2569,19 @@ final class CapabilityScannerTests: XCTestCase {
         )
         let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
 
+        // A user-scope ("My Mac") skill may be forked INTO a project, but only as a deep COPY (it vendors
+        // an independent copy). A symlink is refused — it would commit an absolute link into ~/.agents.
+        let copyPlan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .copy, destinationScope: .project
+        )
+        let projectTarget = projectRoot.appendingPathComponent(".claude/skills/global-only").path
+        XCTAssertTrue(copyPlan.operations.contains {
+            $0.kind == .copyPath && $0.path == source.path && $0.target == projectTarget
+        }, "a user-scope skill deep-copied into a project lands in the project's agent dir")
+
         XCTAssertThrowsError(try ApplyPlanBuilder().planSyncInstallTarget(
-            capabilityID: skill.id,
-            agentID: "claude-code",
-            graph: graph,
-            mode: .copy,
-            destinationScope: .project
-        ))
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .symlink, destinationScope: .project
+        ), "a user-scope skill still cannot SYMLINK into a project")
     }
 
     func testSyncCopyCanReplaceExistingSameSourceSymlink() throws {

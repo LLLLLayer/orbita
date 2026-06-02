@@ -139,6 +139,7 @@ struct ContentView: View {
                 capability: capability,
                 agents: syncAgentOptions(for: capability),
                 visibleAgentIDs: visibleAgentIDs(for: capability),
+                allowsProjectLocation: store.hasProject,
                 onSelect: { request in
                     let plan = store.planSync(
                         capability,

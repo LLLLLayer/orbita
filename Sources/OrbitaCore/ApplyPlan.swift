@@ -352,6 +352,7 @@ public final class ApplyPlanBuilder {
                 for: agent,
                 capability: capability,
                 destinationScope: destinationScope,
+                mode: mode,
                 graph: graph
             )
             let destination = root.appendingPathComponent(syncDestinationName(for: capability, source: source))
@@ -1274,10 +1275,14 @@ public final class ApplyPlanBuilder {
         for agent: SkillsAgentDefinition,
         capability: Capability,
         destinationScope: AgentSyncDestinationScope,
+        mode: AgentSyncMode,
         graph: CapabilityGraph
     ) throws -> URL {
-        if destinationScope == .project, capability.scope != .project {
-            throw OrbitaError.invalidApplyPlan("My Mac capabilities can only sync into global agent storage")
+        // A user-scope ("My Mac") capability may be forked INTO a project, but only as a deep copy: a
+        // symlink would write an absolute link into the user's home (~/.agents/…) and commit it to the
+        // repo, breaking on any other machine. Copy vendors an independent, shareable copy.
+        if destinationScope == .project, capability.scope != .project, mode != .copy {
+            throw OrbitaError.invalidApplyPlan("My Mac capabilities can only sync into a project as a deep copy; use Copy, or sync to global.")
         }
 
         switch capability.type {
