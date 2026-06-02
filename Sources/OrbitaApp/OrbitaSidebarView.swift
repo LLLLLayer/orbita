@@ -135,10 +135,12 @@ struct OrbitaSidebarView: View {
 struct OrbitaSidebarRail: View {
     @ObservedObject private var localization = LocalizationManager.shared
     let selection: String?
+    var updateAvailable: Bool = false
     let onExpand: () -> Void
     let onSelectThisMac: () -> Void
     let onAddProject: () -> Void
     let onOpenSettings: () -> Void
+    var onUpdate: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -147,6 +149,12 @@ struct OrbitaSidebarRail: View {
             }
             .frame(height: 86, alignment: .bottom)
             .padding(.bottom, 8)
+
+            if updateAvailable {
+                RailUpdateButton(action: onUpdate)
+                    .padding(.bottom, 4)
+                    .transition(.scale.combined(with: .opacity))
+            }
 
             VStack(spacing: 8) {
                 RailButton(systemImage: "desktopcomputer", isSelected: selection == ProjectCapabilityStore.environmentSelectionID, help: L("sidebar.thismac.title"), action: onSelectThisMac)
@@ -160,6 +168,7 @@ struct OrbitaSidebarRail: View {
         .frame(width: OrbitaLayoutMetrics.sidebarRailWidth)
         .frame(maxHeight: .infinity)
         .background(OrbitaTheme.sidebarBackground)
+        .animation(.snappy(duration: 0.22), value: updateAvailable)
     }
 }
 
@@ -383,5 +392,33 @@ private struct RailButton: View {
         .frame(width: OrbitaLayoutMetrics.sidebarRailWidth, height: 44)
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// The collapsed-sidebar "update available" affordance: a tinted download glyph with a notification
+/// dot, shown only when a silent appcast probe found a newer build. Clicking opens Sparkle's install
+/// flow. Mirrors `RailButton`'s footprint so it sits flush in the rail.
+private struct RailUpdateButton: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .orbitaIconControlSurface(selected: false)
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 7, height: 7)
+                        .overlay(Circle().stroke(OrbitaTheme.sidebarBackground, lineWidth: 1.5))
+                        .offset(x: 3, y: -3)
+                }
+        }
+        .buttonStyle(.plain)
+        .frame(width: OrbitaLayoutMetrics.sidebarRailWidth, height: 44)
+        .help(L("sidebar.update.available"))
+        .accessibilityLabel(L("sidebar.update.available"))
     }
 }

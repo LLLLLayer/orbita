@@ -266,7 +266,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(group.inspectionCapability.metadata["childCount"], "2")
     }
 
-    func testCapabilityDisplayGrouperAggregatesMirroredPrefixes() {
+    func testCapabilityDisplayGrouperAggregatesMirroredPrefixes() throws {
         let capabilities = [
             mirroredDisplayCapability(name: "lark-base", sourceKind: "agents-skill", path: "/tmp/.agents/skills/lark-base/SKILL.md", hash: "base"),
             mirroredDisplayCapability(name: "lark-base", sourceKind: "claude-skill", path: "/tmp/.claude/skills/lark-base/SKILL.md", hash: "base"),
@@ -278,15 +278,78 @@ final class CapabilityScannerTests: XCTestCase {
 
         let items = CapabilityDisplayGrouper().items(for: capabilities, minimumGroupSize: 3)
 
-        XCTAssertEqual(items.count, 1)
-        guard case let .group(group) = items.first else {
-            return XCTFail("Expected lark prefix group")
+        // Directory ownership: the `.agents` canonicals and the `.claude` bridges are owned by different
+        // agents, so they form TWO separate `lark` prefix tiles (each 3, branded by its own dir's loader)
+        // rather than one merged tile of 6. (The Overview previously inflated this to a single doubled
+        // count.)
+        let groups = items.compactMap { item -> CapabilityGroup? in
+            guard case let .group(group) = item else { return nil }
+            return group
         }
-        XCTAssertEqual(group.kind, .prefix)
-        XCTAssertEqual(group.name, "lark")
-        XCTAssertEqual(Set(group.capabilities.map(\.name)), ["lark-base", "lark-calendar", "lark-contact"])
-        XCTAssertEqual(group.inspectionCapability.source.kind, "virtual-plugin")
-        XCTAssertEqual(group.inspectionCapability.metadata["childCount"], "6")
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertTrue(groups.allSatisfy { $0.kind == .prefix && $0.name == "lark" })
+        XCTAssertTrue(groups.allSatisfy { $0.inspectionCapability.metadata["childCount"] == "3" })
+        let agentsGroup = try XCTUnwrap(groups.first { group in
+            group.capabilities.allSatisfy { $0.source.kind == "agents-skill" }
+        })
+        let claudeGroup = try XCTUnwrap(groups.first { group in
+            group.capabilities.allSatisfy { $0.source.kind == "claude-skill" }
+        })
+        XCTAssertEqual(Set(agentsGroup.capabilities.map(\.name)), ["lark-base", "lark-calendar", "lark-contact"])
+        XCTAssertEqual(Set(claudeGroup.capabilities.map(\.name)), ["lark-base", "lark-calendar", "lark-contact"])
+    }
+
+    /// End-to-end directory-ownership for the real `lark-*` setup: a canonical `.agents/skills` group
+    /// plus its `npx skills` symlink bridge under `.trae/skills`. The Overview must show TWO prefix
+    /// groups (never one merged count), and each agent's view must hold only the copy in ITS own dir —
+    /// Trae sees the `.trae` bridges, Codex/`.agents` see the canonicals, with no crossover.
+    func testLarkBridgeSplitsByOwnerDirAndStaysDirectoryScoped() throws {
+        var capabilities: [Capability] = []
+        for name in ["lark-base", "lark-calendar", "lark-contact"] {
+            capabilities.append(Capability(
+                id: "skill:/u/.agents/skills/\(name)/SKILL.md",
+                name: name,
+                type: .skill,
+                scope: .user,
+                statuses: [.enabled],
+                source: CapabilitySource(kind: "agents-skill", path: "/u/.agents/skills/\(name)/SKILL.md"),
+                metadata: ["skillsInstalledAgentIDs": "trae"]
+            ))
+            capabilities.append(Capability(
+                id: "skill:/u/.trae/skills/\(name)/SKILL.md",
+                name: name,
+                type: .skill,
+                scope: .user,
+                statuses: [.enabled],
+                source: CapabilitySource(kind: "trae-skill", path: "/u/.trae/skills/\(name)/SKILL.md"),
+                metadata: ["mirrorsAgentsWorkspace": "true"]
+            ))
+        }
+
+        // Overview (all capabilities) → two `lark` prefix groups of 3, partitioned by owner dir.
+        let items = CapabilityDisplayGrouper().items(for: capabilities, minimumGroupSize: 3)
+        let groups = items.compactMap { item -> CapabilityGroup? in
+            guard case let .group(group) = item else { return nil }
+            return group
+        }
+        XCTAssertEqual(groups.count, 2, "lark must split into an .agents group and a .trae group, not merge to 6")
+        XCTAssertTrue(groups.allSatisfy { $0.kind == .prefix && $0.name == "lark" })
+        let agentsBucket = try XCTUnwrap(groups.first { $0.capabilities.allSatisfy { $0.source.kind == "agents-skill" } })
+        let traeBucket = try XCTUnwrap(groups.first { $0.capabilities.allSatisfy { $0.source.kind == "trae-skill" } })
+        XCTAssertEqual(agentsBucket.capabilities.count, 3)
+        XCTAssertEqual(traeBucket.capabilities.count, 3)
+
+        // Per-agent visibility: each agent owns the copy in its own dir; no crossover.
+        let graph = CapabilityGraph(projectRoot: "/u", capabilities: capabilities, issues: [])
+        let traeVisible = Set(AgentViewResolver().visibleCapabilities(for: .trae, graph: graph).map(\.id))
+        let codexVisible = Set(AgentViewResolver().visibleCapabilities(for: .codex, graph: graph).map(\.id))
+        let traeBridgeIDs = Set(traeBucket.capabilities.map(\.id))
+        let agentsCanonicalIDs = Set(agentsBucket.capabilities.map(\.id))
+        XCTAssertEqual(traeVisible.intersection(traeBridgeIDs), traeBridgeIDs, "Trae owns its .trae bridges")
+        XCTAssertTrue(traeVisible.isDisjoint(with: agentsCanonicalIDs), "Trae must NOT also see the .agents canonical")
+        XCTAssertEqual(codexVisible.intersection(agentsCanonicalIDs), agentsCanonicalIDs, "Codex reads the .agents canonical in place")
+        XCTAssertTrue(codexVisible.isDisjoint(with: traeBridgeIDs), "Codex must NOT see the .trae bridge")
     }
 
     func testCapabilityDisplayGrouperMergesSymlinkMirrors() throws {
@@ -1442,12 +1505,12 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertFalse(visibleIDs.contains(codexPluginSkill.id), "Trae must not surface Codex plugin-bundled skills as Trae data")
     }
 
-    func testTraeViewExcludesSkillSymlinkedFromAgentsWorkspace() throws {
+    func testTraeViewIncludesOwnDirSymlinkMirroringAgentsWorkspace() throws {
         // Mirrors the real setup: ~/.trae/skills full of symlinks back into ~/.agents/skills (created by
-        // `npx skills`). The scanner flags such a symlink as agents-shared, and the Trae view excludes it
-        // — so the host's tab isn't cluttered with skills it doesn't own. (A skill Trae genuinely owns,
-        // i.e. a real `.trae/skills` directory, stays visible — covered by the trae-skill case in
-        // testTraeAgentViewExcludesAgentsSkillsAndNativeOnes.)
+        // `npx skills`). Directory ownership: a symlink that physically lives under `.trae/skills` is
+        // Trae's own — Trae loads it THROUGH that directory — so it IS visible in the Trae view (and
+        // branded Trae), distinct from the `.agents` canonical that Codex reads in place. The scanner
+        // still flags it `mirrorsAgentsWorkspace`, but own-dir membership now wins over that gate.
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaTraeSymlink-\(UUID().uuidString)")
         let agentsSharedDir = projectRoot.appendingPathComponent(".agents/skills/lark-doc")
@@ -1467,10 +1530,10 @@ final class CapabilityScannerTests: XCTestCase {
         let graph = CapabilityResolver().resolve(scanResult: scan)
 
         let traeSymlinkRecord = try XCTUnwrap(graph.capabilities.first { $0.name == "lark-doc" && $0.source.kind == "trae-skill" })
-        XCTAssertEqual(traeSymlinkRecord.metadata["mirrorsAgentsWorkspace"], "true", "A .trae symlink into .agents is flagged as agents-shared")
+        XCTAssertEqual(traeSymlinkRecord.metadata["mirrorsAgentsWorkspace"], "true", "A .trae symlink into .agents is still flagged as agents-shared")
 
         let traeVisible = Set(AgentViewResolver().visibleCapabilities(for: .trae, graph: graph).map(\.name))
-        XCTAssertFalse(traeVisible.contains("lark-doc"), "Trae must not show a skill that is only symlinked in from .agents")
+        XCTAssertTrue(traeVisible.contains("lark-doc"), "Trae owns the symlink that physically lives under .trae/skills and must show it")
     }
 
     func testTraeAndCursorGateAllAgentsScopedCapabilitiesUntilSynced() throws {

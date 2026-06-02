@@ -233,7 +233,7 @@ public final class CapabilityDisplayGrouper {
                     emittedGroups.insert(groupID)
                     items.append(.group(CapabilityGroup(
                         id: groupID,
-                        name: key,
+                        name: prefixToken(for: capability),
                         capabilities: groupCapabilities,
                         kind: .prefix
                     )))
@@ -384,7 +384,31 @@ public final class CapabilityDisplayGrouper {
         return names.count == 1 ? first : "\(first) + \(names.count - 1)"
     }
 
+    /// Prefix groups never span agent directories. A skill that physically lives in `.agents/skills`
+    /// and its `npx skills` symlink bridge under `.trae/skills` (or `.claude`/`.cursor`) are owned by
+    /// different agents, so they form SEPARATE prefix tiles — each branded by its own directory's
+    /// loader — instead of merging into one inflated "N copies" count (e.g. `lark` showing 50 in the
+    /// Overview when it is really 25 canonical + 25 bridge). The group display name stays the bare
+    /// prefix (`lark`); only the grouping/identity key carries the owner bucket.
     private func groupKey(for capability: Capability) -> String {
+        "\(ownerBucket(for: capability))\u{1}\(prefixToken(for: capability))"
+    }
+
+    /// The agent-directory a capability physically lives under (`.agents`/`.codex`/`.claude`/`.cursor`
+    /// /`.trae`), or `""` for anything outside a recognized agent dir — which keeps its prior grouping
+    /// behavior untouched (one shared bucket).
+    private func ownerBucket(for capability: Capability) -> String {
+        guard !capability.source.path.isEmpty else { return "" }
+        let components = Set(URL(fileURLWithPath: capability.source.path).pathComponents)
+        for marker in [".agents", ".codex", ".claude", ".cursor", ".trae"] where components.contains(marker) {
+            return marker
+        }
+        return ""
+    }
+
+    /// The shared name prefix (text before the first interior `-`), e.g. `lark` for `lark-doc`. This is
+    /// the group's display name; the grouping key composes it with `ownerBucket`.
+    private func prefixToken(for capability: Capability) -> String {
         let name = capability.name
         guard let separator = name.firstIndex(of: "-"), separator > name.startIndex else {
             return name
@@ -402,7 +426,7 @@ public final class CapabilityDisplayGrouper {
 
     private func pluginDisplayName(for capability: Capability) -> String {
         guard let packageName = capability.source.packageName else {
-            return groupKey(for: capability)
+            return prefixToken(for: capability)
         }
         let raw = packageName.split(separator: "/").last.map(String.init) ?? packageName
         let trimmed = raw

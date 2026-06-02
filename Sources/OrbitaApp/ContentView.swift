@@ -17,6 +17,7 @@ private final class DisplayDerivationCache {
 
 struct ContentView: View {
     @ObservedObject private var localization = LocalizationManager.shared
+    @ObservedObject var updateAvailability: UpdateAvailabilityController
     var onCheckForUpdates: (() -> Void)? = nil
     var updatesConfigured: Bool = false
     @StateObject private var store = ProjectCapabilityStore()
@@ -423,6 +424,7 @@ struct ContentView: View {
         if sidebarCollapsed {
             OrbitaSidebarRail(
                 selection: selectedProject,
+                updateAvailable: updateAvailability.updateAvailable,
                 onExpand: {
                     withAnimation(.snappy(duration: 0.22)) {
                         sidebarCollapsed = false
@@ -436,6 +438,9 @@ struct ContentView: View {
                 },
                 onOpenSettings: {
                     settingsPresented = true
+                },
+                onUpdate: {
+                    onCheckForUpdates?()
                 }
             )
             .frame(width: OrbitaLayoutMetrics.sidebarRailWidth)

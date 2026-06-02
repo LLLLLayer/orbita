@@ -81,13 +81,17 @@ enum CapabilityClassifier {
     /// `AgentViewResolver` (view) and `AdapterPreviewBuilder` (preview) so view-visible and
     /// preview-supported agree by construction.
     static func isVisibleToGenericAgent(_ capability: Capability, agentID: String, agentDirComponent: String) -> Bool {
-        // Shared `.agents` content is managed in the `.agents` tab and is NOT surfaced in this host's
-        // tab — even if its skills-CLI lock lists this agent (those entries are usually just symlinks
-        // back into `.agents`, which the scanner already collapses). Gated first so a lock claim can't
-        // re-introduce it. A capability whose real content lives under the host's own dir is unaffected.
+        // Directory ownership: a record physically under the host's OWN dir is the host's own — even
+        // when it is a symlink mirroring `.agents` (`npx skills` bridge, `mirrorsAgentsWorkspace`). The
+        // host loads it THROUGH that directory, so it belongs in the host's tab and brand, distinct from
+        // the `.agents` canonical that Codex reads in place. Checked first so an own-dir bridge wins over
+        // the agents-shared gate below.
+        if sourcePathComponents(for: capability).contains(agentDirComponent) { return true }
+        // Shared `.agents` content the host does NOT physically hold is managed in the `.agents` tab and
+        // is NOT surfaced here — even if a skills-CLI lock lists this agent (that just means the bridge
+        // above exists; the canonical itself stays in `.agents`).
         if isAgentsShared(capability) { return false }
         if isInstalledForSkillsAgent(capability, agentID: agentID) { return true }
-        if sourcePathComponents(for: capability).contains(agentDirComponent) { return true }
         switch capability.type {
         case .skill:
             let kind = capability.source.kind

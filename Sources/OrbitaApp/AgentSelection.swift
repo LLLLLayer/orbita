@@ -110,6 +110,7 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
                 !capability.statuses.contains(.broken)
                     && !capability.statuses.contains(.disabled)
                     && capability.installedThroughSkillsCLI(for: agentID)
+                    && CapabilitySourceClassifier.sourceKind(for: capability) != .agents
             }
         )
     }
@@ -192,8 +193,14 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         }
 
         if let agentID = skillsInstallAgentID {
+            // Directory ownership: the `.agents` canonical is read by Codex in place and shown in the
+            // `.agents` tab — it must NOT be re-credited to a host (Trae/Cursor/Claude) just because the
+            // skill was bridged there. The host already sees its OWN physical bridge record; folding the
+            // canonical in too would double-count the tile and pull every install-target's brand onto it.
             ids.formUnion(graph.capabilities.compactMap { capability in
-                capability.installedThroughSkillsCLI(for: agentID) ? capability.id : nil
+                capability.installedThroughSkillsCLI(for: agentID)
+                    && CapabilitySourceClassifier.sourceKind(for: capability) != .agents
+                    ? capability.id : nil
             })
         }
         return ids
