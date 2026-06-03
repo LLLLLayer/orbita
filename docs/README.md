@@ -18,7 +18,7 @@ Orbita 是一个已发布的 macOS 能力管理产品，用于统一管理 Codin
 三个 target 的职责（Xcode 入口见下文「Xcode 入口」一节）：
 
 - `OrbitaCore`：扫描、解析、聚合、Agent view、Agent overview、adapter preview、adapter mapping、drift report、doctor、解释、drift/shadowed 状态和 Apply Plan 的核心库。
-- `orbita`：命令行产品面，先跑通诊断、overview 差异摘要、JSON 输出、doctor checks 和显式 `.agents` merge/enable/disable/rollback/clean 写入；enable/disable 支持 capability id 或能力名，enable、disable、merge 和 rollback 会同步 adapter preview，clean 会清理 broken skill symlink 和引用 missing/disabled 能力的 stale adapter，Apply 失败会返回 completed/failed/pending 操作。
+- `orbita`：命令行产品面，先跑通诊断、overview 差异摘要、JSON 输出、doctor checks 和显式 `.agents` merge/enable/disable/delete/rollback/clean 写入（以及 `--sync` 的 agent-sync/fork）；enable/disable 支持 capability id 或能力名，enable、disable、merge 和 rollback 会同步 adapter preview，clean 会清理 broken skill symlink 和引用 missing/disabled 能力的 stale adapter，Apply 失败会返回 completed/failed/pending 操作。
 - `OrbitaApp`：复用 `OrbitaCore` 的 SwiftUI macOS App shell，支持项目打开、搜索、Overview 差异摘要、状态概览、能力级 Apply Plan sheet；Apply Plan 会展示每个操作的 path、target、risk 和说明。
 
 当前 scanner 已覆盖 Codex、Claude Code、Trae、Cursor 的主要项目级入口，包括 `.codex/commands`、`.codex/hooks`、`.claude/commands`、`.claude/settings.json`、`.trae/skills`、`.cursor/rules`、legacy `.cursorrules`、`.mcp.json` 和项目 instructions。正式支持的 Agent 是 `codex`、`claude-code`、`cursor`、`trae`。

@@ -24,7 +24,7 @@ Claude Code defines hooks under a top-level `hooks` object. The schema has three
 2. Matcher group, optionally with `matcher`. Tool events match against `tool_name`; events like `UserPromptSubmit` and `Stop` always fire.
 3. Handler object in `hooks[]`. Claude Code supports command, HTTP, MCP tool, prompt, and agent handlers.
 
-Claude hook sources include user settings `~/.claude/settings.json`, project `.claude/settings.json`, local `.claude/settings.local.json`, managed policy, and plugin `hooks/hooks.json`. Claude Code has no per-hook disable flag, so Orbita only offers delete for a single settings hook entry.
+Claude hook sources include user settings `~/.claude/settings.json`, project `.claude/settings.json`, local `.claude/settings.local.json`, and plugin `hooks/hooks.json`. Claude Code has no per-hook disable flag, so Orbita only offers delete for a single settings hook entry.
 
 Vibe Notch is a good concrete reference implementation. It resolves the Claude config directory from `CLAUDE_CONFIG_DIR`, `~/.config/claude`, or legacy `~/.claude`; copies `claude-island-state.py` into the hooks directory; then writes command handlers into `settings.json`. The hook script reads Claude's JSON event payload from stdin and sends state to the app over `/tmp/claude-island.sock`; for `PermissionRequest`, it can return allow or deny JSON.
 
