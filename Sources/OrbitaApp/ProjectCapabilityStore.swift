@@ -52,6 +52,10 @@ final class ProjectCapabilityStore: ObservableObject {
     private var library = ProjectLibrary()
     private var scanTask: Task<Void, Never>?
     private var refreshPolicy = ScanRefreshPolicy.oneHour
+    /// Per-source skill-scan budget passed to `ScanOptions.maxSkillFiles`. Mirrors the
+    /// `scanMaxSkillFiles` AppStorage preference; `Int.max` means "no limit" (the
+    /// settings picker stores `0` for that and `configure(maxSkillFiles:)` maps it).
+    private var maxSkillFiles = 500
     private let snapshotStore: CapabilitySnapshotStore
     private let projectLibraryStore: ProjectLibraryStore
     private let iso8601Formatter = ISO8601DateFormatter()
@@ -104,6 +108,12 @@ final class ProjectCapabilityStore: ObservableObject {
 
     func configure(refreshPolicy rawValue: String) {
         self.refreshPolicy = ScanRefreshPolicy(rawValue: rawValue) ?? .oneHour
+    }
+
+    /// Sets the per-source skill-scan budget. A non-positive value (the picker's
+    /// "No limit" option, stored as `0`) maps to `Int.max` so the cap never fires.
+    func configure(maxSkillFiles value: Int) {
+        self.maxSkillFiles = value <= 0 ? Int.max : value
     }
 
     func prepare() {
@@ -165,10 +175,11 @@ final class ProjectCapabilityStore: ObservableObject {
         OrbitaTelemetry.scan.notice("scan.start root=\(root.path, privacy: .private)")
 
         let progressRelay = ScanProgressRelay(store: self, root: root)
+        let maxSkillFiles = self.maxSkillFiles
         scanTask = Task { [weak self] in
             do {
                 let graph = try await Task.detached(priority: .userInitiated) {
-                    let options = ScanOptions(progressHandler: { event in
+                    let options = ScanOptions(maxSkillFiles: maxSkillFiles, progressHandler: { event in
                         let count = event.count ?? -1
                         OrbitaTelemetry.scan.notice("scan.phase name=\(event.name, privacy: .public) path=\(event.path, privacy: .private) count=\(count, privacy: .public)")
                         progressRelay.receive(event)

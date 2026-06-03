@@ -17,7 +17,7 @@ public struct ScanOptions: Sendable {
 
     public init(
         includeUserScope: Bool = true,
-        maxSkillFiles: Int = 200,
+        maxSkillFiles: Int = 500,
         userSkillRoots: [URL]? = nil,
         userAgentRoots: [URL]? = nil,
         userDisabledStoreRoots: [URL]? = nil,

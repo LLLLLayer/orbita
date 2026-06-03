@@ -94,12 +94,25 @@ enum CapabilitySortOption: String, CaseIterable, Identifiable {
     }
 }
 
+/// Preset choices for the per-source skill-scan budget (`ScanOptions.maxSkillFiles`).
+/// `0` is the sentinel for "No limit"; `ProjectCapabilityStore.configure(maxSkillFiles:)`
+/// maps it to `Int.max`. Default is `500`.
+enum SkillScanLimit {
+    static let presets: [Int] = [200, 500, 1000, 2000, 5000, 0]
+
+    @MainActor
+    static func label(_ value: Int) -> String {
+        value <= 0 ? L("settings.general.maxSkillFiles.noLimit") : String(value)
+    }
+}
+
 struct OrbitaSettingsView: View {
     // Observe the language manager so this view (and its L() calls) re-render on a
     // language switch via normal dependency tracking — no `.id()` rebuild, so the
     // selected page and other local state survive the switch.
     @ObservedObject private var localization = LocalizationManager.shared
     @Binding var refreshPolicy: String
+    @Binding var maxSkillFiles: Int
     @Binding var languageCode: String
     @Binding var sortOption: String
     let projectName: String
@@ -225,6 +238,22 @@ struct OrbitaSettingsView: View {
                         .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
                         .animation(.easeInOut(duration: 0.18), value: refreshPolicy)
                     }
+                }
+
+                SettingsDivider()
+
+                SettingsPreferenceRow(
+                    title: L("settings.general.maxSkillFiles.title"),
+                    subtitle: L("settings.general.maxSkillFiles.subtitle")
+                ) {
+                    Picker(L("settings.general.maxSkillFiles.title"), selection: $maxSkillFiles) {
+                        ForEach(SkillScanLimit.presets, id: \.self) { value in
+                            Text(SkillScanLimit.label(value)).tag(value)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
                 }
 
                 SettingsDivider()

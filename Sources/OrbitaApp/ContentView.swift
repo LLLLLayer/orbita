@@ -28,6 +28,7 @@ struct ContentView: View {
     @AppStorage("categoryOrderJSON") private var categoryOrderJSON = "[]"
     @AppStorage("hiddenCategoryIDsJSON") private var hiddenCategoryIDsJSON = "[]"
     @AppStorage("scanRefreshPolicy") private var scanRefreshPolicy = ScanRefreshPolicy.oneHour.rawValue
+    @AppStorage("scanMaxSkillFiles") private var scanMaxSkillFiles = 500
     @AppStorage("orbitaLanguageCode") private var orbitaLanguageCode = OrbitaLanguage.english.rawValue
     @AppStorage("capabilitySortOption") private var capabilitySortOption = CapabilitySortOption.nameAscending.rawValue
     @AppStorage("hideMacScopeInProject") private var hideMacScopeInProject = false
@@ -207,6 +208,7 @@ struct ContentView: View {
         }
         .onAppear {
             store.configure(refreshPolicy: scanRefreshPolicy)
+            store.configure(maxSkillFiles: scanMaxSkillFiles)
             fullDiskAccess.refresh()
             prepareStoreIfPermitted()
         }
@@ -242,6 +244,12 @@ struct ContentView: View {
         }
         .onChange(of: scanRefreshPolicy) { _, value in
             store.configure(refreshPolicy: value)
+        }
+        .onChange(of: scanMaxSkillFiles) { _, value in
+            // The cached snapshot was scanned under the old budget, so re-scan now to
+            // surface (or re-cap) skills under the new limit rather than waiting for TTL.
+            store.configure(maxSkillFiles: value)
+            store.reload(force: true)
         }
     }
 
@@ -399,6 +407,7 @@ struct ContentView: View {
     private var settingsView: some View {
         OrbitaSettingsView(
             refreshPolicy: $scanRefreshPolicy,
+            maxSkillFiles: $scanMaxSkillFiles,
             languageCode: $orbitaLanguageCode,
             sortOption: $capabilitySortOption,
             projectName: store.projectName,
