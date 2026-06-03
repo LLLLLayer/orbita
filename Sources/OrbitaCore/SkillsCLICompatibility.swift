@@ -134,7 +134,12 @@ struct SkillsLockEntry: Decodable, Sendable {
 }
 
 enum SkillsLockReader {
-    static func read(at url: URL) -> SkillsLockFile? {
+    /// Size-bounded so a hostile repo shipping a multi-GB `skills-lock.json` / `.skill-lock.json` cannot
+    /// OOM the scanner. The default cap matches the scanner's config-file cap; over-cap files read as nil.
+    static func read(at url: URL, maxBytes: Int = 8 * 1024 * 1024) -> SkillsLockFile? {
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > maxBytes {
+            return nil
+        }
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONDecoder().decode(RawSkillsLockFile.self, from: data) else {
             return nil

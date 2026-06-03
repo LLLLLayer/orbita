@@ -32,8 +32,29 @@ public final class CapabilityResolver {
                 continue
             }
 
+            // Match strictly by capability id first — this is the legitimate path: Orbita always writes the
+            // manifest entry id equal to the real capability id, so a live disable/enable round-trip (project-
+            // and user-scope alike) resolves here without any path fallback. Only when the id matches NOTHING
+            // anywhere do we consider the source-path fallback, and even then restrict it to capabilities the
+            // project manifest may legitimately own (project scope, or an Orbita-created quarantine tile). A
+            // project `.agents/manifest.json` is untrusted input; without this restriction a no-id-match entry
+            // whose sourcePath equals a user/installed-scope (global) capability's source.path would silently
+            // disable/drift that unrelated global capability.
             let sourcePath = intent.metadata["sourcePath"]
-            if let index = capabilities.firstIndex(where: { $0.id == capabilityID || $0.source.path == sourcePath }) {
+            let matchIndex = capabilities.firstIndex(where: { $0.id == capabilityID })
+                ?? pathFallbackIndex(for: sourcePath, in: capabilities)
+            if let index = matchIndex {
+                // A quarantine tile means the source is physically sitting in the Orbita disabled store RIGHT
+                // NOW (scanDisabledStore just reconstructed it), so the on-disk state is authoritative: it is
+                // `.disabled`. A stale `.enabled` manifest intent can survive a failed enable — the manifest is
+                // flipped to enabled before the restore move runs, so if the move fails the source never leaves
+                // the store. Honoring that intent here would paint a contradictory disabled+enabled tile. Force
+                // the on-disk truth and align manifestStatus so the next apply re-records the correct intent.
+                if capabilities[index].source.kind == "orbita-quarantine", status != .disabled {
+                    appendStatus(.disabled, to: &capabilities[index])
+                    capabilities[index].metadata["manifestStatus"] = CapabilityStatus.disabled.rawValue
+                    continue
+                }
                 appendStatus(status, to: &capabilities[index])
                 capabilities[index].metadata["manifestStatus"] = manifestStatus
                 // A quarantine tile (reconstructed from the disabled store) is cleanly disabled — its source
@@ -51,6 +72,18 @@ public final class CapabilityResolver {
                 missingIntent.metadata["manifestStatus"] = manifestStatus
                 capabilities.append(missingIntent)
             }
+        }
+    }
+
+    /// Index of the capability a project manifest entry may legitimately re-mark by source path when its
+    /// declared id matches nothing. The manifest is untrusted project input, so the path fallback is limited
+    /// to capabilities the project may own: project-scope sources and Orbita-created quarantine tiles. It must
+    /// NEVER reach a user/installed/environment-scope (global) capability. An empty/nil sourcePath never matches.
+    private func pathFallbackIndex(for sourcePath: String?, in capabilities: [Capability]) -> Int? {
+        guard let sourcePath, !sourcePath.isEmpty else { return nil }
+        return capabilities.firstIndex { capability in
+            capability.source.path == sourcePath
+                && (capability.scope == .project || capability.source.kind == "orbita-quarantine")
         }
     }
 
@@ -119,6 +152,20 @@ public final class CapabilityResolver {
         return "plugin"
     }
 
+    /// A member is eligible for duplicate / shadow / drift comparison only when it has a real,
+    /// competing on-disk source. Two kinds carry no real second copy and must be excluded from the
+    /// group decision (they still render on their own, just unflagged):
+    ///  - a `.broken`/dangling member (e.g. a project `.trae/skills/x → ../../.agents/skills/x` whose
+    ///    target is missing because the repo has no project-level `.agents/skills`), and
+    ///  - a synthesized `agents-intent-missing-source` tile (a `.agents/manifest.json` "disabled" intent
+    ///    that matched no scanned capability). The latter has an attacker-controlled name and a forced
+    ///    project scope, so leaving it in the group lets it win the scope comparison and stamp false
+    ///    `.shadowed`/`.duplicate` badges on a real same-name capability.
+    private func participatesInGrouping(_ capability: Capability) -> Bool {
+        !capability.statuses.contains(.broken)
+            && capability.source.kind != "agents-intent-missing-source"
+    }
+
     private func markDuplicates(in capabilities: inout [Capability]) {
         let grouped = Dictionary(grouping: capabilities.indices) { index in
             duplicateGroupingKey(for: capabilities[index])
@@ -130,8 +177,9 @@ public final class CapabilityResolver {
             // second copy — only an unresolved path. Letting it into the comparison flips an otherwise
             // clean linked mirror into a "conflicting duplicate" and pins duplicate/shadowed badges on its
             // healthy siblings. Decide the relationship over the live members only; the broken tile stays
-            // surfaced as [.broken] on its own, just unflagged.
-            let liveIndices = indices.filter { !capabilities[$0].statuses.contains(.broken) }
+            // surfaced as [.broken] on its own, just unflagged. A synthesized missing-source intent tile
+            // is excluded for the same reason (see `participatesInGrouping`).
+            let liveIndices = indices.filter { participatesInGrouping(capabilities[$0]) }
             guard liveIndices.count > 1 else { continue }
             let group = liveIndices.map { capabilities[$0] }
             let relationship = duplicateRelationship(for: group)
@@ -290,9 +338,10 @@ public final class CapabilityResolver {
         for indices in grouped.values where indices.count > 1 {
             // Broken/dangling members neither shadow nor drift their healthy siblings — a missing
             // symlink target is not a competing copy. Decide over live members only (mirrors the
-            // same carve-out in `markDuplicates`), so the broken tile can't become the scope "winner"
-            // or manufacture a phantom second location.
-            let liveIndices = indices.filter { !capabilities[$0].statuses.contains(.broken) }
+            // same carve-out in `markDuplicates` via `participatesInGrouping`), so neither a broken
+            // tile nor a synthesized missing-source intent tile can become the scope "winner" or
+            // manufacture a phantom second location.
+            let liveIndices = indices.filter { participatesInGrouping(capabilities[$0]) }
             guard liveIndices.count > 1 else { continue }
 
             let winner = liveIndices.min { lhs, rhs in

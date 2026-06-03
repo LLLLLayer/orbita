@@ -111,6 +111,60 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(reloaded.lastProjectPath, projectA.standardizedFileURL.resolvingSymlinksInPath().path)
     }
 
+    func testProjectLibraryRecoversFromCorruptFile() throws {
+        let libraryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProjectLibraryCorruptTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: libraryRoot) }
+        try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+
+        let libraryURL = libraryRoot.appendingPathComponent("projects.json")
+        let backupURL = libraryRoot.appendingPathComponent("projects.json.bak")
+        try Data("{ this is not valid json".utf8).write(to: libraryURL, options: .atomic)
+
+        let store = ProjectLibraryStore(root: libraryRoot)
+        let recovered = try store.load()
+        XCTAssertTrue(recovered.projects.isEmpty)
+        XCTAssertNil(recovered.lastProjectPath)
+        XCTAssertEqual(recovered.schemaVersion, ProjectLibrary.currentSchemaVersion)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.path), "corrupt file should be moved aside to .bak")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: libraryURL.path), "corrupt projects.json should be removed after quarantine")
+
+        // A subsequent save must not clobber the recovered data into the original slot blindly.
+        var library = recovered
+        let project = libraryRoot.appendingPathComponent("Proj-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        library.upsert(projectRoot: project)
+        try store.save(library)
+        let reloaded = try store.load()
+        XCTAssertEqual(reloaded.projects.map(\.name), [project.lastPathComponent])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.path), "backup of the corrupt file must remain after a save")
+    }
+
+    func testProjectLibraryRejectsAndQuarantinesWrongSchemaVersion() throws {
+        let libraryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProjectLibrarySchemaTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: libraryRoot) }
+        try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+
+        let libraryURL = libraryRoot.appendingPathComponent("projects.json")
+        let backupURL = libraryRoot.appendingPathComponent("projects.json.bak")
+
+        let project = libraryRoot.appendingPathComponent("Proj-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        var future = ProjectLibrary(schemaVersion: ProjectLibrary.currentSchemaVersion + 1)
+        future.upsert(projectRoot: project)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(future).write(to: libraryURL, options: .atomic)
+
+        let store = ProjectLibraryStore(root: libraryRoot)
+        let recovered = try store.load()
+        XCTAssertTrue(recovered.projects.isEmpty, "a mismatched-schema library must not be trusted")
+        XCTAssertEqual(recovered.schemaVersion, ProjectLibrary.currentSchemaVersion)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.path), "wrong-schema file should be moved aside to .bak")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: libraryURL.path))
+    }
+
     func testCapabilityDisplayGrouperAggregatesSharedNamePrefixes() {
         let capabilities = [
             displayCapability(name: "lark-doc"),
@@ -1358,6 +1412,144 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(resolvedSkill.statuses.contains(.disabled))
         XCTAssertTrue(resolvedSkill.statuses.contains(.drifted))
         XCTAssertEqual(resolvedSkill.metadata["manifestStatus"], "disabled")
+    }
+
+    func testResolverDoesNotShadowRealCapabilityWithNoMatchDisabledManifestIntent() throws {
+        // LOW-5-phantom-badges: a no-match `disabled` manifest intent synthesizes an
+        // `agents-intent-missing-source` tile (scope .project, [.disabled], attacker-chosen name). A name
+        // colliding with a real user-scope capability used to let the project-scope phantom win the scope
+        // comparison and stamp false .shadowed/.duplicate on the real capability. It must not.
+        let projectRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let userRoot = FileManager.default.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaUserSkills-\(UUID().uuidString)")
+        let userSkill = userRoot.appendingPathComponent("skills/phantom-collide/SKILL.md")
+        try FileManager.default.createDirectory(at: userSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "phantom-collide", body: "real user skill").write(to: userSkill, atomically: true, encoding: .utf8)
+
+        let manifest = projectRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {
+              "id": "skill:nonexistent-phantom-id",
+              "name": "phantom-collide",
+              "type": "skill",
+              "status": "disabled",
+              "sourcePath": "/tmp/orbita-nonexistent-phantom/SKILL.md"
+            }
+          ]
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: userRoot)
+        }
+
+        let scan = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: true, userSkillRoots: [userRoot])
+        )
+        let graph = CapabilityResolver().resolve(scanResult: scan)
+
+        let real = try XCTUnwrap(graph.capabilities.first { $0.name == "phantom-collide" && $0.scope == .user })
+        XCTAssertFalse(real.statuses.contains(.shadowed), "a no-match disabled manifest intent must not shadow a real capability")
+        XCTAssertFalse(real.statuses.contains(.duplicate), "a no-match disabled manifest intent must not flag a real capability duplicate")
+        XCTAssertFalse(real.statuses.contains(.drifted), "a no-match disabled manifest intent must not flag a real capability drifted")
+
+        let phantom = try XCTUnwrap(graph.capabilities.first { $0.source.kind == "agents-intent-missing-source" })
+        XCTAssertEqual(phantom.name, "phantom-collide")
+        XCTAssertTrue(phantom.statuses.contains(.disabled))
+        XCTAssertFalse(phantom.statuses.contains(.shadowed))
+        XCTAssertFalse(phantom.statuses.contains(.duplicate))
+    }
+
+    func testResolverManifestPathFallbackCannotTamperWithUserScopeCapability() throws {
+        // MED-3-manifest-or-match: a project `.agents/manifest.json` is untrusted. An intent whose declared
+        // capabilityID matches NOTHING, but whose sourcePath equals an unrelated USER-scope (global)
+        // capability's source.path, must NOT have its disabled/drifted status applied to that user capability,
+        // nor (via the synthesized missing-source tile) shadow/duplicate it.
+        let userSkillPath = "/Users/victim/.codex/skills/global-helper/SKILL.md"
+        let userSkill = Capability(
+            id: "skill:\(userSkillPath)",
+            name: "global-helper",
+            type: .skill,
+            scope: .user,
+            statuses: [.enabled],
+            risks: [.read, .global],
+            source: CapabilitySource(kind: "codex-skill", path: userSkillPath)
+        )
+        let maliciousIntent = Capability(
+            id: "agents-intent:skill:attacker-bogus-id",
+            name: "global-helper",
+            type: .skill,
+            scope: .project,
+            statuses: [.discovered],
+            risks: [.info, .read],
+            source: CapabilitySource(kind: "agents-intent", path: "/tmp/evil-proj/.agents/manifest.json"),
+            metadata: [
+                "capabilityID": "skill:attacker-bogus-id",
+                "manifestStatus": "disabled",
+                "sourcePath": userSkillPath
+            ]
+        )
+        let graph = CapabilityResolver().resolve(scanResult: ScanResult(
+            projectRoot: "/tmp/evil-proj",
+            capabilities: [userSkill, maliciousIntent],
+            issues: []
+        ))
+
+        let resolvedUserSkill = try XCTUnwrap(graph.capabilities.first { $0.id == userSkill.id })
+        XCTAssertFalse(resolvedUserSkill.statuses.contains(.disabled), "untrusted project manifest must not disable a user-scope capability by path")
+        XCTAssertFalse(resolvedUserSkill.statuses.contains(.drifted), "untrusted project manifest must not drift a user-scope capability by path")
+        XCTAssertNil(resolvedUserSkill.metadata["manifestStatus"], "user-scope capability must carry no manifest-applied status")
+        XCTAssertTrue(resolvedUserSkill.statuses.contains(.enabled), "user-scope capability stays as scanned")
+        XCTAssertFalse(resolvedUserSkill.statuses.contains(.shadowed), "untrusted project manifest must not shadow a user-scope capability via name-collision tile")
+        XCTAssertFalse(resolvedUserSkill.statuses.contains(.duplicate), "untrusted project manifest must not mark a user-scope capability duplicate via name-collision tile")
+        XCTAssertNil(resolvedUserSkill.metadata["duplicateRelationship"], "user-scope capability must carry no duplicate-relationship metadata from the manifest tile")
+        XCTAssertTrue(graph.capabilities.contains { $0.id == "skill:attacker-bogus-id" && $0.source.kind == "agents-intent-missing-source" })
+    }
+
+    func testResolverManifestPathFallbackStillMatchesProjectScopeCapability() throws {
+        // Legit defensive case the OR fallback exists for: the manifest id has drifted but the recorded
+        // sourcePath still points at a live PROJECT-scope capability. The path fallback must still apply
+        // disabled+drifted to that project capability (the manifest's own domain).
+        let projectSkillPath = "/tmp/legit-proj/.agents/skills/lark-doc/SKILL.md"
+        let projectSkill = Capability(
+            id: "skill:\(projectSkillPath)",
+            name: "lark-doc",
+            type: .skill,
+            scope: .project,
+            statuses: [.enabled],
+            risks: [.read],
+            source: CapabilitySource(kind: "agents-skill", path: projectSkillPath)
+        )
+        let intent = Capability(
+            id: "agents-intent:skill:stale-drifted-id",
+            name: "lark-doc",
+            type: .skill,
+            scope: .project,
+            statuses: [.discovered],
+            risks: [.info, .read],
+            source: CapabilitySource(kind: "agents-intent", path: "/tmp/legit-proj/.agents/manifest.json"),
+            metadata: [
+                "capabilityID": "skill:stale-drifted-id",
+                "manifestStatus": "disabled",
+                "sourcePath": projectSkillPath
+            ]
+        )
+        let graph = CapabilityResolver().resolve(scanResult: ScanResult(
+            projectRoot: "/tmp/legit-proj",
+            capabilities: [projectSkill, intent],
+            issues: []
+        ))
+
+        let resolved = try XCTUnwrap(graph.capabilities.first { $0.id == projectSkill.id })
+        XCTAssertTrue(resolved.statuses.contains(.disabled), "project-scope capability is the manifest's own domain — path fallback must still disable it")
+        XCTAssertTrue(resolved.statuses.contains(.drifted))
+        XCTAssertEqual(resolved.metadata["manifestStatus"], "disabled")
     }
 
     func testAgentViewFiltersCodexVisibleCapabilities() throws {
@@ -2989,6 +3181,163 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(tile.source.kind, "orbita-quarantine")
     }
 
+    func testRestoreRejectsProjectStoreEntryWhoseSidecarTargetsUserHomeAgentDir() throws {
+        // HIGH-1-restore-boundary regression: a hostile repo plants a quarantine entry under the PROJECT
+        // store (<repo>/.orbita/disabled) whose attacker-controlled sidecar originalSourcePath points at the
+        // user's HOME agent dir (~/.claude/skills/evil/SKILL.md). Enabling that tile must be REJECTED by the
+        // executor's scope-binding (project-store entries may only restore back into the project tree), so
+        // the planted content can never be written into / overwrite a file under the user home.
+        let fm = FileManager.default
+        let temporaryRoot = fm.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: temporaryRoot) }
+        let projectRoot = temporaryRoot.appendingPathComponent("project")
+        let fakeHome = temporaryRoot.appendingPathComponent("home")
+        try fm.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try fm.createDirectory(at: fakeHome, withIntermediateDirectories: true)
+
+        // Attacker-chosen restore TARGET inside the user's home agent storage.
+        let evilTarget = fakeHome.appendingPathComponent(".claude/skills/evil").path
+
+        // Plant a project-store quarantine entry: sidecar + co-located content.
+        let entryDir = projectRoot.appendingPathComponent(".orbita/disabled/skill/attackerkey")
+        let content = entryDir.appendingPathComponent("SKILL.md")
+        try fm.createDirectory(at: content.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText(name: "evil", body: "pwned").write(to: content, atomically: true, encoding: .utf8)
+        try OrbitaDisabledStore.sidecarJSON(
+            capabilityID: "skill:evil-demo",
+            name: "evil",
+            type: "skill",
+            originalSourcePath: evilTarget + "/SKILL.md",
+            scope: "user"
+        ).write(to: entryDir.appendingPathComponent(".orbita-restore.json"), atomically: true, encoding: .utf8)
+
+        // The scanner reads the planted entry back as a disabled tile (project store is always scanned).
+        let graph = CapabilityResolver().resolve(scanResult: try CapabilityScanner().scan(
+            projectRoot: projectRoot, options: ScanOptions(includeUserScope: false)))
+        let tile = try XCTUnwrap(graph.capabilities.first { $0.id == "skill:evil-demo" })
+        XCTAssertTrue(tile.statuses.contains(.disabled))
+
+        // The enable plan's restore op aims at the attacker target (proving the op is generated)...
+        let builder = ApplyPlanBuilder(homeDirectory: fakeHome)
+        let plan = try builder.planEnable(capabilityID: tile.id, graph: graph)
+        let restoreOp = try XCTUnwrap(plan.operations.first { $0.kind == .restorePath })
+        XCTAssertEqual(restoreOp.target, evilTarget + "/SKILL.md",
+                       "the fallback restore op should target the attacker-controlled sidecar path verbatim")
+
+        // ...but the executor must REJECT it: a project-store source may only restore into the project tree.
+        let executor = ApplyPlanExecutor(homeDirectory: fakeHome)
+        XCTAssertThrowsError(try executor.apply(plan)) { error in
+            let message = (error as? ApplyExecutionError)?.message ?? "\(error)"
+            XCTAssertTrue(message.contains("outside the project tree"),
+                          "expected a project-tree scope rejection, got: \(message)")
+        }
+
+        // No file may have been created under the user home.
+        XCTAssertFalse(fm.fileExists(atPath: evilTarget + "/SKILL.md"),
+                       "the planted content must NOT have been written into the user's home agent dir")
+        XCTAssertFalse(fm.fileExists(atPath: fakeHome.appendingPathComponent(".claude").path),
+                       "no ~/.claude tree should have been created by the rejected restore")
+    }
+
+    func testUserScopeQuarantineEnableStillRestoresIntoUserHome() throws {
+        // Positive control for HIGH-1-restore-boundary: the legitimate USER-scope disable->enable round-trip
+        // (source under ~/.trae) must still restore correctly after the scope-binding fix.
+        let fm = FileManager.default
+        let temporaryRoot = fm.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: temporaryRoot) }
+        let projectRoot = temporaryRoot.appendingPathComponent("project")
+        let fakeHome = temporaryRoot.appendingPathComponent("home")
+        try fm.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try fm.createDirectory(at: fakeHome, withIntermediateDirectories: true)
+
+        let skillDirectory = fakeHome.appendingPathComponent(".trae/skills/bar")
+        let skillFile = skillDirectory.appendingPathComponent("SKILL.md")
+        try fm.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try skillText(name: "bar", body: "body").write(to: skillFile, atomically: true, encoding: .utf8)
+
+        let capability = Capability(
+            id: "skill:\(skillFile.path)",
+            name: "bar",
+            type: .skill,
+            scope: .user,
+            source: CapabilitySource(kind: "trae-skill", path: skillFile.path)
+        )
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [capability], issues: [])
+        let builder = ApplyPlanBuilder(homeDirectory: fakeHome)
+        let executor = ApplyPlanExecutor(homeDirectory: fakeHome)
+
+        // Disable -> quarantine under ~/.orbita/disabled (the user store).
+        let disable = try builder.planDisable(capabilityID: capability.id, graph: graph)
+        let quarantineTarget = try XCTUnwrap(disable.operations.first { $0.kind == .cachePath }?.target)
+        XCTAssertTrue(quarantineTarget.hasPrefix(fakeHome.appendingPathComponent(".orbita/disabled").path + "/"))
+        _ = try executor.apply(disable)
+        XCTAssertFalse(fm.fileExists(atPath: skillDirectory.path))
+        XCTAssertTrue(fm.fileExists(atPath: quarantineTarget))
+
+        // Enable -> restore back into ~/.trae/skills/bar; the user-store scope-binding must allow this.
+        let enable = try builder.planEnable(capabilityID: capability.id, graph: graph)
+        let restoreOp = try XCTUnwrap(enable.operations.first { $0.kind == .restorePath })
+        XCTAssertEqual(restoreOp.path, quarantineTarget)
+        _ = try executor.apply(enable)
+        XCTAssertTrue(fm.fileExists(atPath: skillFile.path),
+                      "a legitimate user-scope quarantine must still restore into the user home")
+        XCTAssertFalse(fm.fileExists(atPath: quarantineTarget),
+                       "the quarantine content should be moved back out on restore")
+    }
+
+    func testStaleEnabledManifestIntentDoesNotContradictOnDiskQuarantineTile() throws {
+        // Regression for LOW-4-enable-atomicity: the enable plan writes the .agents manifest (status=enabled)
+        // BEFORE the restore move runs. If the restore move fails, the source is still parked in
+        // .orbita/disabled while the manifest already says enabled. The next scan must NOT surface a
+        // contradictory disabled+enabled tile — the on-disk store is authoritative.
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let originalSource = temporaryRoot.appendingPathComponent(".trae/skills/parked").path
+        let entryDir = temporaryRoot.appendingPathComponent(".orbita/disabled/skill/testkey")
+        let content = entryDir.appendingPathComponent("parked")
+        try FileManager.default.createDirectory(at: content, withIntermediateDirectories: true)
+        try skillText(name: "parked", body: "b").write(
+            to: content.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try OrbitaDisabledStore.sidecarJSON(
+            capabilityID: "skill:quarantined-demo",
+            name: "parked",
+            type: "skill",
+            originalSourcePath: originalSource,
+            scope: "project"
+        ).write(to: entryDir.appendingPathComponent(".orbita-restore.json"), atomically: true, encoding: .utf8)
+
+        // Stale manifest left behind by a failed enable: it already flipped to enabled.
+        let manifest = temporaryRoot.appendingPathComponent(".agents/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {
+              "id": "skill:quarantined-demo",
+              "name": "parked",
+              "type": "skill",
+              "status": "enabled",
+              "sourcePath": "\(originalSource)"
+            }
+          ]
+        }
+        """.write(to: manifest, atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(temporaryRoot))
+        let tile = try XCTUnwrap(graph.capabilities.first { $0.id == "skill:quarantined-demo" })
+        XCTAssertEqual(tile.source.kind, "orbita-quarantine")
+        XCTAssertTrue(tile.statuses.contains(.disabled), "on-disk store is authoritative: tile stays disabled")
+        XCTAssertFalse(tile.statuses.contains(.enabled), "a stale enabled manifest intent must not contradict the parked source")
+        XCTAssertFalse(tile.statuses.contains(.drifted), "a quarantined tile is cleanly disabled, not drifted")
+        XCTAssertEqual(tile.metadata["manifestStatus"], CapabilityStatus.disabled.rawValue,
+                       "manifestStatus is aligned to on-disk truth so the next apply heals the stale manifest")
+    }
+
     func testDisableAfterMergePreservesOtherManifestEntries() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
@@ -4456,6 +4805,57 @@ final class CapabilityScannerTests: XCTestCase {
         try skillText(name: name, body: "Shared body.").write(to: dir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
         try script.write(to: dir.appendingPathComponent("run.sh"), atomically: true, encoding: .utf8)
         return dir
+    }
+
+    func testOversizedBundledSkillAssetDoesNotReadBytesAndEmitsWarning() throws {
+        // MED-2: a hostile repo ships a skill whose bundled asset is larger than the hash cap. The scanner
+        // must NOT read the whole file (no OOM), must still surface the skill with a valid contentHash, and
+        // must emit a warning ScanIssue for the capped file.
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaBigAsset-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skillDir = projectRoot.appendingPathComponent(".agents/skills/huge")
+        try FileManager.default.createDirectory(at: skillDir, withIntermediateDirectories: true)
+        try skillText(name: "huge", body: "Has a giant asset.").write(to: skillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        // Sparse 60 MB asset (> the 50 MB hash cap) without allocating 60 MB of RAM in the test.
+        let assetURL = skillDir.appendingPathComponent("asset.bin")
+        FileManager.default.createFile(atPath: assetURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: assetURL)
+        try handle.truncate(atOffset: 60 * 1024 * 1024)
+        try handle.close()
+
+        let scan = try CapabilityScanner().scan(projectRoot: projectRoot, options: ScanOptions(includeUserScope: false, userSkillRoots: []))
+        let skill = try XCTUnwrap(scan.capabilities.first { $0.name == "huge" && $0.type == .skill })
+        let hash = try XCTUnwrap(skill.metadata["contentHash"])
+        XCTAssertEqual(hash.count, 64, "directory hash must still be a valid SHA256 even with an over-cap asset")
+        XCTAssertTrue(hash.allSatisfy(\.isHexDigit))
+        // The scanner canonicalizes the project root (resolving /var -> /private/var), so compare on suffix.
+        XCTAssertTrue(
+            scan.issues.contains { $0.severity == .warning && $0.path.hasSuffix("huge/asset.bin") && $0.message.contains("size limit") },
+            "an over-cap bundled asset must produce a warning ScanIssue"
+        )
+    }
+
+    func testOversizedMcpConfigEmitsWarningInsteadOfReadingWholeFile() throws {
+        // A hostile .mcp.json larger than the config cap must be skipped with a warning, not read whole.
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaBigMcp-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let mcpURL = projectRoot.appendingPathComponent(".mcp.json")
+        FileManager.default.createFile(atPath: mcpURL.path, contents: Data("{}".utf8))
+        let handle = try FileHandle(forWritingTo: mcpURL)
+        try handle.truncate(atOffset: 10 * 1024 * 1024) // > 8 MB config cap
+        try handle.close()
+
+        let scan = try CapabilityScanner().scan(projectRoot: projectRoot, options: ScanOptions(includeUserScope: false, userSkillRoots: []))
+        XCTAssertTrue(
+            scan.issues.contains { $0.severity == .warning && $0.path == mcpURL.path },
+            "an over-cap .mcp.json must surface a warning ScanIssue"
+        )
+        XCTAssertFalse(
+            scan.capabilities.contains { $0.source.path == mcpURL.path },
+            "no MCP capabilities should be emitted from an unread oversized config"
+        )
     }
 
     private func fixtureURL(_ name: String) throws -> URL {

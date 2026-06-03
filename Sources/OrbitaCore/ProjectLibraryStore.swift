@@ -14,11 +14,13 @@ public struct ProjectRecord: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct ProjectLibrary: Codable, Sendable {
+    public static let currentSchemaVersion = 1
+
     public var schemaVersion: Int
     public var lastProjectPath: String?
     public var projects: [ProjectRecord]
 
-    public init(schemaVersion: Int = 1, lastProjectPath: String? = nil, projects: [ProjectRecord] = []) {
+    public init(schemaVersion: Int = ProjectLibrary.currentSchemaVersion, lastProjectPath: String? = nil, projects: [ProjectRecord] = []) {
         self.schemaVersion = schemaVersion
         self.lastProjectPath = lastProjectPath
         self.projects = projects
@@ -95,8 +97,22 @@ public final class ProjectLibraryStore {
         guard fileManager.fileExists(atPath: url.path) else {
             return ProjectLibrary()
         }
+        // Genuine read errors (e.g. permission denied) still propagate so a
+        // transient failure does not trigger backup-and-wipe.
         let data = try Data(contentsOf: url)
-        return try decoder.decode(ProjectLibrary.self, from: data)
+        do {
+            let library = try decoder.decode(ProjectLibrary.self, from: data)
+            guard library.schemaVersion == ProjectLibrary.currentSchemaVersion else {
+                quarantineCorruptLibrary(at: url)
+                return ProjectLibrary()
+            }
+            return library
+        } catch {
+            // Corrupt JSON: move it aside so a subsequent save never silently
+            // clobbers data we failed to read, then start fresh.
+            quarantineCorruptLibrary(at: url)
+            return ProjectLibrary()
+        }
     }
 
     public func save(_ library: ProjectLibrary) throws {
@@ -107,5 +123,13 @@ public final class ProjectLibraryStore {
 
     private var libraryURL: URL {
         root.appendingPathComponent("projects.json")
+    }
+
+    /// Best-effort move of an unreadable/incompatible library file to a
+    /// `.bak` sidecar so the original data survives a subsequent atomic save.
+    private func quarantineCorruptLibrary(at url: URL) {
+        let backup = url.appendingPathExtension("bak")
+        try? fileManager.removeItem(at: backup)
+        try? fileManager.moveItem(at: url, to: backup)
     }
 }

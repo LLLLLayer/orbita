@@ -54,6 +54,15 @@ struct OrbitaCLI {
         // user's declared intent could not be honored — exit non-zero so scripts and CI notice, even though
         // we still print the partial result.
         var errorExitCode: Int32 = 0
+        // Single place that turns a resolved graph carrying an `.error` issue into exit code 2.
+        // Every READ-ONLY graph-consuming command goes through this so the documented contract holds
+        // by construction. `plan` deliberately calls the raw `graph(...)` helper instead: it may need to
+        // *repair* the malformed manifest, and it owns its own 0/1 exit semantics.
+        func resolvedGraph(_ projectRoot: String, _ includeUserScope: Bool) throws -> CapabilityGraph {
+            let resolved = try graph(projectRoot: projectRoot, includeUserScope: includeUserScope)
+            if resolved.issues.contains(where: { $0.severity == .error }) { errorExitCode = 2 }
+            return resolved
+        }
         switch command.name {
         case "help":
             emit(helpText())
@@ -66,23 +75,21 @@ struct OrbitaCLI {
                 printScan(result, emit: emit)
             }
         case "status":
-            let graph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
-            if graph.issues.contains(where: { $0.severity == .error }) { errorExitCode = 2 }
+            let graph = try resolvedGraph(command.projectRoot, command.includeUserScope)
             if command.json {
                 emit(jsonString(graph))
             } else {
                 printStatus(graph, emit: emit)
             }
         case "graph":
-            let graph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
-            if graph.issues.contains(where: { $0.severity == .error }) { errorExitCode = 2 }
+            let graph = try resolvedGraph(command.projectRoot, command.includeUserScope)
             if command.json {
                 emit(jsonString(graph))
             } else {
                 printStatus(graph, emit: emit)
             }
         case "drift":
-            let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            let resolvedGraph = try resolvedGraph(command.projectRoot, command.includeUserScope)
             let report = DriftReportBuilder().report(graph: resolvedGraph)
             if command.json {
                 emit(jsonString(report))
@@ -90,7 +97,7 @@ struct OrbitaCLI {
                 printDrift(report, emit: emit)
             }
         case "overview":
-            let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            let resolvedGraph = try resolvedGraph(command.projectRoot, command.includeUserScope)
             let overview = AgentOverviewBuilder().overview(graph: resolvedGraph)
             if command.json {
                 emit(jsonString(overview))
@@ -99,7 +106,7 @@ struct OrbitaCLI {
             }
         case "agent":
             let agent = try command.agentID()
-            let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            let resolvedGraph = try resolvedGraph(command.projectRoot, command.includeUserScope)
             let view = AgentViewResolver().view(for: agent, graph: resolvedGraph)
             if command.json {
                 emit(jsonString(view))
@@ -116,7 +123,7 @@ struct OrbitaCLI {
                 }
             }
         case "explain":
-            let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            let resolvedGraph = try resolvedGraph(command.projectRoot, command.includeUserScope)
             guard let id = command.capabilityID else {
                 throw CLIError.missingCapabilityID
             }
@@ -192,7 +199,7 @@ struct OrbitaCLI {
             }
         case "preview":
             let agent = try command.agentID()
-            let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+            let resolvedGraph = try resolvedGraph(command.projectRoot, command.includeUserScope)
             let preview = AdapterPreviewBuilder().preview(for: agent, graph: resolvedGraph)
             if command.json {
                 emit(jsonString(preview))
@@ -200,7 +207,7 @@ struct OrbitaCLI {
                 printPreview(preview, emit: emit)
             }
         case "doctor":
-            let doctor = DoctorReportBuilder().report(swiftVersion: swiftVersionString())
+            let doctor = DoctorReportBuilder().report(currentDirectory: command.projectRoot, swiftVersion: swiftVersionString())
             if command.json {
                 emit(jsonString(doctor))
             } else {

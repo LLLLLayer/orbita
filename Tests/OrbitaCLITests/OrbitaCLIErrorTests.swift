@@ -270,6 +270,69 @@ final class OrbitaCLIErrorTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("- review [command]"))
     }
 
+    func testDoctorHonorsProjectRootForMcpCheck() throws {
+        // INFO-doctor-flag: --project-root must steer the project-mcp check at the passed directory,
+        // not the test process CWD.
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCLIDoctorTests-\(UUID().uuidString)")
+        try fm.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let mcp = projectRoot.appendingPathComponent(".mcp.json")
+        try "{}\n".write(to: mcp, atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let result = OrbitaCLI.runForTesting(arguments: ["doctor", "--project-root", projectRoot.path, "--json"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderr.isEmpty)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let report = try JSONDecoder().decode(DoctorReport.self, from: data)
+        XCTAssertEqual(report.currentDirectory, projectRoot.path)
+        let mcpCheck = try XCTUnwrap(report.checks.first { $0.id == "project-mcp" })
+        XCTAssertEqual(mcpCheck.status, .ok)
+        XCTAssertTrue(mcpCheck.path?.hasSuffix("/.mcp.json") == true)
+        XCTAssertTrue(mcpCheck.path?.hasPrefix(projectRoot.path) == true)
+    }
+
+    func testGraphConsumingCommandsExitTwoWhenAgentsManifestIsMalformed() throws {
+        // LOW-6: every READ-ONLY command that resolves a graph must honor the documented exit-2 contract
+        // on a malformed .agents/manifest.json, not just scan/status/graph.
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCLITests-\(UUID().uuidString)")
+        let manifest = projectRoot.appendingPathComponent(".agents/manifest.json")
+        try fm.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{ this is not valid json".write(to: manifest, atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let driftResult = OrbitaCLI.runForTesting(arguments: ["drift", projectRoot.path, "--no-user-scope"])
+        XCTAssertEqual(driftResult.exitCode, 2, "drift should exit 2 on a malformed .agents/manifest.json")
+
+        let agentResult = OrbitaCLI.runForTesting(arguments: ["agent", projectRoot.path, "--agent", "codex", "--no-user-scope"])
+        XCTAssertEqual(agentResult.exitCode, 2, "agent should exit 2 on a malformed .agents/manifest.json")
+
+        let previewResult = OrbitaCLI.runForTesting(arguments: ["preview", projectRoot.path, "--agent", "codex", "--no-user-scope"])
+        XCTAssertEqual(previewResult.exitCode, 2, "preview should exit 2 on a malformed .agents/manifest.json")
+
+        let overviewResult = OrbitaCLI.runForTesting(arguments: ["overview", projectRoot.path, "--no-user-scope"])
+        XCTAssertEqual(overviewResult.exitCode, 2, "overview should exit 2 on a malformed .agents/manifest.json")
+    }
+
+    func testGraphConsumingCommandsExitZeroOnWellFormedProject() throws {
+        // Companion to the malformed-manifest regression: the same commands must keep exiting 0 on a
+        // well-formed project (no .error issue), proving the exit-2 helper only fires on errors.
+        let root = fixtureURL("MixedProject")
+        for command in [
+            ["drift", root.path, "--no-user-scope"],
+            ["agent", root.path, "--agent", "codex", "--no-user-scope"],
+            ["preview", root.path, "--agent", "codex", "--no-user-scope"],
+            ["overview", root.path, "--no-user-scope"]
+        ] {
+            let result = OrbitaCLI.runForTesting(arguments: command)
+            XCTAssertEqual(result.exitCode, 0, "\(command.first ?? "") should exit 0 on a well-formed project")
+        }
+    }
+
     private func fixtureURL(_ name: String) -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

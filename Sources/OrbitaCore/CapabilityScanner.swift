@@ -103,6 +103,19 @@ public struct ScanProgressEvent: Sendable, Hashable {
 public final class CapabilityScanner {
     private let fileManager: FileManager
 
+    /// Generous byte cap for config/markdown/JSON/TOML reads. Every file the scanner parses for content
+    /// (SKILL.md, manifest.json, settings.json, .mcp.json, config.toml, agent .md, …) is KB-sized in
+    /// legitimate use; this is set far above any real file purely to stop a hostile multi-GB file from
+    /// being read whole into memory and OOM-ing the process.
+    private static let maxConfigFileBytes = 8 * 1024 * 1024
+    /// Per-file cap for content-hashing arbitrary bundled skill assets. Above this we hash a stable
+    /// name+size+mtime digest instead of the bytes, so drift detection still distinguishes diverging
+    /// large assets without reading them whole.
+    private static let maxHashableFileBytes = 50 * 1024 * 1024
+
+    /// Paths skipped or content-capped during the current scan; drained into ScanIssue warnings by scan().
+    private var cappedFilePaths: Set<String> = []
+
     private struct ClaudeSkillOverrideState {
         var enabled: Bool
         var settingsPath: String
@@ -117,6 +130,7 @@ public final class CapabilityScanner {
         emitProgress("scan.start", path: root.path, options: options)
         try validateProjectRoot(root)
 
+        cappedFilePaths.removeAll(keepingCapacity: true)
         var capabilities: [Capability] = []
         var issues: [ScanIssue] = []
         var codexSkillStateOverrides = codexSkillStates(at: options.codexConfigURL)
@@ -213,6 +227,14 @@ public final class CapabilityScanner {
         scanNativePluginRegistries(projectRoot: root, options: options, into: &capabilities, issues: &issues)
 
         scanDisabledStore(projectRoot: root, options: options, into: &capabilities)
+
+        for path in cappedFilePaths.sorted() {
+            issues.append(ScanIssue(
+                severity: .warning,
+                path: path,
+                message: "File exceeds the scan size limit; its contents were skipped"
+            ))
+        }
 
         emitProgress("scan.finish", path: root.path, count: capabilities.count, options: options)
         return ScanResult(
@@ -429,7 +451,7 @@ public final class CapabilityScanner {
             return
         }
 
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let text = boundedString(contentsOf: url, maxBytes: Self.maxConfigFileBytes) ?? ""
         let lowercased = text.lowercased()
         var risks: Set<RiskLevel> = [.info, .read]
         if lowercased.contains("\"hooks\"") || lowercased.contains("\"command\"") {
@@ -871,7 +893,7 @@ public final class CapabilityScanner {
     }
 
     private func codexHookStates(at url: URL) -> [String: Bool] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        guard let text = boundedString(contentsOf: url, maxBytes: Self.maxConfigFileBytes) else { return [:] }
         var states: [String: Bool] = [:]
         var currentKey: String?
 
@@ -942,7 +964,7 @@ public final class CapabilityScanner {
 
         for case let url as URL in enumerator {
             guard ["md", "json", "toml"].contains(url.pathExtension.lowercased()) else { continue }
-            let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
+            let frontmatter = boundedString(contentsOf: url, maxBytes: Self.maxConfigFileBytes).flatMap(parseFrontmatter) ?? [:]
             var metadata = fileMetadata(for: url, merging: frontmatter)
             for (key, value) in baseMetadata where !value.isEmpty {
                 metadata[key] = value
@@ -1020,7 +1042,10 @@ public final class CapabilityScanner {
         guard fileManager.fileExists(atPath: url.path) else { return }
 
         do {
-            let data = try Data(contentsOf: url)
+            guard let data = boundedData(contentsOf: url, maxBytes: Self.maxConfigFileBytes) else {
+                issues.append(ScanIssue(severity: .warning, path: url.path, message: "MCP config is too large to read"))
+                return
+            }
             let json = try JSONSerialization.jsonObject(with: data)
             guard let root = json as? [String: Any] else {
                 issues.append(ScanIssue(severity: .warning, path: url.path, message: "MCP config is not an object"))
@@ -1171,7 +1196,10 @@ public final class CapabilityScanner {
 
     private func scanAgentsManifestEntries(at url: URL, into capabilities: inout [Capability], issues: inout [ScanIssue]) {
         do {
-            let data = try Data(contentsOf: url)
+            guard let data = boundedData(contentsOf: url, maxBytes: Self.maxConfigFileBytes) else {
+                issues.append(ScanIssue(severity: .error, path: url.path, message: ".agents manifest is too large to read"))
+                return
+            }
             let json = try JSONSerialization.jsonObject(with: data)
             guard let root = json as? [String: Any] else {
                 issues.append(ScanIssue(severity: .error, path: url.path, message: ".agents manifest is not an object"))
@@ -1269,7 +1297,7 @@ public final class CapabilityScanner {
         for case let url as URL in enumerator {
             guard allowedExtensions.contains(url.pathExtension.lowercased()) else { continue }
             count += 1
-            let text = try? String(contentsOf: url, encoding: .utf8)
+            let text = boundedString(contentsOf: url, maxBytes: Self.maxConfigFileBytes)
             let frontmatter = agentMetadata(from: text, url: url)
             var metadata = fileMetadata(for: url, merging: frontmatter)
             for (key, value) in baseMetadata where !value.isEmpty {
@@ -1640,7 +1668,7 @@ public final class CapabilityScanner {
         inheritedEnabled: Bool? = nil,
         metadata baseMetadata: [String: String] = [:]
     ) -> Capability {
-        let frontmatter = (try? String(contentsOf: url, encoding: .utf8)).flatMap(parseFrontmatter) ?? [:]
+        let frontmatter = boundedString(contentsOf: url, maxBytes: Self.maxConfigFileBytes).flatMap(parseFrontmatter) ?? [:]
         let parentName = url.deletingLastPathComponent().lastPathComponent
         let name = frontmatter["name"] ?? parentName
         let inferredPackageInfo = packageInfo(for: url, projectRoot: projectRoot)
@@ -2314,7 +2342,7 @@ public final class CapabilityScanner {
     }
 
     private func codexPluginStates(at url: URL) -> [String: Bool] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        guard let text = boundedString(contentsOf: url, maxBytes: Self.maxConfigFileBytes) else { return [:] }
         var states: [String: Bool] = [:]
         var currentPlugin: String?
 
@@ -2335,7 +2363,7 @@ public final class CapabilityScanner {
     }
 
     private func codexSkillStates(at url: URL) -> [String: Bool] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        guard let text = boundedString(contentsOf: url, maxBytes: Self.maxConfigFileBytes) else { return [:] }
         var states: [String: Bool] = [:]
         var inSkillConfig = false
         var currentPath: String?
@@ -2692,11 +2720,40 @@ public final class CapabilityScanner {
     }
 
     private func jsonObject(at url: URL) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: url),
+        guard let data = boundedData(contentsOf: url, maxBytes: Self.maxConfigFileBytes),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
         return object
+    }
+
+    /// Size of a regular file in bytes, or nil if it can't be determined.
+    private func fileSize(of url: URL) -> Int? {
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+            return size
+        }
+        if let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+           let size = (attributes[.size] as? NSNumber)?.intValue {
+            return size
+        }
+        return nil
+    }
+
+    /// Reads a file's bytes only if it is at or under `maxBytes`; otherwise records the path as capped
+    /// (surfaced as a ScanIssue warning by scan()) and returns nil. Centralizes the OOM guard for every
+    /// whole-file read so a hostile multi-GB file can't be loaded into memory.
+    private func boundedData(contentsOf url: URL, maxBytes: Int) -> Data? {
+        if let size = fileSize(of: url), size > maxBytes {
+            cappedFilePaths.insert(url.path)
+            return nil
+        }
+        return try? Data(contentsOf: url)
+    }
+
+    /// String counterpart to boundedData: returns nil for an over-cap (or unreadable) file.
+    private func boundedString(contentsOf url: URL, encoding: String.Encoding = .utf8, maxBytes: Int) -> String? {
+        guard let data = boundedData(contentsOf: url, maxBytes: maxBytes) else { return nil }
+        return String(data: data, encoding: encoding)
     }
 
     private func fileMetadata(for url: URL, merging metadata: [String: String] = [:]) -> [String: String] {
@@ -2712,6 +2769,20 @@ public final class CapabilityScanner {
     }
 
     private func contentHash(for url: URL) -> String? {
+        // For an over-cap (e.g. multi-GB bundled) asset, never read the bytes: fold name+size+mtime into a
+        // stable digest instead. Two skill copies diverging only in a huge asset still hash differently
+        // (size/mtime differ), so drift detection keeps working without an unbounded read.
+        if let size = fileSize(of: url), size > Self.maxHashableFileBytes {
+            cappedFilePaths.insert(url.path)
+            var mtimeEpoch = 0.0
+            if let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+               let modifiedAt = attributes[.modificationDate] as? Date {
+                mtimeEpoch = modifiedAt.timeIntervalSince1970
+            }
+            let surrogate = "orbita-oversize\u{0}\(url.lastPathComponent)\u{0}\(size)\u{0}\(mtimeEpoch)"
+            let digest = SHA256.hash(data: Data(surrogate.utf8))
+            return digest.map { String(format: "%02x", $0) }.joined()
+        }
         guard let data = try? Data(contentsOf: url) else { return nil }
         let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()

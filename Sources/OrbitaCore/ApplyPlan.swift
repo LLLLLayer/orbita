@@ -1928,7 +1928,12 @@ public final class ApplyPlanExecutor {
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing target for \(operation.path)")
             }
-            try copyReplacingItem(from: operation.path, to: target)
+            // Restore copies quarantined content back into a real agent dir, so re-assert the no-clobber
+            // rule at write time (the legitimate target was moved into quarantine on disable and therefore
+            // does not exist at restore — this only refuses an UNRELATED pre-existing file, e.g. a hostile
+            // plan pointed at an existing ~/.claude/skills/* file). The quarantine direction (.cachePath)
+            // writes INTO Orbita's own disabled store, which is idempotent/Orbita-owned, so it stays loose.
+            try copyReplacingItem(from: operation.path, to: target, refuseForeignDestination: operation.kind == .restorePath)
             if fileManager.fileExists(atPath: operation.path) || (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) != nil {
                 try fileManager.removeItem(atPath: operation.path)
             }
@@ -2011,16 +2016,25 @@ public final class ApplyPlanExecutor {
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing restore target for \(operation.path)")
             }
-            // Source must live in a quarantine store: the project's `.orbita` (covers both the new
-            // `.orbita/disabled` store and the legacy `.orbita/cache/disabled` location) or the user store.
-            guard operationPath == orbitaRootPath
-                || operationPath.hasPrefix(orbitaRootPath + "/")
-                || isDisabledStorePath(operationPath, projectRootPath: projectRootPath) else {
-                throw OrbitaError.invalidApplyPlan("Restore source is outside the Orbita disabled store: \(operation.path)")
-            }
             let targetPath = containmentPath(target)
-            guard isAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
-                throw OrbitaError.invalidApplyPlan("Restore target is outside known agent storage: \(target)")
+            // Scope-bind the restore TARGET to the SAME base as the quarantine SOURCE, exactly mirroring
+            // DisabledStore.base(forSource:): a project source quarantines under <repo>/.orbita and restores
+            // back into the project tree; a user-home source quarantines under ~/.orbita/disabled and
+            // restores back into the user-home agent storage roots. Without this, an attacker-controlled
+            // sidecar originalSourcePath in a hostile repo's planted PROJECT-store entry could aim the
+            // restore at ~/.claude/skills/* and write/overwrite a file in the user's HOME agent dirs.
+            if isUserDisabledStorePath(operationPath) {
+                guard isUserHomeAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
+                    throw OrbitaError.invalidApplyPlan("User-store restore target is outside user-home agent storage: \(target)")
+                }
+            } else if operationPath == orbitaRootPath
+                || operationPath.hasPrefix(orbitaRootPath + "/")
+                || isDisabledStorePath(operationPath, projectRootPath: projectRootPath) {
+                guard isProjectPath(targetPath) else {
+                    throw OrbitaError.invalidApplyPlan("Project-store restore target is outside the project tree: \(target)")
+                }
+            } else {
+                throw OrbitaError.invalidApplyPlan("Restore source is outside the Orbita disabled store: \(operation.path)")
             }
         case .createDirectory, .createSymlink:
             let destinationIsAllowed = isInternalProjectStoragePath(operationPath) || isAgentStoragePath(operationPath, projectRoot: projectRootPath)
@@ -2078,20 +2092,44 @@ public final class ApplyPlanExecutor {
     /// the project's own agent dotdirs, the same dotdirs under the real user home, and the concrete
     /// `globalSkillsDir` roots from SkillsAgentCatalog. A path like /tmp/x/.claude/y no longer passes.
     private func isAgentStoragePath(_ path: String, projectRoot: String) -> Bool {
+        let allowedRoots = agentStorageRoots(projectRoot: projectRoot, includeProject: true, includeUserHome: true)
+        return allowedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// User-home half of `isAgentStoragePath`: the user's own agent dotdirs and the catalog `globalSkillsDir`
+    /// roots (all under the user home), excluding the open project. Used to scope-bind a USER-store restore
+    /// so a project-store quarantine entry can never restore into the user's HOME agent dirs.
+    private func isUserHomeAgentStoragePath(_ path: String, projectRoot: String) -> Bool {
+        let allowedRoots = agentStorageRoots(projectRoot: projectRoot, includeProject: false, includeUserHome: true)
+        return allowedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// True when `path` lives under the USER disabled store (`~/.orbita/disabled`) specifically — not the
+    /// project store. `isDisabledStorePath` matches BOTH stores, so this is how a restore tells which base a
+    /// quarantine source belongs to (and therefore which scope its restore target must stay within).
+    private func isUserDisabledStorePath(_ path: String) -> Bool {
+        let userStore = resolvedRootPath(homeDirectory.path + "/.orbita/" + OrbitaDisabledStore.directoryName)
+        return path == userStore || path.hasPrefix(userStore + "/")
+    }
+
+    /// The anchored agent-storage allow-roots, split by scope so callers can require a project-only or
+    /// user-home-only set. Roots are canonicalized (resolving symlinks, incl. a dotdir that is itself a
+    /// symlink) so the comparison is against real on-disk locations, matching how the candidate path was
+    /// produced. The `globalSkillsDir` catalog roots are all under the user home, so they are user-home only.
+    private func agentStorageRoots(projectRoot: String, includeProject: Bool, includeUserHome: Bool) -> [String] {
         let home = homeDirectory.path
         var rawRoots: [String] = []
         for dotDir in [".agents", ".codex", ".claude", ".cursor", ".trae"] {
-            rawRoots.append(projectRoot + "/" + dotDir)
-            rawRoots.append(home + "/" + dotDir)
+            if includeProject { rawRoots.append(projectRoot + "/" + dotDir) }
+            if includeUserHome { rawRoots.append(home + "/" + dotDir) }
         }
-        for agent in SkillsAgentCatalog.agents {
-            guard let globalSkillsDir = agent.globalSkillsDir else { continue }
-            rawRoots.append(globalSkillsDir)
+        if includeUserHome {
+            for agent in SkillsAgentCatalog.agents {
+                guard let globalSkillsDir = agent.globalSkillsDir else { continue }
+                rawRoots.append(globalSkillsDir)
+            }
         }
-        // Canonicalize each allow-root (resolving symlinks, incl. a dotdir that is itself a symlink) so the
-        // comparison is against real on-disk locations, matching how `path` was produced.
-        let allowedRoots = rawRoots.map { resolvedRootPath($0) }
-        return allowedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
+        return rawRoots.map { resolvedRootPath($0) }
     }
 
     /// Containment path for an operation target: resolves symbolic links in the PARENT chain — so an
