@@ -26,18 +26,8 @@
     <a href="README.zh-TW.md">繁體中文</a>
   </p>
 
-  <!-- HERO SCREENSHOT — NEEDED (no product screenshot exists in the repo yet).
-       Capture: the App's main window on the Overview tab — the project name and summary
-       stat row above the capability grid, with the agent tab strip (Agents · Codex ·
-       Claude Code) visible. Ship light + dark, drop them in docs/assets/screenshots/,
-       and uncomment this <picture> block. Until then it stays a comment so the README
-       never renders a broken image.
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/screenshots/overview-light.png">
-    <img alt="Orbita Overview: one console showing what every agent loads across Codex, Claude Code, and the .agents workspace" src="docs/assets/screenshots/overview-light.png" width="860">
-  </picture>
-  -->
+  <img src="docs/assets/screenshots/overview.svg" width="900" alt="Orbita 主窗口 —— 侧栏含「这台 Mac」与最近项目；统计头部（总计 252 · 插件 18 · 技能 87 · 命令 2 · 钩子 25）；agent 标签栏（概览 · Agents · Codex · Claude Code · Trae · Trae CN）；分类筛选与搜索；按类型分组的「已启用」能力卡片，带状态徽章与各 agent 加载指示；以及展示能力作用域、状态、版本、来源、可访问内容和哪些 agent 会加载它的检查面板。">
+  <br/><sub>浅色/深色随 GitHub 主题自适应 · 为布局示意图，非实机截图</sub>
 </div>
 
 ---
