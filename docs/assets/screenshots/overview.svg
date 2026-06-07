@@ -1,241 +1,265 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-label="Orbita main window: a left project sidebar, an agent tab strip (Agents, Codex, Claude Code, Trae), a summary stat row, capability cards with status badges and per-agent load indicators, and a right inspector panel showing where a capability comes from and which agents load it.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 900" width="1400" height="900" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-label="Orbita main window: a left sidebar (This Mac + recent projects), a center pane with a stats header (252 total · 18 plugins · 87 skills · …), the agent tab strip (Overview · Agents · Codex · Claude Code · Trae · Trae CN), a category filter + search, and Enabled capability cards grouped by type; on the right an inspector showing a capability's scope/status/version/permissions/source, a readiness check, what it can access, and which agents load it.">
   <style>
-    .canvas{fill:#0f1116}
-    .sidebar{fill:#16181d}
-    .card{fill:#1e2025}
-    .elevated{fill:#26282e}
-    .chip{fill:#23252b}
-    .tprim{fill:#eceef1}
-    .tsec{fill:#9aa1ab}
-    .tmono{fill:#c9d1d9}
-    .bord{stroke:#ffffff;stroke-opacity:.10;fill:none}
-    .seBord{stroke:#ffffff;stroke-opacity:.16;fill:none}
-    .accentfill{fill:#e9eaec}
-    .accenttext{fill:#0f1116}
-    .selrow{fill:#ffffff;fill-opacity:.06}
-    @media (prefers-color-scheme: light){
-      .canvas{fill:#f1f1f3}
-      .sidebar{fill:#e9e9eb}
-      .card{fill:#ffffff}
-      .elevated{fill:#ffffff}
-      .chip{fill:#ededee}
-      .tprim{fill:#1b1c20}
-      .tsec{fill:#5f636b}
-      .tmono{fill:#2b2f36}
-      .bord{stroke:#000000;stroke-opacity:.10}
-      .seBord{stroke:#000000;stroke-opacity:.16}
-      .accentfill{fill:#1b1c20}
-      .accenttext{fill:#ffffff}
-      .selrow{fill:#000000;fill-opacity:.05}
+    .canvas{fill:#eef0f2}
+    .side{fill:#e7e9ec}
+    .card{fill:#ffffff}
+    .chip{fill:#f3f4f6}
+    .tprim{fill:#1b1c20}
+    .tsec{fill:#6b7077}
+    .tmono{fill:#2b2f36}
+    .bord{stroke:#000000;stroke-opacity:.09;fill:none}
+    .cardb{stroke:#000000;stroke-opacity:.07;fill:none}
+    .selfill{fill:#1b1c20}
+    .seltext{fill:#ffffff}
+    .selrow{fill:#000000;fill-opacity:.05}
+    @media (prefers-color-scheme: dark){
+      .canvas{fill:#0f1116}
+      .side{fill:#15171c}
+      .card{fill:#1e2025}
+      .chip{fill:#26282e}
+      .tprim{fill:#eceef1}
+      .tsec{fill:#9aa1ab}
+      .tmono{fill:#c9d1d9}
+      .bord{stroke:#ffffff;stroke-opacity:.10}
+      .cardb{stroke:#ffffff;stroke-opacity:.08}
+      .selfill{fill:#e9eaec}
+      .seltext{fill:#15171c}
+      .selrow{fill:#ffffff;fill-opacity:.06}
     }
   </style>
   <defs>
-    <filter id="winShadow" x="-10%" y="-10%" width="120%" height="125%">
-      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.30"/>
+    <filter id="ws" x="-8%" y="-8%" width="116%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="22" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <filter id="cs" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.06"/>
     </filter>
   </defs>
 
   <!-- window -->
-  <g filter="url(#winShadow)">
-    <rect x="10" y="8" width="980" height="584" rx="14" class="canvas"/>
+  <g filter="url(#ws)"><rect x="10" y="8" width="1380" height="884" rx="16" class="canvas"/></g>
+  <rect x="10.5" y="8.5" width="1379" height="883" rx="15.5" class="bord"/>
+  <!-- traffic lights -->
+  <circle cx="36" cy="32" r="6.5" fill="#ff5f57"/><circle cx="58" cy="32" r="6.5" fill="#febc2e"/><circle cx="80" cy="32" r="6.5" fill="#28c840"/>
+
+  <!-- ===================== SIDEBAR (x10..300) ===================== -->
+  <rect x="10" y="8" width="290" height="884" rx="16" class="side"/>
+  <rect x="284" y="296" width="290" height="0" /> <!-- spacer noop -->
+  <line x1="300" y1="8" x2="300" y2="892" class="bord"/>
+  <!-- sidebar collapse button -->
+  <rect x="250" y="22" width="34" height="28" rx="7" class="chip"/><rect x="250.5" y="22.5" width="33" height="27" rx="6.5" class="bord"/>
+  <rect x="258" y="30" width="18" height="12" rx="2.5" class="bord"/><line x1="266" y1="30" x2="266" y2="42" class="bord"/>
+
+  <text x="32" y="92" font-size="11" letter-spacing="1.3" class="tsec">ENVIRONMENT</text>
+  <!-- This Mac (selected) -->
+  <rect x="22" y="104" width="256" height="54" rx="11" class="card"/><rect x="22.5" y="104.5" width="255" height="53" rx="10.5" class="cardb"/>
+  <rect x="36" y="120" width="22" height="18" rx="3" class="bord"/><rect x="44" y="138" width="6" height="4" class="tsec"/>
+  <text x="72" y="126" font-size="14" font-weight="700" class="tprim">This Mac</text>
+  <text x="72" y="144" font-size="11" class="tsec">User &amp; device scope</text>
+
+  <text x="32" y="194" font-size="11" letter-spacing="1.3" class="tsec">PROJECTS</text>
+  <text x="270" y="195" font-size="16" class="tsec" text-anchor="middle">+</text>
+
+  <!-- project rows -->
+  <g>
+    <rect x="34" y="212" width="16" height="13" rx="2.5" class="tsec" fill-opacity="0.7"/>
+    <text x="60" y="219" font-size="13" font-weight="600" class="tprim">my-app</text>
+    <text x="60" y="234" font-size="10.5" class="tsec">~/code/my-app</text>
   </g>
-  <rect x="10.5" y="8.5" width="979" height="583" rx="13.5" class="bord"/>
+  <g>
+    <rect x="34" y="254" width="16" height="13" rx="2.5" class="tsec" fill-opacity="0.7"/>
+    <text x="60" y="261" font-size="13" font-weight="600" class="tprim">api-gateway</text>
+    <text x="60" y="276" font-size="10.5" class="tsec">~/code/api-gateway</text>
+  </g>
+  <g>
+    <rect x="34" y="296" width="16" height="13" rx="2.5" class="tsec" fill-opacity="0.7"/>
+    <text x="60" y="303" font-size="13" font-weight="600" class="tprim">web</text>
+    <text x="60" y="318" font-size="10.5" class="tsec">~/code/web</text>
+  </g>
+  <g>
+    <rect x="34" y="338" width="16" height="13" rx="2.5" class="tsec" fill-opacity="0.7"/>
+    <text x="60" y="345" font-size="13" font-weight="600" class="tprim">orbita</text>
+    <text x="60" y="360" font-size="10.5" class="tsec">~/code/orbita</text>
+  </g>
 
-  <!-- title bar -->
-  <circle cx="34" cy="30" r="6" fill="#ff5f57"/>
-  <circle cx="54" cy="30" r="6" fill="#febc2e"/>
-  <circle cx="74" cy="30" r="6" fill="#28c840"/>
-  <text x="500" y="34" text-anchor="middle" font-size="12.5" class="tsec">my-app — Orbita</text>
-  <line x1="10" y1="52" x2="990" y2="52" class="bord"/>
+  <!-- settings -->
+  <line x1="22" y1="828" x2="278" y2="828" class="bord"/>
+  <circle cx="44" cy="856" r="9" class="bord"/><circle cx="44" cy="856" r="3" class="tsec"/>
+  <text x="62" y="852" font-size="13" font-weight="600" class="tprim">Settings</text>
+  <text x="62" y="867" font-size="10.5" class="tsec">Preferences</text>
 
-  <!-- ===================== SIDEBAR ===================== -->
-  <rect x="10" y="52" width="186" height="540" class="sidebar"/>
-  <line x1="196" y1="52" x2="196" y2="592" class="bord"/>
-  <!-- brand -->
-  <circle cx="36" cy="82" r="9" fill="none" stroke="#7aa2ff" stroke-width="2"/>
-  <circle cx="36" cy="82" r="3" fill="#7aa2ff"/>
-  <text x="54" y="87" font-size="15" font-weight="700" class="tprim">Orbita</text>
-  <!-- recent -->
-  <text x="28" y="124" font-size="10.5" letter-spacing="1.2" class="tsec">RECENT PROJECTS</text>
-  <rect x="20" y="134" width="166" height="32" rx="8" class="selrow"/>
-  <rect x="20.5" y="134.5" width="165" height="31" rx="7.5" class="seBord"/>
-  <rect x="32" y="146" width="9" height="9" rx="2" class="tprim" fill-opacity="0.85"/>
-  <text x="50" y="155" font-size="13" font-weight="600" class="tprim">my-app</text>
-  <rect x="32" y="182" width="9" height="9" rx="2" class="tsec"/>
-  <text x="50" y="191" font-size="13" class="tsec">api-gateway</text>
-  <rect x="32" y="214" width="9" height="9" rx="2" class="tsec"/>
-  <text x="50" y="223" font-size="13" class="tsec">infra-tools</text>
-  <!-- this mac -->
-  <line x1="20" y1="544" x2="186" y2="544" class="bord"/>
-  <circle cx="37" cy="566" r="6" class="tsec"/>
-  <text x="52" y="570" font-size="12.5" class="tsec">This Mac</text>
+  <!-- ===================== CENTER (x300..952) ===================== -->
+  <!-- stats header card -->
+  <rect x="316" y="60" width="620" height="96" rx="14" class="card" filter="url(#cs)"/><rect x="316.5" y="60.5" width="619" height="95" rx="13.5" class="cardb"/>
+  <text x="338" y="94" font-size="19" font-weight="700" class="tprim">This Mac</text>
+  <rect x="800" y="74" width="116" height="30" rx="9" class="chip"/><rect x="800.5" y="74.5" width="115" height="29" rx="8.5" class="bord"/>
+  <circle cx="818" cy="89" r="6" class="bord"/><text x="832" y="93" font-size="12" class="tsec">Refreshing…</text>
+  <!-- stat columns -->
+  <g>
+    <text x="338" y="134" font-size="17" font-weight="700" class="tprim">252</text><text x="338" y="148" font-size="10" class="tsec">Total</text>
+    <text x="424" y="134" font-size="17" font-weight="700" class="tprim">18</text><text x="424" y="148" font-size="10" class="tsec">Plugins</text>
+    <text x="500" y="134" font-size="17" font-weight="700" class="tprim">87</text><text x="500" y="148" font-size="10" class="tsec">Skills</text>
+    <text x="580" y="134" font-size="17" font-weight="700" class="tprim">0</text><text x="580" y="148" font-size="10" class="tsec">Agents</text>
+    <text x="648" y="134" font-size="17" font-weight="700" class="tprim">2</text><text x="648" y="148" font-size="10" class="tsec">Commands</text>
+    <text x="752" y="134" font-size="17" font-weight="700" class="tprim">0</text><text x="752" y="148" font-size="10" class="tsec">MCP</text>
+    <text x="812" y="134" font-size="17" font-weight="700" class="tprim">25</text><text x="812" y="148" font-size="10" class="tsec">Hooks</text>
+  </g>
 
-  <!-- ===================== MAIN ===================== -->
   <!-- agent tab strip -->
-  <g font-size="12.5">
-    <!-- Agents (selected) -->
-    <rect x="212" y="70" width="92" height="30" rx="8" class="accentfill"/>
-    <circle cx="228" cy="85" r="4.5" fill="#7aa2ff"/>
-    <text x="240" y="89" font-weight="600" class="accenttext">Agents</text>
-    <!-- Codex -->
-    <rect x="312" y="70" width="80" height="30" rx="8" class="chip"/>
-    <rect x="312.5" y="70.5" width="79" height="29" rx="7.5" class="bord"/>
-    <circle cx="328" cy="85" r="4.5" fill="#10a37f"/>
-    <text x="340" y="89" class="tprim">Codex</text>
-    <!-- Claude Code -->
-    <rect x="400" y="70" width="118" height="30" rx="8" class="chip"/>
-    <rect x="400.5" y="70.5" width="117" height="29" rx="7.5" class="bord"/>
-    <circle cx="416" cy="85" r="4.5" fill="#d97757"/>
-    <text x="428" y="89" class="tprim">Claude Code</text>
-    <!-- Trae -->
-    <rect x="526" y="70" width="68" height="30" rx="8" class="chip"/>
-    <rect x="526.5" y="70.5" width="67" height="29" rx="7.5" class="bord"/>
-    <circle cx="542" cy="85" r="4.5" fill="#e5484d"/>
-    <text x="554" y="89" class="tprim">Trae</text>
-    <!-- Trae CN (reuses Trae's icon) -->
-    <rect x="602" y="70" width="86" height="30" rx="8" class="chip"/>
-    <rect x="602.5" y="70.5" width="85" height="29" rx="7.5" class="bord"/>
-    <circle cx="618" cy="85" r="4.5" fill="#e5484d"/>
-    <text x="630" y="89" class="tprim">Trae CN</text>
-  </g>
-
-  <!-- summary stat chips -->
   <g font-size="12">
-    <rect x="212" y="120" width="96" height="28" rx="14" class="chip"/>
-    <circle cx="230" cy="134" r="4" fill="#2ea043"/>
-    <text x="242" y="138" class="tprim">46 loaded</text>
-    <rect x="316" y="120" width="86" height="28" rx="14" class="chip"/>
-    <circle cx="334" cy="134" r="4" fill="#d29922"/>
-    <text x="346" y="138" class="tprim">3 drifted</text>
-    <rect x="410" y="120" width="92" height="28" rx="14" class="chip"/>
-    <circle cx="428" cy="134" r="4" fill="#6e7681"/>
-    <text x="440" y="138" class="tprim">2 disabled</text>
-    <rect x="510" y="120" width="94" height="28" rx="14" class="chip"/>
-    <circle cx="528" cy="134" r="4" fill="#a371f7"/>
-    <text x="540" y="138" class="tprim">1 conflict</text>
+    <rect x="316" y="176" width="30" height="30" rx="8" class="chip"/><rect x="316.5" y="176.5" width="29" height="29" rx="7.5" class="bord"/><text x="331" y="196" text-anchor="middle" font-size="15" class="tsec">+</text>
+    <rect x="354" y="176" width="84" height="30" rx="8" class="selfill"/><rect x="370" y="184" width="12" height="12" rx="2.5" class="seltext"/><text x="390" y="195" font-weight="600" class="seltext">Overview</text>
+    <rect x="446" y="176" width="78" height="30" rx="8" class="chip"/><rect x="446.5" y="176.5" width="77" height="29" rx="7.5" class="bord"/><circle cx="462" cy="191" r="4.5" fill="#6b8afd"/><text x="474" y="195" class="tprim">Agents</text>
+    <rect x="532" y="176" width="70" height="30" rx="8" class="chip"/><rect x="532.5" y="176.5" width="69" height="29" rx="7.5" class="bord"/><circle cx="548" cy="191" r="4.5" fill="#10a37f"/><text x="560" y="195" class="tprim">Codex</text>
+    <rect x="610" y="176" width="106" height="30" rx="8" class="chip"/><rect x="610.5" y="176.5" width="105" height="29" rx="7.5" class="bord"/><circle cx="626" cy="191" r="4.5" fill="#d97757"/><text x="638" y="195" class="tprim">Claude Code</text>
+    <rect x="724" y="176" width="60" height="30" rx="8" class="chip"/><rect x="724.5" y="176.5" width="59" height="29" rx="7.5" class="bord"/><circle cx="740" cy="191" r="4.5" fill="#16a34a"/><text x="752" y="195" class="tprim">Trae</text>
+    <rect x="792" y="176" width="80" height="30" rx="8" class="chip"/><rect x="792.5" y="176.5" width="79" height="29" rx="7.5" class="bord"/><circle cx="808" cy="191" r="4.5" fill="#16a34a"/><text x="820" y="195" class="tprim">Trae CN</text>
   </g>
 
-  <!-- category chips -->
+  <!-- category row -->
   <g font-size="11.5">
-    <rect x="212" y="162" width="44" height="26" rx="13" class="accentfill"/>
-    <text x="234" y="179" text-anchor="middle" font-weight="600" class="accenttext">All</text>
-    <text x="276" y="179" class="tsec">Skills</text>
-    <text x="324" y="179" class="tsec">Plugins</text>
-    <text x="384" y="179" class="tsec">Commands</text>
-    <text x="462" y="179" class="tsec">MCP</text>
-    <text x="502" y="179" class="tsec">Hooks</text>
+    <circle cx="328" cy="231" r="7" class="bord"/><line x1="322" y1="237" x2="334" y2="225" class="bord"/>
+    <rect x="348" y="219" width="44" height="24" rx="12" class="selfill"/><text x="370" y="235" text-anchor="middle" font-weight="600" class="seltext">All</text>
+    <text x="404" y="235" class="tsec">Plugins</text>
+    <text x="460" y="235" class="tsec">Skills</text>
+    <text x="506" y="235" class="tsec">Commands</text>
+    <text x="582" y="235" class="tsec">Agents</text>
+    <text x="636" y="235" class="tsec">Hooks</text>
+    <text x="684" y="235" class="tsec">MCP</text>
   </g>
 
-  <!-- capability cards -->
-  <!-- card template: x=212 width=496 -->
-  <g font-size="13">
-    <!-- card 1: drifted -->
-    <rect x="212" y="204" width="496" height="66" rx="11" class="card"/>
-    <rect x="212.5" y="204.5" width="495" height="65" rx="10.5" class="bord"/>
-    <rect x="228" y="222" width="30" height="30" rx="8" class="elevated"/>
-    <text x="243" y="242" text-anchor="middle" font-size="14">📄</text>
-    <text x="272" y="232" font-weight="600" class="tprim">code-review</text>
-    <text x="272" y="252" font-size="11.5" class="tsec">Skill · .agents/skills</text>
-    <!-- badge drifted -->
-    <rect x="470" y="224" width="62" height="22" rx="11" fill="#d29922" fill-opacity="0.18"/>
-    <text x="501" y="239" text-anchor="middle" font-size="11" font-weight="600" fill="#e3a92b">Drifted</text>
-    <!-- load dots -->
-    <text x="556" y="240" font-size="10.5" class="tsec">loads</text>
-    <circle cx="600" cy="236" r="6" fill="#10a37f"/>
-    <circle cx="620" cy="236" r="6" fill="#d97757"/>
-    <circle cx="640" cy="236" r="6" fill="#6e7681" fill-opacity="0.5"/>
-    <text x="690" y="240" text-anchor="end" font-size="16" class="tsec">›</text>
+  <!-- search -->
+  <rect x="316" y="256" width="620" height="34" rx="9" class="card"/><rect x="316.5" y="256.5" width="619" height="33" rx="8.5" class="cardb"/>
+  <circle cx="336" cy="273" r="5.5" class="bord"/><line x1="340" y1="277" x2="344" y2="281" class="bord"/>
+  <text x="352" y="277" font-size="12.5" class="tsec">Search capabilities</text>
 
-    <!-- card 2: enabled -->
-    <rect x="212" y="278" width="496" height="66" rx="11" class="card"/>
-    <rect x="212.5" y="278.5" width="495" height="65" rx="10.5" class="bord"/>
-    <rect x="228" y="296" width="30" height="30" rx="8" class="elevated"/>
-    <text x="243" y="316" text-anchor="middle" font-size="14">📄</text>
-    <text x="272" y="306" font-weight="600" class="tprim">pr-summarizer</text>
-    <text x="272" y="326" font-size="11.5" class="tsec">Skill · ~/.agents/skills (My Mac)</text>
-    <rect x="466" y="298" width="66" height="22" rx="11" fill="#2ea043" fill-opacity="0.18"/>
-    <text x="499" y="313" text-anchor="middle" font-size="11" font-weight="600" fill="#3fb950">Enabled</text>
-    <text x="556" y="314" font-size="10.5" class="tsec">loads</text>
-    <circle cx="600" cy="310" r="6" fill="#10a37f"/>
-    <circle cx="620" cy="310" r="6" fill="#d97757"/>
-    <circle cx="640" cy="310" r="6" fill="#e5484d"/>
-    <text x="690" y="314" text-anchor="end" font-size="16" class="tsec">›</text>
+  <!-- enabled section header -->
+  <text x="316" y="322" font-size="14" font-weight="700" class="tprim">Enabled</text>
+  <text x="380" y="322" font-size="12" class="tsec">22 items</text>
+  <text x="928" y="324" font-size="14" class="tsec" text-anchor="end">⌃</text>
 
-    <!-- card 3: disabled -->
-    <rect x="212" y="352" width="496" height="66" rx="11" class="card"/>
-    <rect x="212.5" y="352.5" width="495" height="65" rx="10.5" class="bord"/>
-    <rect x="228" y="370" width="30" height="30" rx="8" class="elevated"/>
-    <text x="243" y="390" text-anchor="middle" font-size="14">🧩</text>
-    <text x="272" y="380" font-weight="600" class="tprim">anthropics/web-fetch</text>
-    <text x="272" y="400" font-size="11.5" class="tsec">Plugin · Claude plugin cache</text>
-    <rect x="462" y="372" width="70" height="22" rx="11" fill="#6e7681" fill-opacity="0.22"/>
-    <text x="497" y="387" text-anchor="middle" font-size="11" font-weight="600" class="tsec">Disabled</text>
-    <text x="556" y="388" font-size="10.5" class="tsec">loads</text>
-    <circle cx="600" cy="384" r="6" fill="#6e7681" fill-opacity="0.5"/>
-    <circle cx="620" cy="384" r="6" fill="#d97757"/>
-    <circle cx="640" cy="384" r="6" fill="#6e7681" fill-opacity="0.5"/>
-    <text x="690" y="388" text-anchor="end" font-size="16" class="tsec">›</text>
+  <!-- PLUGINS subsection -->
+  <text x="316" y="350" font-size="12.5" font-weight="600" class="tsec">Plugins · 7</text>
 
-    <!-- card 4: duplicate/conflict -->
-    <rect x="212" y="426" width="496" height="66" rx="11" class="card"/>
-    <rect x="212.5" y="426.5" width="495" height="65" rx="10.5" class="bord"/>
-    <rect x="228" y="444" width="30" height="30" rx="8" class="elevated"/>
-    <text x="243" y="464" text-anchor="middle" font-size="14">⌘</text>
-    <text x="272" y="454" font-weight="600" class="tprim">deploy</text>
-    <text x="272" y="474" font-size="11.5" class="tsec">Command · .codex/commands + .claude/commands</text>
-    <rect x="458" y="446" width="74" height="22" rx="11" fill="#a371f7" fill-opacity="0.20"/>
-    <text x="495" y="461" text-anchor="middle" font-size="11" font-weight="600" fill="#b083f0">Duplicate</text>
-    <text x="556" y="462" font-size="10.5" class="tsec">loads</text>
-    <circle cx="600" cy="458" r="6" fill="#10a37f"/>
-    <circle cx="620" cy="458" r="6" fill="#d97757"/>
-    <circle cx="640" cy="458" r="6" fill="#6e7681" fill-opacity="0.5"/>
-    <text x="690" y="462" text-anchor="end" font-size="16" class="tsec">›</text>
-  </g>
+  <!-- plugin card template: w 200 h 92, 3 cols at x 316, 528, 740 (gap 12) -->
+  <!-- card 1 (selected) -->
+  <rect x="316" y="362" width="200" height="92" rx="12" class="card" filter="url(#cs)"/><rect x="316.5" y="362.5" width="199" height="91" rx="11.5" stroke="#3b82f6" stroke-opacity="0.5" fill="none"/>
+  <rect x="332" y="378" width="58" height="22" rx="7" class="chip"/><rect x="340" y="384" width="10" height="10" rx="2" class="tsec"/><text x="356" y="393" font-size="11" class="tsec">Plugin</text>
+  <rect x="468" y="378" width="34" height="22" rx="7" class="chip"/><text x="481" y="393" font-size="11" class="tsec">1 ⌄</text>
+  <text x="332" y="426" font-size="14" font-weight="700" class="tprim">web-fetch</text>
+  <text x="332" y="443" font-size="10.5" class="tsec">Plugin package</text>
+  <circle cx="496" cy="436" r="9" fill="#10a37f"/>
+  <!-- card 2 -->
+  <rect x="528" y="362" width="200" height="92" rx="12" class="card" filter="url(#cs)"/><rect x="528.5" y="362.5" width="199" height="91" rx="11.5" class="cardb"/>
+  <rect x="544" y="378" width="58" height="22" rx="7" class="chip"/><rect x="552" y="384" width="10" height="10" rx="2" class="tsec"/><text x="568" y="393" font-size="11" class="tsec">Plugin</text>
+  <rect x="680" y="378" width="34" height="22" rx="7" class="chip"/><text x="693" y="393" font-size="11" class="tsec">3 ⌄</text>
+  <text x="544" y="426" font-size="14" font-weight="700" class="tprim">playwright</text>
+  <text x="544" y="443" font-size="10.5" class="tsec">Plugin package</text>
+  <circle cx="708" cy="436" r="9" fill="#d97757"/>
+  <!-- card 3 -->
+  <rect x="740" y="362" width="196" height="92" rx="12" class="card" filter="url(#cs)"/><rect x="740.5" y="362.5" width="195" height="91" rx="11.5" class="cardb"/>
+  <rect x="756" y="378" width="58" height="22" rx="7" class="chip"/><rect x="764" y="384" width="10" height="10" rx="2" class="tsec"/><text x="780" y="393" font-size="11" class="tsec">Plugin</text>
+  <rect x="888" y="378" width="34" height="22" rx="7" class="chip"/><text x="901" y="393" font-size="11" class="tsec">2 ⌄</text>
+  <text x="756" y="426" font-size="14" font-weight="700" class="tprim">github</text>
+  <text x="756" y="443" font-size="10.5" class="tsec">Plugin package</text>
+  <circle cx="916" cy="436" r="9" fill="#10a37f"/>
 
-  <!-- ===================== INSPECTOR ===================== -->
-  <rect x="712" y="52" width="278" height="540" class="sidebar"/>
-  <line x1="712" y1="52" x2="712" y2="592" class="bord"/>
+  <!-- SKILLS subsection -->
+  <text x="316" y="492" font-size="12.5" font-weight="600" class="tsec">Skills · 9</text>
+
+  <!-- skill cards: w 200 h 104 -->
+  <!-- card 1: drifted -->
+  <rect x="316" y="504" width="200" height="104" rx="12" class="card" filter="url(#cs)"/><rect x="316.5" y="504.5" width="199" height="103" rx="11.5" class="cardb"/>
+  <rect x="332" y="520" width="50" height="22" rx="7" class="chip"/><rect x="340" y="526" width="10" height="10" rx="2" class="tsec"/><text x="356" y="535" font-size="11" class="tsec">Skill</text>
+  <rect x="438" y="520" width="64" height="22" rx="11" fill="#d8a01a" fill-opacity="0.16"/><text x="470" y="535" text-anchor="middle" font-size="10.5" font-weight="600" fill="#b6850f">Drifted</text>
+  <text x="332" y="566" font-size="14" font-weight="700" class="tprim">code-review</text>
+  <text x="332" y="582" font-size="10.5" class="tsec">Review the current diff for bugs</text>
+  <circle cx="448" cy="592" r="8" fill="#10a37f"/><circle cx="466" cy="592" r="8" fill="#16a34a"/>
+  <circle cx="492" cy="592" r="9" class="chip"/><rect x="492.5" y="583.5" width="0" height="0"/><text x="492" y="596" text-anchor="middle" font-size="12" class="tsec">+</text>
+  <!-- card 2 -->
+  <rect x="528" y="504" width="200" height="104" rx="12" class="card" filter="url(#cs)"/><rect x="528.5" y="504.5" width="199" height="103" rx="11.5" class="cardb"/>
+  <rect x="544" y="520" width="50" height="22" rx="7" class="chip"/><rect x="552" y="526" width="10" height="10" rx="2" class="tsec"/><text x="568" y="535" font-size="11" class="tsec">Skill</text>
+  <rect x="650" y="520" width="64" height="22" rx="11" fill="#1f9e4a" fill-opacity="0.16"/><text x="682" y="535" text-anchor="middle" font-size="10.5" font-weight="600" fill="#1f9e4a">Enabled</text>
+  <text x="544" y="566" font-size="14" font-weight="700" class="tprim">pr-summarizer</text>
+  <text x="544" y="582" font-size="10.5" class="tsec">Summarize a pull request</text>
+  <circle cx="660" cy="592" r="8" fill="#10a37f"/><circle cx="678" cy="592" r="8" fill="#d97757"/>
+  <circle cx="704" cy="592" r="9" class="chip"/><text x="704" y="596" text-anchor="middle" font-size="12" class="tsec">+</text>
+  <!-- card 3: group -->
+  <rect x="740" y="504" width="196" height="104" rx="12" class="card" filter="url(#cs)"/><rect x="740.5" y="504.5" width="195" height="103" rx="11.5" class="cardb"/>
+  <rect x="756" y="520" width="54" height="22" rx="7" class="chip"/><rect x="764" y="526" width="10" height="10" rx="2" class="tsec"/><text x="773" y="535" font-size="11" class="tsec">Group</text>
+  <rect x="884" y="520" width="38" height="22" rx="7" class="chip"/><text x="903" y="535" font-size="11" class="tsec">26 ⌄</text>
+  <text x="756" y="566" font-size="14" font-weight="700" class="tprim">lark</text>
+  <text x="756" y="582" font-size="10.5" class="tsec">26 lark-* skills, grouped</text>
+  <circle cx="866" cy="592" r="8" fill="#10a37f"/><circle cx="884" cy="592" r="8" fill="#16a34a"/>
+
+  <!-- fade hint that the grid continues -->
+  <text x="316" y="640" font-size="11.5" class="tsec">＋ Commands · 2    Hooks · 4 …</text>
+
+  <!-- ===================== INSPECTOR (x952..1390) ===================== -->
+  <rect x="952" y="8" width="438" height="884" rx="16" class="side"/>
+  <line x1="952" y1="8" x2="952" y2="892" class="bord"/>
+  <!-- action row -->
+  <rect x="974" y="42" width="92" height="32" rx="9" class="chip"/><rect x="974.5" y="42.5" width="91" height="31" rx="8.5" class="bord"/>
+  <line x1="990" y1="58" x2="1000" y2="58" class="tsec"/><text x="1024" y="62" text-anchor="middle" font-size="12.5" class="tprim">Disable</text>
+  <rect x="1296" y="42" width="40" height="32" rx="9" fill="#e5484d" fill-opacity="0.14"/><rect x="1296.5" y="42.5" width="39" height="31" rx="8.5" stroke="#e5484d" stroke-opacity="0.4" fill="none"/>
+  <rect x="1310" y="54" width="12" height="11" rx="2" fill="none" stroke="#e5484d" stroke-width="1.4"/>
+  <rect x="1346" y="42" width="34" height="32" rx="9" class="chip"/><rect x="1346.5" y="42.5" width="33" height="31" rx="8.5" class="bord"/><rect x="1354" y="51" width="18" height="14" rx="2.5" class="bord"/>
+
   <!-- header -->
-  <text x="732" y="92" font-size="17" font-weight="700" class="tprim">code-review</text>
-  <rect x="732" y="104" width="46" height="22" rx="11" class="chip"/>
-  <text x="755" y="119" text-anchor="middle" font-size="11" class="tsec">Skill</text>
-  <rect x="784" y="104" width="62" height="22" rx="11" fill="#d29922" fill-opacity="0.18"/>
-  <text x="815" y="119" text-anchor="middle" font-size="11" font-weight="600" fill="#e3a92b">Drifted</text>
-  <line x1="732" y1="144" x2="970" y2="144" class="bord"/>
+  <rect x="974" y="96" width="34" height="34" rx="9" class="chip"/><rect x="982" y="106" width="18" height="14" rx="2" class="bord"/>
+  <text x="1020" y="116" font-size="19" font-weight="700" class="tprim">web-fetch</text>
+  <text x="1020" y="133" font-size="12" class="tsec">Plugin</text>
 
-  <!-- loaded by -->
-  <text x="732" y="170" font-size="10.5" letter-spacing="1.1" class="tsec">LOADED BY</text>
-  <circle cx="740" cy="192" r="5.5" fill="#10a37f"/>
-  <text x="754" y="196" font-size="12.5" class="tprim">Codex</text>
-  <text x="968" y="196" text-anchor="end" font-size="12.5" fill="#3fb950">✓</text>
-  <circle cx="740" cy="218" r="5.5" fill="#d97757"/>
-  <text x="754" y="222" font-size="12.5" class="tprim">Claude Code</text>
-  <text x="968" y="222" text-anchor="end" font-size="12.5" fill="#3fb950">✓</text>
-  <circle cx="740" cy="244" r="5.5" fill="#e5484d"/>
-  <text x="754" y="248" font-size="12.5" class="tsec">Trae</text>
-  <text x="968" y="248" text-anchor="end" font-size="12.5" class="tsec">—</text>
-  <line x1="732" y1="270" x2="970" y2="270" class="bord"/>
+  <!-- key-value card -->
+  <rect x="974" y="150" width="394" height="150" rx="12" class="card"/><rect x="974.5" y="150.5" width="393" height="149" rx="11.5" class="cardb"/>
+  <text x="992" y="178" font-size="12" class="tsec">Scope</text><text x="1110" y="178" font-size="12" font-weight="600" class="tprim">User</text>
+  <text x="992" y="204" font-size="12" class="tsec">Status</text><text x="1110" y="204" font-size="12" font-weight="600" class="tprim">Enabled</text>
+  <text x="992" y="230" font-size="12" class="tsec">Version</text><text x="1110" y="230" font-size="12" class="tmono" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">1.4.0</text>
+  <text x="992" y="256" font-size="12" class="tsec">Permissions</text><text x="1110" y="256" font-size="12" font-weight="600" class="tprim">Read files, Global</text>
+  <text x="992" y="282" font-size="12" class="tsec">Source</text>
+  <text x="1110" y="282" font-size="11" class="tmono" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">…/cache/web-fetch</text>
 
-  <!-- source -->
-  <text x="732" y="296" font-size="10.5" letter-spacing="1.1" class="tsec">SOURCE</text>
-  <text x="732" y="318" font-size="11.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" class="tmono">.agents/skills/code-review/</text>
-  <text x="732" y="334" font-size="11.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" class="tmono">SKILL.md</text>
+  <!-- status card -->
+  <rect x="974" y="312" width="394" height="92" rx="12" class="card"/><rect x="974.5" y="312.5" width="393" height="91" rx="11.5" class="cardb"/>
+  <circle cx="992" cy="336" r="5" fill="#1f9e4a"/><text x="1006" y="340" font-size="12.5" font-weight="600" class="tprim">Status</text>
+  <text x="1350" y="340" text-anchor="end" font-size="11.5" fill="#1f9e4a">Ready</text>
+  <text x="992" y="368" font-size="12" font-weight="600" fill="#1f9e4a">✓ Ready</text>
+  <text x="992" y="388" font-size="11" class="tsec">Orbita found this capability with no drift,</text>
+  <text x="992" y="402" font-size="11" class="tsec">conflict, or review flags.</text>
 
-  <!-- risk -->
-  <text x="732" y="368" font-size="10.5" letter-spacing="1.1" class="tsec">RISK</text>
-  <rect x="732" y="378" width="54" height="22" rx="11" fill="#4493f8" fill-opacity="0.16"/>
-  <text x="759" y="393" text-anchor="middle" font-size="11" font-weight="600" fill="#5aa2ff">Read</text>
+  <!-- what it can access -->
+  <rect x="974" y="416" width="394" height="120" rx="12" class="card"/><rect x="974.5" y="416.5" width="393" height="119" rx="11.5" class="cardb"/>
+  <text x="992" y="442" font-size="12.5" font-weight="600" class="tprim">What it can access</text>
+  <circle cx="997" cy="468" r="6" fill="none" stroke="#3b82f6" stroke-width="1.6"/><circle cx="997" cy="468" r="2" fill="#3b82f6"/>
+  <text x="1012" y="472" font-size="12" font-weight="600" class="tprim">Read files</text>
+  <text x="1012" y="488" font-size="11" class="tsec">Reads files / context on your machine.</text>
+  <circle cx="997" cy="510" r="6" fill="#e5484d"/>
+  <text x="1012" y="514" font-size="12" font-weight="600" class="tprim">Global scope</text>
+  <text x="1012" y="530" font-size="11" class="tsec">Active everywhere — affects every project.</text>
 
-  <!-- drift note -->
-  <rect x="732" y="416" width="238" height="52" rx="9" fill="#d29922" fill-opacity="0.10"/>
-  <rect x="732.5" y="416.5" width="237" height="51" rx="8.5" fill="none" stroke="#d29922" stroke-opacity="0.35"/>
-  <text x="746" y="438" font-size="11.5" fill="#e3a92b" font-weight="600">⚠ Copy in Codex drifted from source</text>
-  <text x="746" y="456" font-size="11" class="tsec">The forked copy no longer matches .agents.</text>
+  <!-- which agents load it -->
+  <rect x="974" y="548" width="394" height="196" rx="12" class="card"/><rect x="974.5" y="548.5" width="393" height="195" rx="11.5" class="cardb"/>
+  <text x="992" y="574" font-size="12.5" font-weight="600" class="tprim">Which agents load it</text>
 
-  <!-- actions -->
-  <rect x="732" y="488" width="150" height="34" rx="9" class="accentfill"/>
-  <text x="807" y="510" text-anchor="middle" font-size="13" font-weight="600" class="accenttext">Re-sync from source</text>
-  <rect x="892" y="488" width="78" height="34" rx="9" class="chip"/>
-  <rect x="892.5" y="488.5" width="77" height="33" rx="8.5" class="bord"/>
-  <text x="931" y="510" text-anchor="middle" font-size="13" class="tprim">Open</text>
+  <text x="992" y="602" font-size="12.5" font-weight="700" class="tprim">Codex</text>
+  <rect x="1040" y="591" width="58" height="18" rx="9" fill="#1f9e4a" fill-opacity="0.16"/><text x="1069" y="604" text-anchor="middle" font-size="10" font-weight="600" fill="#1f9e4a">loads</text>
+  <text x="992" y="620" font-size="10.5" class="tsec">Sees plugin capabilities via the adapter index.</text>
+
+  <text x="992" y="648" font-size="12.5" font-weight="700" class="tprim">Claude Code</text>
+  <rect x="1080" y="637" width="74" height="18" rx="9" fill="#8b9097" fill-opacity="0.2"/><text x="1117" y="650" text-anchor="middle" font-size="10" font-weight="600" class="tsec">won't load</text>
+  <text x="992" y="666" font-size="10.5" class="tsec">Doesn't load plugins through this adapter.</text>
+
+  <text x="992" y="694" font-size="12.5" font-weight="700" class="tprim">Trae</text>
+  <rect x="1028" y="683" width="74" height="18" rx="9" fill="#8b9097" fill-opacity="0.2"/><text x="1065" y="696" text-anchor="middle" font-size="10" font-weight="600" class="tsec">won't load</text>
+
+  <text x="992" y="722" font-size="12.5" font-weight="700" class="tprim">Trae CN</text>
+  <rect x="1058" y="711" width="74" height="18" rx="9" fill="#8b9097" fill-opacity="0.2"/><text x="1095" y="724" text-anchor="middle" font-size="10" font-weight="600" class="tsec">won't load</text>
+
+  <!-- native plugin card -->
+  <rect x="974" y="756" width="394" height="118" rx="12" class="card"/><rect x="974.5" y="756.5" width="393" height="117" rx="11.5" class="cardb"/>
+  <text x="992" y="782" font-size="12.5" font-weight="600" class="tprim">Native plugin · Codex</text>
+  <text x="992" y="806" font-size="11" class="tsec">Lifecycle goes through `codex plugin …` —</text>
+  <text x="992" y="822" font-size="11" class="tsec">Orbita emits the command, never writes the</text>
+  <text x="992" y="838" font-size="11" class="tsec">native config itself.</text>
+  <rect x="1270" y="844" width="84" height="30" rx="9" class="selfill"/><text x="1312" y="864" text-anchor="middle" font-size="12" font-weight="600" class="seltext">Update</text>
 </svg>

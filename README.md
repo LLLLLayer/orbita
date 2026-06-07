@@ -26,7 +26,7 @@
     <a href="README.zh-TW.md">繁體中文</a>
   </p>
 
-  <img src="docs/assets/screenshots/overview.svg" width="860" alt="Orbita main window — a project sidebar, the Agents / Codex / Claude Code / Trae tab strip, a summary row (loaded · drifted · disabled · conflict), capability cards with status badges and per-agent load dots, and an inspector showing a capability's source, which agents load it, and a drift warning.">
+  <img src="docs/assets/screenshots/overview.svg" width="900" alt="Orbita main window — a sidebar with This Mac and recent projects; a stats header (252 total · 18 plugins · 87 skills · 2 commands · 25 hooks); the agent tab strip (Overview · Agents · Codex · Claude Code · Trae · Trae CN); a category filter and search; Enabled capability cards grouped by type with status badges and per-agent load dots; and an inspector showing a capability's scope, status, version, source, what it can access, and which agents load it.">
   <br/><sub>Light/dark adapts to your GitHub theme · layout mockup, not a live screenshot</sub>
 </div>
 

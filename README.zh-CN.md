@@ -26,7 +26,7 @@
     <a href="README.zh-TW.md">繁體中文</a>
   </p>
 
-  <img src="docs/assets/screenshots/overview.svg" width="860" alt="Orbita 主窗口 —— 项目侧栏、Agents / Codex / Claude Code / Trae 标签栏、汇总行（已加载 · 漂移 · 已停用 · 冲突）、带状态徽章与各 agent 加载指示的能力卡片，以及展示能力来源、哪些 agent 会加载它和漂移告警的检查面板。">
+  <img src="docs/assets/screenshots/overview.svg" width="900" alt="Orbita 主窗口 —— 侧栏含「这台 Mac」与最近项目；统计头部（总计 252 · 插件 18 · 技能 87 · 命令 2 · 钩子 25）；agent 标签栏（概览 · Agents · Codex · Claude Code · Trae · Trae CN）；分类筛选与搜索；按类型分组的「已启用」能力卡片，带状态徽章与各 agent 加载指示；以及展示能力作用域、状态、版本、来源、可访问内容和哪些 agent 会加载它的检查面板。">
   <br/><sub>浅色/深色随 GitHub 主题自适应 · 为布局示意图，非实机截图</sub>
 </div>
 
