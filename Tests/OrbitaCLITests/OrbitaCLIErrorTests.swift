@@ -109,7 +109,7 @@ final class OrbitaCLIErrorTests: XCTestCase {
         XCTAssertEqual(overview.schemaVersion, 1)
         XCTAssertEqual(overview.agentSummaries.count, AgentID.allCases.count)
         XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .codex && $0.visibleCount > 0 })
-        XCTAssertTrue(overview.differences.contains { $0.capabilityName == "lark-doc" && Set($0.visibleAgents) == Set([.codex, .trae, .cursor]) })
+        XCTAssertTrue(overview.differences.contains { $0.capabilityName == "lark-doc" && Set($0.visibleAgents) == Set([.codex, .trae, .traeCN, .cursor]) })
     }
 
     func testOverviewTextPrintsAgentDifferenceSummary() throws {

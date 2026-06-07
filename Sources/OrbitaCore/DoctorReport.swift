@@ -67,6 +67,8 @@ public final class DoctorReportBuilder {
             directoryCheck(id: "cursor-home", title: "Cursor config directory", url: homeDirectory.appendingPathComponent(".cursor")),
             directoryCheck(id: "trae-home", title: "Trae config directory", url: homeDirectory.appendingPathComponent(".trae")),
             directoryCheck(id: "trae-skills", title: "Trae skills directory", url: homeDirectory.appendingPathComponent(".trae/skills")),
+            directoryCheck(id: "traecn-home", title: "Trae CN config directory", url: homeDirectory.appendingPathComponent(".traecn")),
+            directoryCheck(id: "traecn-skills", title: "Trae CN skills directory", url: homeDirectory.appendingPathComponent(".traecn/skills")),
             fileCheck(id: "project-mcp", title: "Project MCP config", url: URL(fileURLWithPath: currentDirectory).appendingPathComponent(".mcp.json"))
         ]
 

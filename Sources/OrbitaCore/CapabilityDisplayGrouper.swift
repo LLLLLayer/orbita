@@ -400,7 +400,7 @@ public final class CapabilityDisplayGrouper {
     private func ownerBucket(for capability: Capability) -> String {
         guard !capability.source.path.isEmpty else { return "" }
         let components = Set(URL(fileURLWithPath: capability.source.path).pathComponents)
-        for marker in [".agents", ".codex", ".claude", ".cursor", ".trae"] where components.contains(marker) {
+        for marker in [".agents", ".codex", ".claude", ".cursor", ".trae", ".traecn"] where components.contains(marker) {
             return marker
         }
         return ""

@@ -109,6 +109,8 @@ public final class AdapterPreviewBuilder {
             return cursorMapping(for: capability)
         case .trae:
             return traeMapping(for: capability)
+        case .traeCN:
+            return traeCNMapping(for: capability)
         }
     }
 
@@ -291,6 +293,10 @@ public final class AdapterPreviewBuilder {
 
     private func traeMapping(for capability: Capability) -> AdapterCapabilityMapping {
         genericAgentMapping(for: capability, agentName: "Trae", agentID: "trae", agentDirComponent: ".trae")
+    }
+
+    private func traeCNMapping(for capability: Capability) -> AdapterCapabilityMapping {
+        genericAgentMapping(for: capability, agentName: "Trae CN", agentID: "trae-cn", agentDirComponent: ".traecn")
     }
 
     /// Shared mapping for the generic SKILL.md hosts (Trae, Cursor). Loadability is decided by the

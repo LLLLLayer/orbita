@@ -2123,8 +2123,8 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(overview.agentSummaries.contains { $0.agent == .cursor && $0.visibleCount > 0 && $0.hiddenCount > 0 })
 
         let larkDoc = try XCTUnwrap(overview.differences.first { $0.capabilityName == "lark-doc" })
-        // Cursor loads SKILL.md skills like Trae, so it sees this shared skill too.
-        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae, .cursor]))
+        // Cursor and Trae CN load SKILL.md skills like Trae, so they see this shared skill too.
+        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae, .traeCN, .cursor]))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
         XCTAssertFalse(larkDoc.hiddenAgents.contains(.cursor))
     }
@@ -2441,10 +2441,29 @@ final class CapabilityScannerTests: XCTestCase {
         let report = DriftReportBuilder().report(graph: graph)
 
         let larkDoc = try XCTUnwrap(report.items.first { $0.capabilityName == "lark-doc" })
-        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae, .cursor]))
+        XCTAssertEqual(Set(larkDoc.visibleAgents), Set([.codex, .trae, .traeCN, .cursor]))
         XCTAssertTrue(larkDoc.hiddenAgents.contains(.claudeCode))
         XCTAssertFalse(larkDoc.hiddenAgents.contains(.cursor))
         XCTAssertTrue(larkDoc.reasons.contains { $0.contains("visible to codex") })
+    }
+
+    func testTraeCNScansOwnDirAndIsDistinctFromTrae() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaTraeCN-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skillDir = projectRoot.appendingPathComponent(".traecn/skills/tcn-only")
+        try FileManager.default.createDirectory(at: skillDir, withIntermediateDirectories: true)
+        try skillText(name: "tcn-only", body: "Trae CN only")
+            .write(to: skillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(projectRoot))
+        let resolver = AgentViewResolver()
+        let traeCNVisible = resolver.visibleCapabilities(for: .traeCN, graph: graph).map(\.name)
+        let traeVisible = resolver.visibleCapabilities(for: .trae, graph: graph).map(\.name)
+
+        // Trae CN loads SKILL.md skills from its OWN .traecn dir...
+        XCTAssertTrue(traeCNVisible.contains("tcn-only"), "Trae CN must load skills from its own .traecn dir")
+        // ...and a .traecn skill must NOT leak into Trae's .trae view (distinct agent, no substring overlap).
+        XCTAssertFalse(traeVisible.contains("tcn-only"), "a .traecn skill must not appear in Trae's view")
     }
 
     func testDriftReportIncludesClientSpecificSourceReasons() throws {

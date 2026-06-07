@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Orbita is a macOS console for managing Coding Agent capabilities (Skills, Plugins, Commands, Hooks, MCP servers, Rules, Instructions) across Codex Desktop, Claude Code, Cursor, Trae, and the cross-agent `.agents` workspace. The repository ships three things from one SwiftPM package: a core library, a `orbita` CLI, and a SwiftUI macOS app.
 
-The canonical agent list is the `AgentID` enum in `Models.swift`: `codex`, `claude-code`, `cursor`, `trae`. The App's default tab strip (`AgentSelection.defaultAgents`) is `.agents`, Codex, Claude Code, Trae — Cursor is still a fully scannable/resolvable agent but is intentionally omitted from the default tabs.
+The canonical agent list is the `AgentID` enum in `Models.swift`: `codex`, `claude-code`, `cursor`, `trae`, `trae-cn`. The App's default tab strip (`AgentSelection.defaultAgents`) is `.agents`, Codex, Claude Code, Trae, Trae CN — Cursor is still a fully scannable/resolvable agent but is intentionally omitted from the default tabs. **Trae CN** (`trae-cn`, display "Trae CN") is the Trae 国内版: structurally a generic SKILL.md host identical to Trae but reading its own `.traecn` dirs (`<repo>/.traecn`, `~/.traecn/skills`) instead of `.trae`; it reuses Trae's brand icon. Path matching is distinct — `pathComponents.contains(".trae")` and `path.contains("/.trae/")` both correctly reject `.traecn`, so the two never cross-contaminate.
 
 Targets:
 
@@ -45,7 +45,7 @@ swift run orbita status   --project-root <path> [--json]
 swift run orbita graph    --project-root <path> [--json]
 swift run orbita overview --project-root <path> [--json]
 swift run orbita drift    --project-root <path> [--json]
-swift run orbita agent    --project-root <path> [--agent codex|claude-code|cursor|trae] [--json]
+swift run orbita agent    --project-root <path> [--agent codex|claude-code|cursor|trae|trae-cn] [--json]
 swift run orbita explain  --project-root <path> <capability-id> [--json]
 swift run orbita preview  --project-root <path> --agent <id> [--json]
 swift run orbita doctor   [--project-root <path>] [--json]

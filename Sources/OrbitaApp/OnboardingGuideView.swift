@@ -509,6 +509,7 @@ private struct AgentTabsIllustration: View {
         ("command", "Codex"),
         ("text.bubble", "Claude"),
         ("sparkles", "Trae"),
+        ("sparkles", "Trae CN"),
     ]
     @State private var selected = 0
 

@@ -51,7 +51,7 @@ public final class AgentViewResolver {
             if capability.metadata["codexSkillEnabled"] == "false" { return false }
         case .claudeCode:
             if capability.type == .mcpServer, capability.metadata["claudeMCPEnabled"] == "false" { return false }
-        case .cursor, .trae:
+        case .cursor, .trae, .traeCN:
             break
         }
         return classifies(capability, to: agent)
@@ -100,6 +100,8 @@ public final class AgentViewResolver {
             return isVisibleToCursor(capability)
         case .trae:
             return isVisibleToTrae(capability)
+        case .traeCN:
+            return isVisibleToTraeCN(capability)
         }
     }
 
@@ -116,6 +118,11 @@ public final class AgentViewResolver {
     /// does NOT auto-load the shared `.agents` workspace — those appear only once synced.
     private func isVisibleToTrae(_ capability: Capability) -> Bool {
         CapabilityClassifier.isVisibleToGenericAgent(capability, agentID: "trae", agentDirComponent: ".trae")
+    }
+
+    /// Trae CN (国内版): identical to Trae but reads its own `.traecn` dir. See `isVisibleToTrae`.
+    private func isVisibleToTraeCN(_ capability: Capability) -> Bool {
+        CapabilityClassifier.isVisibleToGenericAgent(capability, agentID: "trae-cn", agentDirComponent: ".traecn")
     }
 
     private func isClaudeNativeCapability(_ capability: Capability) -> Bool {

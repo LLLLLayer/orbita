@@ -85,6 +85,7 @@ public enum SkillsAgentCatalog {
             .init(id: "rovodev", displayName: "Rovo Dev", projectSkillsDir: ".rovodev/skills", globalSkillsDir: "\(home)/.rovodev/skills"),
             .init(id: "tabnine-cli", displayName: "Tabnine CLI", projectSkillsDir: ".tabnine/agent/skills", globalSkillsDir: "\(home)/.tabnine/agent/skills"),
             .init(id: "trae", displayName: "Trae", projectSkillsDir: ".trae/skills", globalSkillsDir: "\(home)/.trae/skills"),
+            .init(id: "trae-cn", displayName: "Trae CN", projectSkillsDir: ".traecn/skills", globalSkillsDir: "\(home)/.traecn/skills"),
             .init(id: "warp", displayName: "Warp", projectSkillsDir: ".agents/skills", globalSkillsDir: "\(home)/.agents/skills"),
             .init(id: "windsurf", displayName: "Windsurf", projectSkillsDir: ".windsurf/skills", globalSkillsDir: "\(home)/.codeium/windsurf/skills"),
             .init(id: "zencoder", displayName: "Zencoder", projectSkillsDir: ".zencoder/skills", globalSkillsDir: "\(home)/.zencoder/skills"),

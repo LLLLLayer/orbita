@@ -272,7 +272,7 @@ struct OrbitaCLI {
                     Add --apply to execute; without it, prints a dry run.
 
         OPTIONS
-          --agent <id>       codex | claude-code | cursor | trae (agent commands default to codex)
+          --agent <id>       codex | claude-code | cursor | trae | trae-cn (agent commands default to codex)
           --project <path>   Project root (synonym: --project-root; or pass it positionally)
           --no-user-scope    Restrict scanning to the project (skip ~/.codex, ~/.claude, etc.)
           --json             Emit machine-readable JSON (supported by every read command and plan)
