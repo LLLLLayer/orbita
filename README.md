@@ -26,18 +26,8 @@
     <a href="README.zh-TW.md">繁體中文</a>
   </p>
 
-  <!-- HERO SCREENSHOT — NEEDED (no product screenshot exists in the repo yet).
-       Capture: the App's main window on the Overview tab — the project name and summary
-       stat row above the capability grid, with the agent tab strip (Agents · Codex ·
-       Claude Code) visible. Ship light + dark, drop them in docs/assets/screenshots/,
-       and uncomment this <picture> block. Until then it stays a comment so the README
-       never renders a broken image.
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/screenshots/overview-light.png">
-    <img alt="Orbita Overview: one console showing what every agent loads across Codex, Claude Code, and the .agents workspace" src="docs/assets/screenshots/overview-light.png" width="860">
-  </picture>
-  -->
+  <img src="docs/assets/screenshots/overview.svg" width="860" alt="Orbita main window — a project sidebar, the Agents / Codex / Claude Code / Trae tab strip, a summary row (loaded · drifted · disabled · conflict), capability cards with status badges and per-agent load dots, and an inspector showing a capability's source, which agents load it, and a drift warning.">
+  <br/><sub>Light/dark adapts to your GitHub theme · layout mockup, not a live screenshot</sub>
 </div>
 
 ---
