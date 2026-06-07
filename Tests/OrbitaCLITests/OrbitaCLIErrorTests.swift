@@ -333,6 +333,53 @@ final class OrbitaCLIErrorTests: XCTestCase {
         }
     }
 
+    func testScanAndExplainExitTwoWhenAgentsManifestIsMalformed() throws {
+        // The exit-2 contract was covered for status/drift/agent/preview/overview, but `scan` computes it
+        // from the RAW ScanResult issues (a separate branch) and `explain` needs a resolvable capability —
+        // both went untested. The scanner emits an `.error` for a malformed manifest, and the resolver
+        // forwards it, so both must exit 2.
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.standardizedFileURL
+            .appendingPathComponent("OrbitaCLITests-\(UUID().uuidString)")
+        let manifest = projectRoot.appendingPathComponent(".agents/manifest.json")
+        try fm.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{ this is not valid json".write(to: manifest, atomically: true, encoding: .utf8)
+        // A real capability so `explain` has something to resolve (otherwise it would exit 1 not-found).
+        let rule = projectRoot.appendingPathComponent(".cursor/rules/demo.mdc")
+        try fm.createDirectory(at: rule.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "---\ndescription: r\n---\nrule body\n".write(to: rule, atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let scanResult = OrbitaCLI.runForTesting(arguments: ["scan", projectRoot.path, "--no-user-scope"])
+        XCTAssertEqual(scanResult.exitCode, 2, "scan should exit 2 on a malformed .agents/manifest.json")
+
+        let explainResult = OrbitaCLI.runForTesting(arguments: ["explain", projectRoot.path, "demo", "--no-user-scope"])
+        XCTAssertEqual(explainResult.exitCode, 2, "explain should exit 2 when the resolved graph carries an error")
+    }
+
+    func testPlanRejectsConflictingActions() throws {
+        let root = fixtureURL("MixedProject")
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--disable", "a", "--delete", "b", "--no-user-scope"])
+        XCTAssertEqual(result.exitCode, 1, "two plan actions on one line must be rejected, not silently resolved by priority")
+        XCTAssertTrue(result.stderr.contains("Only one plan action"), "got: \(result.stderr)")
+    }
+
+    func testPlanRejectsModifierWithoutMatchingAction() throws {
+        let root = fixtureURL("MixedProject")
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--enable", "x", "--mode", "copy", "--no-user-scope"])
+        XCTAssertEqual(result.exitCode, 1, "--mode is only meaningful for --sync; pairing it with --enable must fail loudly")
+        XCTAssertTrue(result.stderr.contains("--mode is only valid with --sync"), "got: \(result.stderr)")
+    }
+
+    func testValueFlagRejectsAFollowingFlagAsItsValue() throws {
+        let root = fixtureURL("MixedProject")
+        // `--disable --no-user-scope`: the next token is a flag, not a capability id, so this is a missing
+        // value for --disable — not a capability literally named "--no-user-scope".
+        let result = OrbitaCLI.runForTesting(arguments: ["plan", root.path, "--disable", "--no-user-scope"])
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.stderr.contains("Missing value for --disable"), "got: \(result.stderr)")
+    }
+
     private func fixtureURL(_ name: String) -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

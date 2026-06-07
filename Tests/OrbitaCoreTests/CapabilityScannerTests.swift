@@ -1075,7 +1075,11 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(skill.metadata["pluginSelector"], "superpowers@openai-curated")
         XCTAssertEqual(skill.metadata["enableMode"], "plugin-add")
         XCTAssertEqual(skill.metadata["disableMode"], "config")
-        XCTAssertTrue(skill.metadata["checkCommand"]?.contains("codex plugin marketplace upgrade 'openai-curated'") == true)
+        // The auto-run check command must be READ-ONLY (the App runs it merely on selecting a tile, with no
+        // confirmation); `marketplace upgrade` (side-effecting/network) lives only in the confirmed updateCommand.
+        XCTAssertTrue(skill.metadata["checkCommand"]?.contains("codex plugin list --marketplace 'openai-curated'") == true)
+        XCTAssertFalse(skill.metadata["checkCommand"]?.contains("marketplace upgrade") == true)
+        XCTAssertTrue(skill.metadata["updateCommand"]?.contains("codex plugin marketplace upgrade 'openai-curated'") == true)
         XCTAssertTrue(skill.metadata["updateCommand"]?.contains("codex plugin add 'superpowers@openai-curated'") == true)
         XCTAssertTrue(skill.metadata["deleteCommand"]?.contains("codex plugin remove 'superpowers@openai-curated'") == true)
         XCTAssertNil(skill.metadata["codexDisableCommand"])
@@ -3274,12 +3278,13 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(restoreOp.target, evilTarget + "/SKILL.md",
                        "the fallback restore op should target the attacker-controlled sidecar path verbatim")
 
-        // ...but the executor must REJECT it: a project-store source may only restore into the project tree.
+        // ...but the executor must REJECT it: a project-store source may only restore into the project's own
+        // agent dirs (.agents/.codex/.claude/…), so a user-home target is out of scope.
         let executor = ApplyPlanExecutor(homeDirectory: fakeHome)
         XCTAssertThrowsError(try executor.apply(plan)) { error in
             let message = (error as? ApplyExecutionError)?.message ?? "\(error)"
-            XCTAssertTrue(message.contains("outside the project tree"),
-                          "expected a project-tree scope rejection, got: \(message)")
+            XCTAssertTrue(message.contains("outside project agent storage"),
+                          "expected a project-agent-storage scope rejection, got: \(message)")
         }
 
         // No file may have been created under the user home.
@@ -5019,6 +5024,168 @@ final class CapabilityScannerTests: XCTestCase {
 
     private func scanProjectOnly(_ root: URL) throws -> ScanResult {
         try CapabilityScanner().scan(projectRoot: root, options: ScanOptions(includeUserScope: false))
+    }
+
+    func testRestoreRejectsProjectStoreEntryTargetingInRepoNonAgentPath() throws {
+        // #1 (security): the project-store restore branch was tightened from "anywhere under the repo" to
+        // "the project's own agent dirs only". A hostile repo commits a <repo>/.orbita/disabled entry whose
+        // attacker-controlled sidecar originalSourcePath points at <repo>/.git/hooks/pre-commit; clicking
+        // Enable must be REJECTED, so the restore can't plant an executable git hook (the no-clobber rule
+        // blocks overwrites, but not the creation of a new file).
+        let fm = FileManager.default
+        let temporaryRoot = fm.temporaryDirectory.appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: temporaryRoot) }
+        let projectRoot = temporaryRoot.appendingPathComponent("project")
+        let fakeHome = temporaryRoot.appendingPathComponent("home")
+        try fm.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try fm.createDirectory(at: fakeHome, withIntermediateDirectories: true)
+
+        let evilTarget = projectRoot.appendingPathComponent(".git/hooks/pre-commit").path
+        let entryDir = projectRoot.appendingPathComponent(".orbita/disabled/skill/attackerkey")
+        try fm.createDirectory(at: entryDir, withIntermediateDirectories: true)
+        try "#!/bin/sh\necho pwned\n".write(to: entryDir.appendingPathComponent("pre-commit"), atomically: true, encoding: .utf8)
+        try OrbitaDisabledStore.sidecarJSON(
+            capabilityID: "skill:evil-hook",
+            name: "pre-commit",
+            type: "skill",
+            originalSourcePath: evilTarget,
+            scope: "project"
+        ).write(to: entryDir.appendingPathComponent(".orbita-restore.json"), atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try CapabilityScanner().scan(
+            projectRoot: projectRoot, options: ScanOptions(includeUserScope: false)))
+        let tile = try XCTUnwrap(graph.capabilities.first { $0.id == "skill:evil-hook" })
+
+        let builder = ApplyPlanBuilder(homeDirectory: fakeHome)
+        let plan = try builder.planEnable(capabilityID: tile.id, graph: graph)
+        let executor = ApplyPlanExecutor(homeDirectory: fakeHome)
+        XCTAssertThrowsError(try executor.apply(plan)) { error in
+            let message = (error as? ApplyExecutionError)?.message ?? "\(error)"
+            XCTAssertTrue(message.contains("outside project agent storage"),
+                          "expected a project-agent-storage rejection, got: \(message)")
+        }
+        XCTAssertFalse(fm.fileExists(atPath: evilTarget),
+                       "the planted hook must NOT have been written into .git/hooks")
+    }
+
+    func testGroupedDisableRollbackInvertsAllMembers() throws {
+        // #2: a grouped enable/disable now records its member ids in apply.log, so rollback inverts the WHOLE
+        // group instead of failing to resolve the synthetic group id (the old behavior threw capabilityNotFound).
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        for name in ["alpha", "beta"] {
+            let dir = root.appendingPathComponent(".trae/skills/\(name)")
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try skillText(name: name, body: "b").write(to: dir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        }
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(root))
+        let alpha = try XCTUnwrap(graph.capabilities.first { $0.name == "alpha" })
+        let beta = try XCTUnwrap(graph.capabilities.first { $0.name == "beta" })
+
+        let builder = ApplyPlanBuilder()
+        let disable = try builder.planDisable(capabilityIDs: [alpha.id, beta.id], groupID: "g", groupName: "Group", graph: graph)
+        _ = try ApplyPlanExecutor().apply(disable)
+
+        let rollback = try builder.planRollback(graph: graph)
+        XCTAssertEqual(rollback.action, .rollback)
+        let affected = Set(rollback.affectedCapabilityIDs ?? [])
+        XCTAssertTrue(affected.contains(alpha.id) && affected.contains(beta.id),
+                      "grouped rollback must invert every member, got \(affected)")
+    }
+
+    func testStoreEscapeTargetsAreRejected() throws {
+        // #17: defense-in-depth negative tests for the cachePath/backupPath target guards (symmetric with the
+        // restorePath scope-binding test). A hand-built op whose target escapes its store must be rejected.
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let project = root.appendingPathComponent("project")
+        let source = project.appendingPathComponent(".trae/skills/foo")
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        try "x".write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let cacheEvil = root.appendingPathComponent("evil/cache").path
+        let cachePlan = ApplyPlan(projectRoot: project.path, action: .disable, capabilityID: "skill:foo",
+                                  requiresConfirmation: true,
+                                  operations: [ApplyOperation(kind: .cachePath, path: source.path, target: cacheEvil, risk: .write, description: "evil cache")])
+        XCTAssertThrowsError(try ApplyPlanExecutor().apply(cachePlan)) { error in
+            XCTAssertTrue(((error as? ApplyExecutionError)?.message ?? "\(error)").contains("outside .orbita/disabled"))
+        }
+        XCTAssertFalse(fm.fileExists(atPath: cacheEvil))
+
+        let backupEvil = root.appendingPathComponent("evil/backup").path
+        let backupPlan = ApplyPlan(projectRoot: project.path, action: .enable, capabilityID: "skill:foo",
+                                   requiresConfirmation: true,
+                                   operations: [ApplyOperation(kind: .backupPath, path: source.path, target: backupEvil, risk: .write, description: "evil backup")])
+        XCTAssertThrowsError(try ApplyPlanExecutor().apply(backupPlan)) { error in
+            XCTAssertTrue(((error as? ApplyExecutionError)?.message ?? "\(error)").contains("outside .orbita/fork-backups"))
+        }
+        XCTAssertFalse(fm.fileExists(atPath: backupEvil))
+    }
+
+    func testClaudeHooksFlattenMultipleMatchersAndHandlersWithDistinctKeys() throws {
+        // #6: with one event carrying TWO matcher groups (one holding TWO handlers), the scanner must emit
+        // THREE distinct hook capabilities with the correct entryIndex:hookIndex — so the App's index-based
+        // deleteHook removes the right handler. The whole fixture set previously only had single-handler hooks.
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaCoreTests-\(UUID().uuidString)")
+        let claudeRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaClaudeMulti-\(UUID().uuidString)")
+        let settings = claudeRoot.appendingPathComponent("settings.json")
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: claudeRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: claudeRoot)
+        }
+        let settingsObject: [String: Any] = [
+            "hooks": [
+                "PostToolUse": [
+                    ["matcher": "Write", "hooks": [
+                        ["type": "command", "command": "echo a"],
+                        ["type": "command", "command": "echo b"]
+                    ]],
+                    ["matcher": "Edit", "hooks": [
+                        ["type": "command", "command": "echo c"]
+                    ]]
+                ]
+            ]
+        ]
+        try JSONSerialization.data(withJSONObject: settingsObject, options: [.prettyPrinted, .sortedKeys]).write(to: settings)
+
+        let result = try CapabilityScanner().scan(
+            projectRoot: projectRoot,
+            options: ScanOptions(includeUserScope: true, userSkillRoots: [],
+                                 codexConfigURL: claudeRoot.appendingPathComponent("missing.toml"),
+                                 codexPluginCacheRoot: claudeRoot.appendingPathComponent("missing-cache"),
+                                 claudeInstalledPluginsURL: claudeRoot.appendingPathComponent("missing.json"),
+                                 claudeSettingsURLs: [settings]))
+
+        let hooks = result.capabilities.filter { $0.source.kind == "claude-settings-hook" }
+        XCTAssertEqual(hooks.count, 3, "two matcher groups (2 + 1 handlers) must flatten to three distinct hooks")
+        XCTAssertEqual(Set(hooks.map(\.id)).count, 3, "each flattened hook must have a distinct capability id")
+        let indexPairs = Set(hooks.map { "\($0.metadata["entryIndex"] ?? "?"):\($0.metadata["hookIndex"] ?? "?")" })
+        XCTAssertEqual(indexPairs, ["0:0", "0:1", "1:0"], "got \(indexPairs)")
+        // The second handler of the first group must carry 0:1 in its delete command (not 0:0).
+        let secondHandler = try XCTUnwrap(hooks.first { $0.metadata["command"] == "echo b" })
+        XCTAssertTrue(secondHandler.metadata["claudeHookDeleteCommand"]?.contains("0:1") == true,
+                      "got: \(secondHandler.metadata["claudeHookDeleteCommand"] ?? "nil")")
+    }
+
+    func testTraeSkillDoesNotLeakIntoTraeCNView() throws {
+        // #20: companion to testTraeCNScansOwnDirAndIsDistinctFromTrae — the REVERSE direction. Because
+        // ".trae" is a string prefix of ".traecn", a prefix-based match would leak a Trae skill into Trae CN.
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaTrae-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skillDir = projectRoot.appendingPathComponent(".trae/skills/trae-only")
+        try FileManager.default.createDirectory(at: skillDir, withIntermediateDirectories: true)
+        try skillText(name: "trae-only", body: "Trae only")
+            .write(to: skillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let graph = CapabilityResolver().resolve(scanResult: try scanProjectOnly(projectRoot))
+        let resolver = AgentViewResolver()
+        XCTAssertTrue(resolver.visibleCapabilities(for: .trae, graph: graph).map(\.name).contains("trae-only"))
+        XCTAssertFalse(resolver.visibleCapabilities(for: .traeCN, graph: graph).map(\.name).contains("trae-only"),
+                       "a .trae skill must not appear in Trae CN's view")
     }
 
     private func skillText(name: String, body: String) -> String {

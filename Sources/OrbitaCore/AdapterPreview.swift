@@ -175,7 +175,7 @@ public final class AdapterPreviewBuilder {
                 reason: "Codex loads project instructions from supported instruction files."
             )
         case .hook:
-            guard capability.source.kind == "codex-hook" else {
+            guard CapabilityClassifier.isCodexNativeHook(capability) else {
                 return AdapterCapabilityMapping(
                     capabilityID: capability.id,
                     supported: false,
@@ -190,7 +190,7 @@ public final class AdapterPreviewBuilder {
                 reason: "Codex can use project hooks after explicit Apply Plan confirmation."
             )
         case .command:
-            guard capability.source.kind == "codex-command" else {
+            guard CapabilityClassifier.isCodexNativeCommand(capability) else {
                 return AdapterCapabilityMapping(
                     capabilityID: capability.id,
                     supported: false,
@@ -251,19 +251,19 @@ public final class AdapterPreviewBuilder {
                 targetPath: capability.source.path,
                 reason: "Claude Code can read supported project instruction files."
             )
-        case .command where capability.source.kind == "claude-command":
+        case .command where CapabilityClassifier.isClaudeNativeCommand(capability):
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: true,
                 targetPath: capability.source.path,
-                reason: "Claude Code loads project slash commands from .claude/commands."
+                reason: "Claude Code loads project slash commands from .claude/commands and plugin command directories."
             )
-        case .hook where capability.source.kind == "claude-settings":
+        case .hook where CapabilityClassifier.isClaudeNativeHook(capability):
             return AdapterCapabilityMapping(
                 capabilityID: capability.id,
                 supported: true,
                 targetPath: capability.source.path,
-                reason: "Claude Code reads project settings and hooks from .claude/settings.json."
+                reason: "Claude Code reads hooks from .claude/settings.json and plugin hook definitions."
             )
         default:
             return AdapterCapabilityMapping(

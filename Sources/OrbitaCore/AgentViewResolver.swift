@@ -71,10 +71,9 @@ public final class AgentViewResolver {
             case .agent:
                 return capability.source.kind == "codex-agent"
             case .hook:
-                return capability.source.kind == "codex-hook"
-                    || capability.source.kind == "codex-plugin-hook"
+                return CapabilityClassifier.isCodexNativeHook(capability)
             case .command:
-                return capability.source.kind == "codex-command"
+                return CapabilityClassifier.isCodexNativeCommand(capability)
             case .rule, .unknown:
                 return false
             }
@@ -87,12 +86,9 @@ public final class AgentViewResolver {
             case .mcpServer:
                 return true
             case .command:
-                return capability.source.kind == "claude-command"
-                    || capability.source.kind == "claude-plugin-command"
+                return CapabilityClassifier.isClaudeNativeCommand(capability)
             case .hook:
-                return capability.source.kind == "claude-settings"
-                    || capability.source.kind == "claude-settings-hook"
-                    || capability.source.kind == "claude-plugin-hook"
+                return CapabilityClassifier.isClaudeNativeHook(capability)
             case .rule, .unknown:
                 return false
             }

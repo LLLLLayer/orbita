@@ -2,7 +2,12 @@ import CryptoKit
 import Foundation
 
 public struct CapabilitySnapshot: Codable, Sendable {
-    public static let currentSchemaVersion = 3
+    // Bump whenever a change alters the persisted graph SHAPE *or* what scan/resolve produces, so an old
+    // snapshot can't be served as a fresh cache hit. v4: the Trae CN agent added scan-discovery rules
+    // (`scanTraeCNWorkspace`, `traecn-skill`, `~/.traecn/skills`) that change the captured graph even though
+    // the byte layout is unchanged — without the bump, a user with `.traecn` skills saw zero Trae CN tiles
+    // from a stale v3 snapshot (indefinitely under the `manual` refresh policy).
+    public static let currentSchemaVersion = 4
 
     public var schemaVersion: Int
     public var capturedAt: String
@@ -95,12 +100,10 @@ public final class CapabilitySnapshotStore {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    /// Best-effort move of an unreadable/incompatible snapshot file to a `.bak`
-    /// sidecar so a subsequent atomic save never silently clobbers the only copy
-    /// we failed to read. Overwrites any prior `.bak` (one stale copy per project).
+    /// Best-effort move of an unreadable/incompatible snapshot file aside so a subsequent atomic save never
+    /// silently clobbers the only copy we failed to read. Non-destructive (never overwrites a prior backup
+    /// nor pre-deletes one) — see `OrbitaStateBackup`.
     private func quarantineStaleSnapshot(at url: URL) {
-        let backup = url.appendingPathExtension("bak")
-        try? fileManager.removeItem(at: backup)
-        try? fileManager.moveItem(at: url, to: backup)
+        OrbitaStateBackup.quarantine(url, fileManager: fileManager)
     }
 }

@@ -125,11 +125,31 @@ public final class ProjectLibraryStore {
         root.appendingPathComponent("projects.json")
     }
 
-    /// Best-effort move of an unreadable/incompatible library file to a
-    /// `.bak` sidecar so the original data survives a subsequent atomic save.
+    /// Best-effort move of an unreadable/incompatible library file aside so the original data survives a
+    /// subsequent atomic save. `projects.json.bak` is the only non-regenerable user data Orbita keeps, so
+    /// quarantine must be non-destructive — see `OrbitaStateBackup`.
     private func quarantineCorruptLibrary(at url: URL) {
-        let backup = url.appendingPathExtension("bak")
-        try? fileManager.removeItem(at: backup)
+        OrbitaStateBackup.quarantine(url, fileManager: fileManager)
+    }
+}
+
+/// Moves an unreadable/incompatible Orbita state file aside to a `.bak` sidecar. Shared by
+/// `ProjectLibraryStore` (data-grade) and `CapabilitySnapshotStore` (cache) so the two never drift apart.
+///
+/// Two correctness rules the previous per-store copies lacked:
+///   1. **Never clobber an existing backup.** The first quarantine uses `<file>.bak`; a *second* one (e.g.
+///      after the post-quarantine empty/near-empty re-save itself fails to decode) uses `<file>.bak.1`,
+///      `.bak.2`, … — so the original good copy in `<file>.bak` is never overwritten with worse data.
+///   2. **Move, never pre-delete.** We never `removeItem` a backup before moving; a failed move therefore
+///      can't leave the live file gone with its backup already deleted.
+enum OrbitaStateBackup {
+    static func quarantine(_ url: URL, fileManager: FileManager) {
+        var backup = url.appendingPathExtension("bak")
+        var counter = 1
+        while fileManager.fileExists(atPath: backup.path) {
+            backup = url.appendingPathExtension("bak.\(counter)")
+            counter += 1
+        }
         try? fileManager.moveItem(at: url, to: backup)
     }
 }

@@ -1972,8 +1972,17 @@ private struct NativePluginAction: Identifiable {
 
 private enum CodexPluginConfigUpdater {
     static func setEnabled(_ enabled: Bool, selector: String, configPath: String) -> CommandRunResult {
+        let command = "Codex config update"
+        // The selector is an UNTRUSTED, scanner-derived string ("name@marketplace" from a possibly poisoned
+        // plugin cache). A newline or control char can't be part of a single-line TOML key, and accepting
+        // one would let the value break out of the `[plugins."…"]` header and inject arbitrary TOML tables
+        // (e.g. flip an unrelated plugin's `enabled`, or add an executable `[mcp_servers.*]`). Reject it.
+        guard !selector.unicodeScalars.contains(where: { $0.value < 0x20 }) else {
+            return CommandRunResult(command: command, exitCode: 1,
+                                    output: "Refusing to write a plugin selector containing control characters")
+        }
         let url = URL(fileURLWithPath: configPath)
-        let section = "[plugins.\"\(selector)\"]"
+        let header = "[plugins.\(tomlQuotedKey(selector))]"
         let enabledLine = "enabled = \(enabled ? "true" : "false")"
         do {
             let original = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -1993,7 +2002,11 @@ private enum CodexPluginConfigUpdater {
                     inTargetSection = false
                 }
 
-                if trimmed == section {
+                // Match the section SEMANTICALLY by decoding the header's plugin key, not by byte-exact
+                // string compare: an existing `[plugins.'x']` (single-quoted) or differently-spaced header
+                // must be updated IN PLACE, never duplicated — a duplicate `[plugins."x"]` makes codex's TOML
+                // parser reject the whole file. Only the first matching section is treated as the target.
+                if !foundSection, pluginKey(fromHeader: trimmed) == selector {
                     inTargetSection = true
                     foundSection = true
                     wroteEnabled = false
@@ -2001,7 +2014,7 @@ private enum CodexPluginConfigUpdater {
                     continue
                 }
 
-                if inTargetSection, trimmed.hasPrefix("enabled") {
+                if inTargetSection, tomlKeyName(of: trimmed) == "enabled" {
                     output.append(enabledLine)
                     wroteEnabled = true
                     continue
@@ -2018,16 +2031,48 @@ private enum CodexPluginConfigUpdater {
                 if !output.isEmpty, output.last?.isEmpty == false {
                     output.append("")
                 }
-                output.append(section)
+                output.append(header)
                 output.append(enabledLine)
             }
 
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try output.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
-            return CommandRunResult(command: "Codex config update", exitCode: 0, output: "\(selector) \(enabled ? "enabled" : "disabled") in \(configPath)")
+            return CommandRunResult(command: command, exitCode: 0, output: "\(selector) \(enabled ? "enabled" : "disabled") in \(configPath)")
         } catch {
-            return CommandRunResult(command: "Codex config update", exitCode: 1, output: error.localizedDescription)
+            return CommandRunResult(command: command, exitCode: 1, output: error.localizedDescription)
         }
+    }
+
+    /// TOML-quote a plugin selector as a quoted key (`"…"` with `\` and `"` escaped) so an
+    /// attacker-controlled selector can't inject additional tables/keys into `config.toml`.
+    private static func tomlQuotedKey(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
+    /// Decode the plugin key from a `[plugins."x"]` / `[plugins.'x']` / `[plugins.bare]` table header
+    /// (undoing TOML escaping for the double-quoted form). Returns nil for any non-`[plugins.…]` header,
+    /// so it round-trips with `tomlQuotedKey` for a semantic, quote-agnostic match.
+    private static func pluginKey(fromHeader header: String) -> String? {
+        guard header.hasPrefix("[plugins."), header.hasSuffix("]") else { return nil }
+        let key = String(header.dropFirst("[plugins.".count).dropLast())
+        if key.count >= 2, key.first == "\"", key.last == "\"" {
+            return String(key.dropFirst().dropLast())
+                .replacingOccurrences(of: "\\\"", with: "\"")
+                .replacingOccurrences(of: "\\\\", with: "\\")
+        }
+        if key.count >= 2, key.first == "'", key.last == "'" {
+            return String(key.dropFirst().dropLast())
+        }
+        return key.isEmpty ? nil : key
+    }
+
+    private static func tomlKeyName(of line: String) -> String? {
+        guard let eq = line.firstIndex(of: "=") else { return nil }
+        let lhs = line[..<eq].trimmingCharacters(in: .whitespaces)
+        return lhs.isEmpty ? nil : lhs
     }
 }
 
@@ -2198,8 +2243,22 @@ private enum ClaudeSkillLifecycleUpdater {
 
     static func deleteSkill(at path: String) -> CommandRunResult {
         let command = "Claude skill delete"
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        // Anchor the delete to a STRICT DESCENDANT of a `.claude/skills` root. The delete path is derived
+        // from a scanned `SKILL.md`'s parent dir, and a `SKILL.md` placed directly at the skills root makes
+        // that parent the whole `.claude/skills` tree — a bare removeItem would then wipe every other skill.
+        // Requiring `…/.claude/skills/<at least one more component>` rejects the root itself and anything
+        // at or above it. (removeItem on a symlink removes the link, not its target, so there is no traversal.)
+        let components = url.pathComponents
+        guard let claudeIndex = components.firstIndex(of: ".claude"),
+              claudeIndex + 1 < components.count,
+              components[claudeIndex + 1] == "skills",
+              claudeIndex + 2 < components.count
+        else {
+            return CommandRunResult(command: command, exitCode: 1,
+                                    output: "Refusing to delete a path that is not inside a .claude/skills/<name> directory: \(path)")
+        }
         do {
-            let url = URL(fileURLWithPath: path)
             if FileManager.default.fileExists(atPath: url.path) {
                 try FileManager.default.removeItem(at: url)
             }

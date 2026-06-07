@@ -21,13 +21,13 @@ Orbita 是一个已发布的 macOS 能力管理产品，用于统一管理 Codin
 - `orbita`：命令行产品面，先跑通诊断、overview 差异摘要、JSON 输出、doctor checks 和显式 `.agents` merge/enable/disable/delete/rollback/clean 写入（以及 `--sync` 的 agent-sync/fork）；enable/disable 支持 capability id 或能力名，enable、disable、merge 和 rollback 会同步 adapter preview，clean 会清理 broken skill symlink 和引用 missing/disabled 能力的 stale adapter，Apply 失败会返回 completed/failed/pending 操作。
 - `OrbitaApp`：复用 `OrbitaCore` 的 SwiftUI macOS App shell，支持项目打开、搜索、Overview 差异摘要、状态概览、能力级 Apply Plan sheet；Apply Plan 会展示每个操作的 path、target、risk 和说明。
 
-当前 scanner 已覆盖 Codex、Claude Code、Trae、Cursor 的主要项目级入口，包括 `.codex/commands`、`.codex/hooks`、`.claude/commands`、`.claude/settings.json`、`.trae/skills`、`.cursor/rules`、legacy `.cursorrules`、`.mcp.json` 和项目 instructions。正式支持的 Agent 是 `codex`、`claude-code`、`cursor`、`trae`。
+当前 scanner 已覆盖 Codex、Claude Code、Trae、Trae CN、Cursor 的主要项目级入口，包括 `.codex/commands`、`.codex/hooks`、`.claude/commands`、`.claude/settings.json`、`.trae/skills`、`.traecn/skills`、`.cursor/rules`、legacy `.cursorrules`、`.mcp.json` 和项目 instructions。正式支持的 Agent 是 `codex`、`claude-code`、`cursor`、`trae`、`trae-cn`。
 
 Hook 解析规则见 `docs/hook-logic.md`：Orbita 按具体 handler 建模 Hook，而不是把 `settings.json` 或 `hooks.json` 当成单个 Hook。
 
 Resolver 会回读 `.agents/manifest.json` 的 enabled/disabled intent；当能力在 `.agents` 中 disabled 但原始来源仍能被扫描到时，会标记为 drifted 并在 Drift Report 中解释原因。Agent view 和 adapter preview 会把 disabled capability 视为 hidden，而不是继续暴露为可见能力。单能力 enable、disable 和 rollback 会保留 manifest 中其他能力的 intent。
 
-Apply Plan 默认只允许写入项目的 `.agents/` 和 `.orbita/` 内部；唯一的例外是 agent-sync（fork）—— 它会把 skill/command/agent 物理 copy/symlink 进目标 Agent 自己的 skills/commands/agents 目录（这些目标目录会针对项目根、用户级 Agent 主目录和 `SkillsAgentCatalog` 全局根做锚定校验）。其余一切（`~/.codex/config.toml`、`~/.claude/settings.json`、插件缓存等）都以 shell 命令形式输出，而非直接写盘。`--apply` 执行 remove/create symlink 时会处理断链 symlink，并在 macOS `/var` 与 `/private/var` 路径等价场景下保持写入边界校验。
+Apply Plan 默认只允许写入项目的 `.agents/` 和 `.orbita/` 内部，外加三处锚定的 carve-out：(1) agent-sync（fork）—— 把 skill/command/agent 物理 copy/symlink 进目标 Agent 自己的 skills/commands/agents 目录（针对项目根、用户级 Agent 主目录和 `SkillsAgentCatalog` 全局根做锚定校验）；(2) disabled-store fallback —— 无原生 disable 的能力会被移进 scope-correct 的 `<repo>/.orbita/disabled` 或用户自己的 `~/.orbita/disabled`（`isDisabledStorePath` 锚定）；(3) fork-backup store —— `plan --resync` 在覆盖 copied fork 前，把发散的副本移进 `<repo>/.orbita/fork-backups` 或 `~/.orbita/fork-backups`（`isForkBackupStorePath` 锚定）。其余一切（`~/.codex/config.toml`、`~/.claude/settings.json`、插件缓存等）都以 shell 命令形式输出，而非直接写盘。`--apply` 执行 remove/create symlink 时会处理断链 symlink，并在 macOS `/var` 与 `/private/var` 路径等价场景下保持写入边界校验。
 
 ## Xcode 入口
 
