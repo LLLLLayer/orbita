@@ -153,6 +153,8 @@ extension ApplyOperationKind {
             return L("op.writeFile")
         case .appendLog:
             return L("op.appendLog")
+        case .backupPath:
+            return L("op.backupPath")
         }
     }
 }

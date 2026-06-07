@@ -42,9 +42,26 @@ public final class CapabilitySnapshotStore {
     public func load(projectRoot: URL) throws -> CapabilitySnapshot? {
         let url = snapshotURL(for: projectRoot)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
+        // Genuine read errors (e.g. permission denied) still propagate so a
+        // transient failure does not trigger backup-and-discard.
         let data = try Data(contentsOf: url)
-        let snapshot = try decoder.decode(CapabilitySnapshot.self, from: data)
-        guard snapshot.schemaVersion == CapabilitySnapshot.currentSchemaVersion else { return nil }
+        let snapshot: CapabilitySnapshot
+        do {
+            snapshot = try decoder.decode(CapabilitySnapshot.self, from: data)
+        } catch {
+            // Corrupt snapshot JSON: move it aside before the next save() clobbers
+            // it, mirroring ProjectLibraryStore. The snapshot is a regenerable
+            // cache, so we still return nil and re-scan — but we keep a forensic
+            // copy instead of silently discarding (the old behavior).
+            quarantineStaleSnapshot(at: url)
+            return nil
+        }
+        guard snapshot.schemaVersion == CapabilitySnapshot.currentSchemaVersion else {
+            // Schema bump: the on-disk snapshot predates the current shape.
+            // Back it up before discarding so a buggy migration is recoverable.
+            quarantineStaleSnapshot(at: url)
+            return nil
+        }
         guard snapshot.projectRoot == normalizedPath(projectRoot) else { return nil }
         return snapshot
     }
@@ -76,5 +93,14 @@ public final class CapabilitySnapshotStore {
 
     private func normalizedPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// Best-effort move of an unreadable/incompatible snapshot file to a `.bak`
+    /// sidecar so a subsequent atomic save never silently clobbers the only copy
+    /// we failed to read. Overwrites any prior `.bak` (one stale copy per project).
+    private func quarantineStaleSnapshot(at url: URL) {
+        let backup = url.appendingPathExtension("bak")
+        try? fileManager.removeItem(at: backup)
+        try? fileManager.moveItem(at: url, to: backup)
     }
 }

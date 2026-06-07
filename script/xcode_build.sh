@@ -17,13 +17,16 @@ case "$MODE" in
     xcodebuild -project "$PROJECT" -list
     ;;
   build)
-    xcodebuild -project "$PROJECT" -scheme "$APP_SCHEME" -destination "$DESTINATION" build
+    shift || true
+    # Extra args (e.g. CODE_SIGNING_ALLOWED=NO for unsigned CI builds) are forwarded to xcodebuild.
+    xcodebuild -project "$PROJECT" -scheme "$APP_SCHEME" -destination "$DESTINATION" build "$@"
     ;;
   test)
     swift test
     ;;
   clean)
-    xcodebuild -project "$PROJECT" -scheme "$APP_SCHEME" -destination "$DESTINATION" clean
+    shift || true
+    xcodebuild -project "$PROJECT" -scheme "$APP_SCHEME" -destination "$DESTINATION" clean "$@"
     ;;
   *)
     echo "usage: $0 [open|list|build|test|clean]" >&2

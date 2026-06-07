@@ -3,6 +3,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 import OrbitaCore
 
+/// A one-shot, project-scoped focus request from an `orbita://capability` deep link: the requested
+/// capability id and the project it belongs to, so a stale request can never focus a tile in a project the
+/// user later navigated to instead.
+private struct DeepLinkFocus: Equatable {
+    let project: String
+    let id: String
+}
+
 /// Memoization scratch space for ContentView's per-agent derived display.
 /// A reference type held in `@State` so it survives re-renders without itself
 /// triggering invalidation; its contents are recomputed only when `key`
@@ -38,12 +46,16 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var selectedCapabilityIDs: Set<String> = []
     @State private var selectedCapability: Capability?
+    /// A capability id carried by an `orbita://capability` deep link, focused once its scan lands. Scoped to
+    /// the deep-linked project so it can't hijack selection if the user navigates elsewhere first.
+    @State private var pendingDeepLinkFocus: DeepLinkFocus?
     @State private var expandedGroupIDs: Set<String> = []
     @State private var sidebarCollapsed = false
     @State private var inspectorVisible = true
     @State private var addingAgentPresented = false
     @State private var hidingCategoriesPresented = false
     @State private var settingsPresented = false
+    @State private var quarantinePanelPresented = false
     @State private var markdownPreviewDocument: MarkdownPreviewDocument?
     @State private var pendingPlan: ApplyPlan?
     @State private var pendingSyncCapability: Capability?
@@ -193,6 +205,13 @@ struct ContentView: View {
                 addingAgentPresented = false
             }
         }
+        .sheet(isPresented: $quarantinePanelPresented) {
+            QuarantinePanelView(
+                store: store,
+                onRestore: { restoreQuarantined($0) },
+                onClose: { quarantinePanelPresented = false }
+            )
+        }
         .sheet(isPresented: $hidingCategoriesPresented) {
             HideCategoriesSheet(
                 categories: orderedCategoryOptions,
@@ -206,6 +225,7 @@ struct ContentView: View {
                 }
             )
         }
+        .onOpenURL { handleDeepLink($0) }
         .onAppear {
             store.configure(refreshPolicy: scanRefreshPolicy)
             store.configure(maxSkillFiles: scanMaxSkillFiles)
@@ -218,6 +238,21 @@ struct ContentView: View {
         .onChange(of: store.graph?.capabilities) { _, capabilities in
             guard let capabilities else {
                 return
+            }
+            // A capability deep link (orbita://capability?...) opens the project first; the requested
+            // capability can only be focused once its scan lands here. Match by stable id only (names are
+            // not unique). Resolve only while the deep-linked project is still the open one — if the user
+            // navigated away, drop the stale request rather than hijack an unrelated project's tile.
+            if let focus = pendingDeepLinkFocus {
+                if focus.project == selectedProject {
+                    if let target = capabilities.first(where: { $0.id == focus.id }) {
+                        selectedCapability = target
+                        inspectorVisible = true
+                        pendingDeepLinkFocus = nil
+                    }
+                } else {
+                    pendingDeepLinkFocus = nil
+                }
             }
             if let selectedCapability,
                let updatedCapability = capabilities.first(where: { $0.id == selectedCapability.id }) {
@@ -422,10 +457,19 @@ struct ContentView: View {
                 onboardingGuidePresented = true
             },
             onCheckForUpdates: onCheckForUpdates,
-            canCheckForUpdates: updatesConfigured
+            canCheckForUpdates: updatesConfigured,
+            onShowQuarantine: {
+                // Settings is a full page; close it, then present the quarantine sheet over the main view.
+                DispatchQueue.main.async { quarantinePanelPresented = true }
+            },
+            quarantinedCount: quarantinedCapabilities.count
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity)
+    }
+
+    private var quarantinedCapabilities: [Capability] {
+        (store.graph?.capabilities ?? []).filter { $0.source.kind == "orbita-quarantine" }
     }
 
     @ViewBuilder
@@ -513,6 +557,58 @@ struct ContentView: View {
         didPrepareStore = true
         store.prepare()
         selectedProject = store.selectionID
+    }
+
+    /// Handle an `orbita://` deep link. NAVIGATION ONLY — it opens a project and optionally focuses a
+    /// capability; it never imports or mutates anything (any future write-bearing variant must route
+    /// through the normal confirm + ApplyPlan path). Forms:
+    ///   orbita://open?project=<path>
+    ///   orbita://capability?project=<path>&id=<capability-id-or-name>
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme == "orbita",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        let items = components.queryItems ?? []
+        func value(_ name: String) -> String? {
+            items.first(where: { $0.name == name })?.value.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        switch components.host {
+        case "open":
+            guard let project = value("project") else { return }
+            openProjectFromDeepLink(path: project, capabilityID: nil)
+        case "capability":
+            guard let project = value("project") else { return }
+            openProjectFromDeepLink(path: project, capabilityID: value("id"))
+        default:
+            return
+        }
+    }
+
+    private func openProjectFromDeepLink(path: String, capabilityID: String?) {
+        let expanded = (path as NSString).expandingTildeInPath
+        let url = URL(fileURLWithPath: expanded)
+        let normalized = url.standardizedFileURL.resolvingSymlinksInPath().path
+        // Mirror the file-importer open path exactly (read-only navigation).
+        store.openProject(url)
+        selectedProject = normalized
+        selectedCapability = nil
+        markdownPreviewDocument = nil
+        expandedGroupIDs.removeAll()
+        pendingDeepLinkFocus = capabilityID.map { DeepLinkFocus(project: normalized, id: $0) }
+    }
+
+    private func restoreQuarantined(_ capability: Capability) {
+        guard let plan = store.planEnable(capability) else { return }
+        // Route through the same review gate as every other write: close the quarantine sheet, then show
+        // the ApplyPlanSheet so the user sees the scope-bound restore before any file moves (matching the
+        // sync handler). Restore is always write-risk, so requiresConfirmation is effectively always true.
+        quarantinePanelPresented = false
+        DispatchQueue.main.async {
+            if plan.requiresConfirmation {
+                pendingPlan = plan
+            } else {
+                apply(plan)
+            }
+        }
     }
 
     private func showComingSoonToast() {

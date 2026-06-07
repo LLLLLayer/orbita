@@ -23,6 +23,27 @@ go through Apple Developer ID signing and notarization before publishing.
 The GitHub workflow validates these secrets before it builds. A missing secret is
 a failed release, not a fallback to an unsigned public artifact.
 
+## Bump the version first
+
+The app version lives in `Orbita.xcodeproj` as `MARKETING_VERSION` (duplicated
+across the Debug and Release build configs). The release tag, the DMG name, and
+the Sparkle appcast all derive from it, so a tag that disagrees with
+`MARKETING_VERSION` would silently ship a DMG named for the new version while the
+app bundle and appcast report the old one.
+
+Run the bump helper, review the diff, and commit before tagging:
+
+```bash
+script/bump_version.sh vX.Y.Z   # rewrites both MARKETING_VERSION configs + bumps CURRENT_PROJECT_VERSION
+git commit -am "vX.Y.Z: bump version"
+```
+
+`script/release_github.sh` enforces this: it refuses to release when the tag
+(minus its leading `v`) does not equal `MARKETING_VERSION`, or when the two
+`CURRENT_PROJECT_VERSION` (build number) entries disagree. `CURRENT_PROJECT_VERSION`
+must increase every release because Sparkle compares it to decide an update is
+newer.
+
 ## CI release flow
 
 1. Trigger the workflow by pushing a `vX.Y.Z` tag or running the Release workflow

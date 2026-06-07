@@ -69,6 +69,36 @@ final class CapabilityScannerTests: XCTestCase {
 
         let store = CapabilitySnapshotStore(root: cacheRoot)
         XCTAssertNil(try store.load(projectRoot: projectRoot))
+        // The stale snapshot is moved aside to a .bak instead of being silently discarded, so a buggy
+        // schema migration stays recoverable.
+        let backup = url.appendingPathExtension("bak")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path), "stale-schema snapshot should be quarantined to .bak")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "stale snapshot should be moved out of the live slot")
+    }
+
+    func testSnapshotStoreQuarantinesCorruptSnapshot() throws {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaSnapshotCorruptTests-\(UUID().uuidString)")
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitaProject-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: cacheRoot)
+            try? FileManager.default.removeItem(at: projectRoot)
+        }
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let snapshots = cacheRoot.appendingPathComponent("snapshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: snapshots, withIntermediateDirectories: true)
+        let digest = SHA256.hash(data: Data(projectRoot.standardizedFileURL.resolvingSymlinksInPath().path.utf8))
+        let key = digest.map { String(format: "%02x", $0) }.joined()
+        let url = snapshots.appendingPathComponent("\(key).json")
+        try Data("{ not valid snapshot json".utf8).write(to: url, options: .atomic)
+
+        let store = CapabilitySnapshotStore(root: cacheRoot)
+        // Corrupt JSON returns nil (re-scan) rather than throwing, and is moved aside.
+        XCTAssertNil(try store.load(projectRoot: projectRoot))
+        let backup = url.appendingPathExtension("bak")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path), "corrupt snapshot should be quarantined to .bak")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "corrupt snapshot should be moved out of the live slot")
     }
 
     func testProjectLibraryPersistsLastProjectAndSupportsRemoval() throws {
@@ -4606,6 +4636,108 @@ final class CapabilityScannerTests: XCTestCase {
         let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
         XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path), "a copy fork must not be a symlink")
         XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appendingPathComponent("SKILL.md").path), "the copied skill directory must contain SKILL.md")
+    }
+
+    func testReSyncRefreshesDivergedCopyAndBacksUpOldCopy() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaReSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        // Initial copy fork into Claude's project skills dir.
+        let syncPlan = try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .copy, destinationScope: .project
+        )
+        _ = try ApplyPlanExecutor().apply(syncPlan)
+
+        // Simulate divergence: the source changed AND the copy was hand-edited.
+        let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
+        try "Body for foo (UPDATED)".write(to: projectRoot.appendingPathComponent("lib/foo/SKILL.md"), atomically: true, encoding: .utf8)
+        let handEdit = destination.appendingPathComponent("HANDEDIT.txt")
+        try "local edit".write(to: handEdit, atomically: true, encoding: .utf8)
+
+        // Re-sync: refresh the copy from source, backing up the diverged copy first.
+        let resyncPlan = try ApplyPlanBuilder().planReSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, destinationScope: .project
+        )
+        XCTAssertTrue(resyncPlan.requiresConfirmation, "overwriting an existing on-disk copy should require confirmation")
+        _ = try ApplyPlanExecutor().apply(resyncPlan)
+
+        // The fresh copy reflects the new source and no longer carries the local edit.
+        let refreshed = try String(contentsOf: destination.appendingPathComponent("SKILL.md"), encoding: .utf8)
+        XCTAssertTrue(refreshed.contains("UPDATED"), "the re-synced copy must reflect the updated source")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: handEdit.path), "the stale copy's local edit must not survive the refresh")
+
+        // The diverged copy (incl. the local edit) is preserved in the scope-correct fork-backup store.
+        let backupRoot = projectRoot.appendingPathComponent(".orbita/fork-backups")
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: backupRoot.path)) ?? []
+        let fooBackup = entries.first { $0.hasSuffix("__foo") }
+        XCTAssertNotNil(fooBackup, "a fork-backup entry should be created for the diverged copy")
+        if let fooBackup {
+            let backedUpEdit = backupRoot.appendingPathComponent(fooBackup).appendingPathComponent("HANDEDIT.txt")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: backedUpEdit.path), "the backup must preserve the diverged copy's local edit")
+        }
+    }
+
+    func testReSyncRefusesWhenNoExistingCopy() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaReSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+        XCTAssertThrowsError(try ApplyPlanBuilder().planReSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, destinationScope: .project
+        )) { error in
+            XCTAssertTrue("\(error)".contains("no existing copy to re-sync"))
+        }
+    }
+
+    func testReSyncSkipsLiveSymlinkToSource() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaReSyncExec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: destination.path, withDestinationPath: projectRoot.appendingPathComponent("lib/foo").path)
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+        XCTAssertThrowsError(try ApplyPlanBuilder().planReSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, destinationScope: .project
+        )) { error in
+            XCTAssertTrue("\(error)".contains("Nothing to re-sync"), "a live symlink already tracks the source, so there is nothing to refresh")
+        }
+    }
+
+    func testReSyncMidPlanFailureRestoresForkFromBackup() throws {
+        let projectRoot = FileManager.default.temporaryDirectory.appendingPathComponent("OrbitaReSyncFail-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let skill = try makeForkSourceSkill(in: projectRoot, name: "foo")
+        let graph = CapabilityGraph(projectRoot: projectRoot.path, capabilities: [skill], issues: [])
+
+        // Fork (copy) into Claude, then diverge the copy.
+        _ = try ApplyPlanExecutor().apply(try ApplyPlanBuilder().planSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, mode: .copy, destinationScope: .project))
+        let destination = projectRoot.appendingPathComponent(".claude/skills/foo")
+        try "diverged".write(to: destination.appendingPathComponent("MARK.txt"), atomically: true, encoding: .utf8)
+
+        // Build the re-sync plan while the source still exists, then make the refresh copy fail by
+        // removing the source before applying — so .backupPath succeeds (copy moved aside) but the
+        // subsequent .copyPath throws.
+        let plan = try ApplyPlanBuilder().planReSyncInstallTarget(
+            capabilityID: skill.id, agentID: "claude-code", graph: graph, destinationScope: .project)
+        try FileManager.default.removeItem(at: projectRoot.appendingPathComponent("lib/foo"))
+
+        XCTAssertThrowsError(try ApplyPlanExecutor().apply(plan)) { error in
+            XCTAssertTrue("\(error)".contains("Source does not exist"))
+        }
+
+        // Compensation must restore the diverged fork from its backup rather than strand the agent dir.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appendingPathComponent("SKILL.md").path),
+                      "a mid-plan failure must restore the fork from its backup")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appendingPathComponent("MARK.txt").path),
+                      "the restored fork must be the original diverged copy, recovered intact")
+        // The recovery move consumes the backup, leaving no orphan in the fork-backup store.
+        let backupRoot = projectRoot.appendingPathComponent(".orbita/fork-backups")
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: backupRoot.path)) ?? []
+        XCTAssertTrue(leftovers.filter { $0.hasSuffix("__foo") }.isEmpty, "recovery should consume the backup, leaving no orphan")
     }
 
     func testSyncPlanExecutorRejectsDestinationOutsideAgentStorage() throws {

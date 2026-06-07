@@ -122,6 +122,8 @@ struct OrbitaSettingsView: View {
     var onShowGuide: (() -> Void)? = nil
     var onCheckForUpdates: (() -> Void)? = nil
     var canCheckForUpdates: Bool = false
+    var onShowQuarantine: (() -> Void)? = nil
+    var quarantinedCount: Int = 0
 
     @AppStorage("orbitaOnboardingGuideFrequency") private var guideFrequency = OnboardingGuideFrequency.firstLaunchOnly.rawValue
     @State private var selectedPage = SettingsPage.general
@@ -286,6 +288,27 @@ struct OrbitaSettingsView: View {
                     .labelsHidden()
                     .pickerStyle(.segmented)
                     .frame(maxWidth: SettingsLayout.segmentedMaxWidth, alignment: .leading)
+                }
+            }
+
+            SettingsCard(title: L("settings.general.quarantine.card"), systemImage: "tray.and.arrow.up") {
+                SettingsPreferenceRow(
+                    title: L("settings.general.quarantine.row.title"),
+                    subtitle: L("settings.general.quarantine.row.subtitle")
+                ) {
+                    Button {
+                        onClose()
+                        onShowQuarantine?()
+                    } label: {
+                        Label(
+                            quarantinedCount > 0
+                                ? "\(L("settings.general.quarantine.button")) (\(quarantinedCount))"
+                                : L("settings.general.quarantine.button"),
+                            systemImage: "arrow.uturn.backward"
+                        )
+                    }
+                    .controlSize(.large)
+                    .disabled(onShowQuarantine == nil)
                 }
             }
         }

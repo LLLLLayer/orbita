@@ -41,6 +41,20 @@ jobs:
             echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Validate version consistency
+        shell: bash
+        run: |
+          # Same rule as script/release_github.sh: the tag must equal MARKETING_VERSION, so a hand-pushed
+          # tag or workflow_dispatch can't ship a DMG/appcast labelled differently from the app bundle.
+          VERSION_NUMBER="${{ steps.version.outputs.value }}"
+          VERSION_NUMBER="${VERSION_NUMBER#v}"
+          mv="$(grep -E '^[[:space:]]*MARKETING_VERSION = ' Orbita.xcodeproj/project.pbxproj \
+            | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' | tr -d '[:blank:]' | sort -u)"
+          if [[ "$mv" != "$VERSION_NUMBER" ]]; then
+            echo "::error::tag implies MARKETING_VERSION=$VERSION_NUMBER but project.pbxproj has '$mv'; run script/bump_version.sh and commit"
+            exit 1
+          fi
+
       - name: Validate Apple Developer release secrets
         shell: bash
         run: |

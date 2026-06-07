@@ -19,6 +19,10 @@ public enum ApplyOperationKind: String, Codable, Sendable {
     case removePath
     case writeFile
     case appendLog
+    /// Move an existing fork copy aside into Orbita's scope-correct `.orbita/fork-backups` store before a
+    /// re-sync overwrites it. Same on-disk action as `cachePath` (copy into the store, then remove the
+    /// source) but its validated target is the fork-backup store, not the disable-only disabled store.
+    case backupPath
 }
 
 public enum AgentSyncMode: String, Codable, CaseIterable, Sendable {
@@ -234,6 +238,102 @@ public final class ApplyPlanBuilder {
             graph: graph,
             mode: mode,
             destinationScope: destinationScope
+        )
+    }
+
+    /// Refresh an existing **copied** fork whose source has since changed (a `copiedMirror` marked
+    /// `drifted`). Symmetric with `planSyncInstallTarget(mode: .copy)` — same source/destination resolution —
+    /// but where sync refuses an existing destination, re-sync backs the diverged copy up into the
+    /// scope-correct `.orbita/fork-backups` store and overwrites it with a fresh copy from the source. Pass
+    /// the SOURCE capability id (the original, e.g. the `.agents` skill), the agent the copy lives in, and
+    /// the scope used for the original fork — exactly the inputs the original `--sync` used.
+    public func planReSyncInstallTarget(
+        capabilityID: String,
+        agentID: String,
+        graph: CapabilityGraph,
+        destinationScope: AgentSyncDestinationScope? = nil
+    ) throws -> ApplyPlan {
+        let capabilities = try capabilities(matching: [capabilityID], fallbackID: capabilityID, graph: graph)
+        guard let agent = SkillsAgentCatalog.agents.first(where: { $0.id == agentID }) else {
+            throw OrbitaError.invalidApplyPlan("Unknown Skills CLI agent: \(agentID)")
+        }
+        let destinationScope = destinationScope ?? defaultSyncDestinationScope(for: capabilities)
+        let projectRoot = URL(fileURLWithPath: graph.projectRoot)
+        let agentsRoot = projectRoot.appendingPathComponent(".agents")
+
+        var operations: [ApplyOperation] = []
+        var refreshed = 0
+        for capability in capabilities {
+            guard capability.type.supportsAgentSync else { continue }
+            guard isDirectSyncCompatible(capability: capability, agentID: agent.id) else {
+                throw OrbitaError.invalidApplyPlan("\(agent.displayName) cannot directly load \(capability.type.rawValue) files from \(capability.source.kind)")
+            }
+            let source = try syncSourceURL(for: capability)
+            let root = try syncDestinationRoot(
+                for: agent,
+                capability: capability,
+                destinationScope: destinationScope,
+                mode: .copy,
+                graph: graph
+            )
+            let destination = root.appendingPathComponent(syncDestinationName(for: capability, source: source))
+
+            // Re-sync only refreshes an existing *copy*. A live symlink to the source already tracks it
+            // (nothing to refresh); an absent destination means there is no fork to re-sync.
+            if let existingTarget = try? fileManager.destinationOfSymbolicLink(atPath: destination.path) {
+                let resolved = resolveSymlink(destination: existingTarget, from: destination.deletingLastPathComponent())
+                if resolved.standardizedFileURL.resolvingSymlinksInPath().path == source.standardizedFileURL.resolvingSymlinksInPath().path {
+                    continue
+                }
+                throw OrbitaError.invalidApplyPlan("\(destination.path) is a link to a different source; refusing to re-sync")
+            }
+            guard fileManager.fileExists(atPath: destination.path) else {
+                throw OrbitaError.invalidApplyPlan("\(agent.displayName) has no existing copy to re-sync at \(destination.path)")
+            }
+
+            operations.append(ApplyOperation(
+                kind: .backupPath,
+                path: destination.path,
+                target: forkBackupTarget(forDestination: destination, projectRoot: projectRoot).path,
+                risk: .write,
+                description: "Back up the diverged \(capability.name) copy before refreshing it"
+            ))
+            operations.append(ApplyOperation(
+                kind: .copyPath,
+                path: source.path,
+                target: destination.path,
+                risk: .write,
+                description: "Refresh \(capability.name) in \(agent.displayName) from its source"
+            ))
+            refreshed += 1
+        }
+
+        guard refreshed > 0 else {
+            throw OrbitaError.invalidApplyPlan("Nothing to re-sync for \(agent.displayName)")
+        }
+
+        operations.append(ApplyOperation(
+            kind: .appendLog,
+            path: agentsRoot.appendingPathComponent("logs/apply.log").path,
+            content: "\(ISO8601DateFormatter().string(from: Date())) resync \(capabilityID) agent-target:\(agentID) scope:\(destinationScope.rawValue) affected:\(refreshed)\n",
+            risk: .write,
+            description: "Append agent re-sync operation log"
+        ))
+
+        return ApplyPlan(
+            projectRoot: graph.projectRoot,
+            // `.enable` is a placeholder label (ApplyAction has no `sync`/`resync` case), shared with the
+            // fork `--sync` path. The apply.log token is "resync", which `readLastApplyLogEntry` skips as a
+            // non-invertible action. NOTE: a re-sync is therefore NOT a true enable — do not add an App
+            // one-click-undo surface for it (`successUndoable` keys off `action == .enable`) without first
+            // giving re-sync a non-undoable handling, or undo would walk back an unrelated earlier action.
+            action: .enable,
+            capabilityID: capabilityID,
+            appliesChanges: false,
+            // Overwriting an existing on-disk copy is destructive enough to confirm, even though the
+            // diverged copy is preserved in the fork-backup store first.
+            requiresConfirmation: true,
+            operations: operations
         )
     }
 
@@ -1413,6 +1513,30 @@ public final class ApplyPlanBuilder {
         AgentSyncPolicy.isCompatible(capability: capability, agentID: agentID)
     }
 
+    /// A unique, scope-correct backup path for a diverged fork copy. The backup lives under the same base
+    /// (project vs user home) the copy itself lives in, mirroring `OrbitaDisabledStore.base(forSource:)`, so
+    /// a project fork never strands its backup in the user home and vice versa. The ISO-8601 stamp keeps
+    /// successive re-syncs of the same copy as distinct, browsable backups.
+    private func forkBackupTarget(forDestination destination: URL, projectRoot: URL) -> URL {
+        let base = forkBackupBase(forDestinationPath: destination.path, projectRoot: projectRoot)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        return base.appendingPathComponent("\(stamp)__\(destination.lastPathComponent)")
+    }
+
+    private func forkBackupBase(forDestinationPath destinationPath: String, projectRoot: URL) -> URL {
+        let dest = URL(fileURLWithPath: destinationPath).standardizedFileURL.path
+        let project = projectRoot.standardizedFileURL.path
+        let store = "fork-backups"
+        if dest == project || dest.hasPrefix(project + "/") {
+            return projectRoot.appendingPathComponent(".orbita").appendingPathComponent(store)
+        }
+        let home = homeDirectory.standardizedFileURL.path
+        if dest == home || dest.hasPrefix(home + "/") {
+            return homeDirectory.appendingPathComponent(".orbita").appendingPathComponent(store)
+        }
+        return projectRoot.appendingPathComponent(".orbita").appendingPathComponent(store)
+    }
+
     private func syncDestinationName(for capability: Capability, source: URL) -> String {
         guard capability.type == .skill else {
             return source.lastPathComponent
@@ -1868,6 +1992,17 @@ public final class ApplyPlanExecutor {
                       let contents = try? fileManager.contentsOfDirectory(atPath: operation.path),
                       contents.isEmpty else { continue }
                 try? fileManager.removeItem(atPath: operation.path)
+            case .backupPath:
+                // Re-sync moved the existing fork aside into the fork-backup store, then the refresh copy
+                // failed — leaving the agent dir missing the fork. Unlike the disabled store, the fork-backup
+                // store is NOT read back by the scanner, so without this the working fork would be silently
+                // stranded with no in-product recovery. Move the backup back only when the destination is now
+                // empty (the failed copy never landed) and the backup is still present.
+                guard let target = operation.target,
+                      fileManager.fileExists(atPath: target),
+                      !fileManager.fileExists(atPath: operation.path),
+                      (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) == nil else { continue }
+                try? fileManager.moveItem(atPath: target, toPath: operation.path)
             default:
                 continue
             }
@@ -1924,7 +2059,7 @@ public final class ApplyPlanExecutor {
             // file that appeared after the plan was built (TOCTOU) or a stale re-applied plan cannot silently
             // delete a user's existing skill/command/agent. Only a same-source managed link may be replaced.
             try copyReplacingItem(from: operation.path, to: target, refuseForeignDestination: true)
-        case .cachePath, .restorePath:
+        case .cachePath, .restorePath, .backupPath:
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing target for \(operation.path)")
             }
@@ -1932,7 +2067,8 @@ public final class ApplyPlanExecutor {
             // rule at write time (the legitimate target was moved into quarantine on disable and therefore
             // does not exist at restore — this only refuses an UNRELATED pre-existing file, e.g. a hostile
             // plan pointed at an existing ~/.claude/skills/* file). The quarantine direction (.cachePath)
-            // writes INTO Orbita's own disabled store, which is idempotent/Orbita-owned, so it stays loose.
+            // and the fork-backup direction (.backupPath) both write INTO an Orbita-owned store, which is
+            // idempotent/Orbita-owned, so they stay loose.
             try copyReplacingItem(from: operation.path, to: target, refuseForeignDestination: operation.kind == .restorePath)
             if fileManager.fileExists(atPath: operation.path) || (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) != nil {
                 try fileManager.removeItem(atPath: operation.path)
@@ -2012,6 +2148,21 @@ public final class ApplyPlanExecutor {
             guard isDisabledStorePath(targetPath, projectRootPath: projectRootPath) else {
                 throw OrbitaError.invalidApplyPlan("Disabled-store target is outside .orbita/disabled: \(target)")
             }
+        case .backupPath:
+            guard let target = operation.target else {
+                throw OrbitaError.invalidApplyPlan("Missing backup target for \(operation.path)")
+            }
+            // Source is an existing fork copy in agent storage; target is Orbita's own fork-backup store.
+            // Unlike a `.restorePath` (which is scope-bound to defend an attacker-controlled sidecar), both
+            // fork-backup roots are Orbita-owned data dirs, so accepting either store is safe; the planner
+            // (`forkBackupBase`) always picks the scope-correct one for the copy's own base.
+            guard isAgentStoragePath(operationPath, projectRoot: projectRootPath) else {
+                throw OrbitaError.invalidApplyPlan("Backup source is outside known agent storage: \(operation.path)")
+            }
+            let targetPath = containmentPath(target)
+            guard isForkBackupStorePath(targetPath, projectRootPath: projectRootPath) else {
+                throw OrbitaError.invalidApplyPlan("Fork-backup target is outside .orbita/fork-backups: \(target)")
+            }
         case .restorePath:
             guard let target = operation.target else {
                 throw OrbitaError.invalidApplyPlan("Missing restore target for \(operation.path)")
@@ -2083,6 +2234,17 @@ public final class ApplyPlanExecutor {
         let stores = [
             resolvedRootPath(projectRootPath + "/.orbita/" + OrbitaDisabledStore.directoryName),
             resolvedRootPath(homeDirectory.path + "/.orbita/" + OrbitaDisabledStore.directoryName)
+        ]
+        return stores.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// The scope-correct fork-backup roots: `<repo>/.orbita/fork-backups` and `~/.orbita/fork-backups`.
+    /// Anchored (resolving symlinks) like `isDisabledStorePath`, so a `backupPath` op can only write into a
+    /// location Orbita already owns — never into an agent's or a foreign tree.
+    private func isForkBackupStorePath(_ path: String, projectRootPath: String) -> Bool {
+        let stores = [
+            resolvedRootPath(projectRootPath + "/.orbita/fork-backups"),
+            resolvedRootPath(homeDirectory.path + "/.orbita/fork-backups")
         ]
         return stores.contains { path == $0 || path.hasPrefix($0 + "/") }
     }

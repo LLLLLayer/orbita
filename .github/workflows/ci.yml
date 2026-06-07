@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  swiftpm:
+    name: SwiftPM build + test
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+  app:
+    name: Xcode app build
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The App target builds from Orbita.xcodeproj, which registers every
+      # source file explicitly. `swift build` auto-discovers new .swift files,
+      # but this xcodebuild leg silently omits any file missing from
+      # project.pbxproj — so this job exists specifically to catch the
+      # "forgot to register the file" footgun documented in CLAUDE.md.
+      - name: Build app (unsigned)
+        run: ./script/xcode_build.sh build CODE_SIGNING_ALLOWED=NO

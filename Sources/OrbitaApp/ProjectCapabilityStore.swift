@@ -758,7 +758,8 @@ final class ProjectCapabilityStore: ObservableObject {
             result.completedOperations.filter { $0.kind == kind }.count
         }
         var parts: [String] = []
-        let moved = count(.cachePath)
+        // `.backupPath` (re-sync moving a diverged fork copy aside) is a move, like the disable-store `.cachePath`.
+        let moved = count(.cachePath) + count(.backupPath)
         if moved > 0 { parts.append(String(format: L("apply.receipt.moved"), String(moved))) }
         let restored = count(.restorePath)
         if restored > 0 { parts.append(String(format: L("apply.receipt.restored"), String(restored))) }

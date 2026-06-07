@@ -1330,3 +1330,104 @@ struct ApplyPlanSheet: View {
         .presentationBackground(OrbitaTheme.canvas)
     }
 }
+
+/// A read-only browser over Orbita's disabled (quarantine) store: capabilities that were disabled by
+/// physically moving their source into `.orbita/disabled` (the fallback for hosts with no native
+/// off-switch). The scanner reads that store back as `orbita-quarantine` tiles, so this panel works off
+/// the live graph and survives loss of `.agents/manifest.json`. "Restore" reuses the validated enable
+/// path (which replays the scope-bound `.restorePath` op) — no new write surface.
+struct QuarantinePanelView: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    @ObservedObject var store: ProjectCapabilityStore
+    let onRestore: (Capability) -> Void
+    let onClose: () -> Void
+
+    private var entries: [Capability] {
+        (store.graph?.capabilities ?? [])
+            .filter { $0.source.kind == "orbita-quarantine" }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L("quarantine.title"))
+                        .font(.title3.weight(.semibold))
+                    Text(L("quarantine.subtitle"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .orbitaControlSurface(cornerRadius: 8)
+                .help(L("sheet.action.cancel"))
+                .accessibilityLabel(L("sheet.action.cancel"))
+            }
+            .padding(20)
+
+            Divider()
+
+            if entries.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "tray")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.secondary)
+                    Text(L("quarantine.empty"))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(40)
+            } else {
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(entries) { capability in
+                            QuarantineRow(capability: capability) {
+                                onRestore(capability)
+                            }
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+        }
+        .frame(width: 580, height: 480)
+        .background(OrbitaTheme.canvas)
+        .localized()
+    }
+}
+
+private struct QuarantineRow: View {
+    @ObservedObject private var localization = LocalizationManager.shared
+    let capability: Capability
+    let onRestore: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(capability.name)
+                    .font(.body.weight(.medium))
+                Text(capability.source.path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 12)
+            Text(capability.type.rawValue)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button(action: onRestore) {
+                Label(L("quarantine.restore"), systemImage: "arrow.uturn.backward")
+            }
+        }
+        .padding(12)
+        .orbitaControlSurface(cornerRadius: 10)
+    }
+}

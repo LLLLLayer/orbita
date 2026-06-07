@@ -182,6 +182,23 @@ struct OrbitaCLI {
                     mode: mode,
                     destinationScope: scope
                 )
+            } else if let resyncID = command.resyncCapabilityID {
+                guard let agentID = command.agent else { throw CLIError.missingValue("--agent") }
+                let scope: AgentSyncDestinationScope?
+                if let rawScope = command.syncScope {
+                    guard let parsed = AgentSyncDestinationScope(rawValue: rawScope) else { throw CLIError.invalidValue("--scope", rawScope) }
+                    scope = parsed
+                } else {
+                    scope = nil
+                }
+                let resolvedGraph = try graph(projectRoot: command.projectRoot, includeUserScope: command.includeUserScope)
+                let capability = try resolveCapability(resyncID, in: resolvedGraph)
+                plan = try ApplyPlanBuilder().planReSyncInstallTarget(
+                    capabilityID: capability.id,
+                    agentID: agentID,
+                    graph: resolvedGraph,
+                    destinationScope: scope
+                )
             } else {
                 throw CLIError.missingPlanCapabilityID
             }
@@ -251,6 +268,7 @@ struct OrbitaCLI {
                       --enable <id> | --disable <id> | --delete <id>
                       --merge | --rollback | --clean
                       --sync <id> --agent <id> [--mode copy|symlink] [--scope project|user]
+                      --resync <id> --agent <id> [--scope project|user]
                     Add --apply to execute; without it, prints a dry run.
 
         OPTIONS
@@ -454,6 +472,7 @@ struct ParsedCommand {
     var disableCapabilityID: String?
     var deleteCapabilityID: String?
     var syncCapabilityID: String?
+    var resyncCapabilityID: String?
     var syncMode: String?
     var syncScope: String?
     var apply: Bool
@@ -477,6 +496,7 @@ struct ParsedCommand {
             disableCapabilityID = nil
             deleteCapabilityID = nil
             syncCapabilityID = nil
+            resyncCapabilityID = nil
             syncMode = nil
             syncScope = nil
             apply = false
@@ -501,6 +521,7 @@ struct ParsedCommand {
         var parsedDisableCapabilityID: String?
         var parsedDeleteCapabilityID: String?
         var parsedSyncCapabilityID: String?
+        var parsedResyncCapabilityID: String?
         var parsedSyncMode: String?
         var parsedSyncScope: String?
         var parsedApply = false
@@ -545,6 +566,10 @@ struct ParsedCommand {
                 guard index + 1 < arguments.count else { throw CLIError.missingValue("--sync") }
                 parsedSyncCapabilityID = arguments[index + 1]
                 index += 2
+            case "--resync":
+                guard index + 1 < arguments.count else { throw CLIError.missingValue("--resync") }
+                parsedResyncCapabilityID = arguments[index + 1]
+                index += 2
             case "--mode":
                 guard index + 1 < arguments.count else { throw CLIError.missingValue("--mode") }
                 parsedSyncMode = arguments[index + 1]
@@ -568,6 +593,7 @@ struct ParsedCommand {
         disableCapabilityID = parsedDisableCapabilityID
         deleteCapabilityID = parsedDeleteCapabilityID
         syncCapabilityID = parsedSyncCapabilityID
+        resyncCapabilityID = parsedResyncCapabilityID
         syncMode = parsedSyncMode
         syncScope = parsedSyncScope
         apply = parsedApply
@@ -622,7 +648,7 @@ enum CLIError: LocalizedError {
         case .missingCapabilityID:
             return "Missing capability id."
         case .missingPlanCapabilityID:
-            return "Missing plan action. Use --enable <capability-id>, --disable <capability-id>, --delete <capability-id>, --sync <capability-id> --agent <id> [--mode copy|symlink] [--scope project|user], --merge, --rollback, or --clean."
+            return "Missing plan action. Use --enable <capability-id>, --disable <capability-id>, --delete <capability-id>, --sync <capability-id> --agent <id> [--mode copy|symlink] [--scope project|user], --resync <capability-id> --agent <id> [--scope project|user], --merge, --rollback, or --clean."
         case .capabilityNotFound(let id):
             return "Capability not found: \(id)"
         }
