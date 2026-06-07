@@ -34,6 +34,17 @@
     <filter id="cs" x="-20%" y="-30%" width="140%" height="170%">
       <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.06"/>
     </filter>
+    <!-- Real agent brand glyphs (from Sources/OrbitaApp/Resources/AgentIcons) -->
+    <linearGradient id="codexGrad" gradientUnits="userSpaceOnUse" x1="12" x2="12" y1="3" y2="21">
+      <stop stop-color="#B1A7FF"/><stop offset=".5" stop-color="#7A9DFF"/><stop offset="1" stop-color="#3941FF"/>
+    </linearGradient>
+    <symbol id="ic-codex" viewBox="0 0 24 24"><path d="M9.064 3.344a4.578 4.578 0 0 1 2.285 -0.312c1 0.115 1.891 0.54 2.673 1.275c0.01 0.01 0.024 0.017 0.037 0.021a0.09 0.09 0 0 0 0.043 0a4.55 4.55 0 0 1 3.046 0.275l0.047 0.022l0.116 0.057a4.581 4.581 0 0 1 2.188 2.399c0.209 0.51 0.313 1.041 0.315 1.595a4.24 4.24 0 0 1 -0.134 1.223a0.123 0.123 0 0 0 0.03 0.115c0.594 0.607 0.988 1.33 1.183 2.17c0.289 1.425 -0.007 2.71 -0.887 3.854l-0.136 0.166a4.548 4.548 0 0 1 -2.201 1.388a0.123 0.123 0 0 0 -0.081 0.076c-0.191 0.551 -0.383 1.023 -0.74 1.494c-0.9 1.187 -2.222 1.846 -3.711 1.838c-1.187 -0.006 -2.239 -0.44 -3.157 -1.302a0.107 0.107 0 0 0 -0.105 -0.024c-0.388 0.125 -0.78 0.143 -1.204 0.138a4.441 4.441 0 0 1 -1.945 -0.466a4.544 4.544 0 0 1 -1.61 -1.335c-0.152 -0.202 -0.303 -0.392 -0.414 -0.617a5.81 5.81 0 0 1 -0.37 -0.961a4.582 4.582 0 0 1 -0.014 -2.298a0.124 0.124 0 0 0 0.006 -0.056a0.085 0.085 0 0 0 -0.027 -0.048a4.467 4.467 0 0 1 -1.034 -1.651a3.896 3.896 0 0 1 -0.251 -1.192a5.189 5.189 0 0 1 0.141 -1.6c0.337 -1.112 0.982 -1.985 1.933 -2.618c0.212 -0.141 0.413 -0.251 0.601 -0.33c0.215 -0.089 0.43 -0.164 0.646 -0.227a0.098 0.098 0 0 0 0.065 -0.066a4.51 4.51 0 0 1 0.829 -1.615a4.535 4.535 0 0 1 1.837 -1.388zm3.482 10.565a0.637 0.637 0 0 0 0 1.272h3.636a0.637 0.637 0 1 0 0 -1.272h-3.636zM8.462 9.23a0.637 0.637 0 0 0 -1.106 0.631l1.272 2.224l-1.266 2.136a0.636 0.636 0 1 0 1.095 0.649l1.454 -2.455a0.636 0.636 0 0 0 0.005 -0.64L8.462 9.23z" fill="url(#codexGrad)"/></symbol>
+    <symbol id="ic-claude" viewBox="0 0 24 24"><path fill="#D97706" d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></symbol>
+    <symbol id="ic-trae" viewBox="0 0 24 24"><path fill="#16c76f" transform="translate(0 3.4) scale(.096)" d="m250 179h-214.3v-35.7h-35.7v-142.9h250c0 0 0 178.6 0 178.6zm-214.3-35.7h178.6v-107.2h-178.6zm89.3-54.1l-25.3 25.2-25.2-25.2 25.3-25.3zm71.4 0l-25.3 25.3-25.2-25.3 25.2-25.2z"/></symbol>
+    <symbol id="ic-agents" viewBox="0 0 24 24">
+      <g fill="none" stroke="#6b8afd" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="1.4 2.4"><path d="M12 6 L6 17 M12 6 L18 17 M6 17 L18 17"/></g>
+      <g fill="#6b8afd"><circle cx="12" cy="6" r="2.4"/><circle cx="6" cy="17" r="2.4"/><circle cx="18" cy="17" r="2.4"/></g>
+    </symbol>
   </defs>
 
   <!-- window -->
@@ -109,11 +120,11 @@
   <g font-size="12">
     <rect x="316" y="176" width="30" height="30" rx="8" class="chip"/><rect x="316.5" y="176.5" width="29" height="29" rx="7.5" class="bord"/><text x="331" y="196" text-anchor="middle" font-size="15" class="tsec">+</text>
     <rect x="354" y="176" width="84" height="30" rx="8" class="selfill"/><rect x="370" y="184" width="12" height="12" rx="2.5" class="seltext"/><text x="390" y="195" font-weight="600" class="seltext">Overview</text>
-    <rect x="446" y="176" width="78" height="30" rx="8" class="chip"/><rect x="446.5" y="176.5" width="77" height="29" rx="7.5" class="bord"/><circle cx="462" cy="191" r="4.5" fill="#6b8afd"/><text x="474" y="195" class="tprim">Agents</text>
-    <rect x="532" y="176" width="70" height="30" rx="8" class="chip"/><rect x="532.5" y="176.5" width="69" height="29" rx="7.5" class="bord"/><circle cx="548" cy="191" r="4.5" fill="#10a37f"/><text x="560" y="195" class="tprim">Codex</text>
-    <rect x="610" y="176" width="106" height="30" rx="8" class="chip"/><rect x="610.5" y="176.5" width="105" height="29" rx="7.5" class="bord"/><circle cx="626" cy="191" r="4.5" fill="#d97757"/><text x="638" y="195" class="tprim">Claude Code</text>
-    <rect x="724" y="176" width="60" height="30" rx="8" class="chip"/><rect x="724.5" y="176.5" width="59" height="29" rx="7.5" class="bord"/><circle cx="740" cy="191" r="4.5" fill="#16a34a"/><text x="752" y="195" class="tprim">Trae</text>
-    <rect x="792" y="176" width="80" height="30" rx="8" class="chip"/><rect x="792.5" y="176.5" width="79" height="29" rx="7.5" class="bord"/><circle cx="808" cy="191" r="4.5" fill="#16a34a"/><text x="820" y="195" class="tprim">Trae CN</text>
+    <rect x="446" y="176" width="80" height="30" rx="8" class="chip"/><rect x="446.5" y="176.5" width="79" height="29" rx="7.5" class="bord"/><use href="#ic-agents" x="456" y="184" width="14" height="14"/><text x="476" y="195" class="tprim">Agents</text>
+    <rect x="534" y="176" width="72" height="30" rx="8" class="chip"/><rect x="534.5" y="176.5" width="71" height="29" rx="7.5" class="bord"/><use href="#ic-codex" x="544" y="184" width="14" height="14"/><text x="564" y="195" class="tprim">Codex</text>
+    <rect x="614" y="176" width="108" height="30" rx="8" class="chip"/><rect x="614.5" y="176.5" width="107" height="29" rx="7.5" class="bord"/><use href="#ic-claude" x="624" y="184" width="14" height="14"/><text x="644" y="195" class="tprim">Claude Code</text>
+    <rect x="730" y="176" width="60" height="30" rx="8" class="chip"/><rect x="730.5" y="176.5" width="59" height="29" rx="7.5" class="bord"/><use href="#ic-trae" x="740" y="184" width="14" height="14"/><text x="760" y="195" class="tprim">Trae</text>
+    <rect x="798" y="176" width="82" height="30" rx="8" class="chip"/><rect x="798.5" y="176.5" width="81" height="29" rx="7.5" class="bord"/><use href="#ic-trae" x="808" y="184" width="14" height="14"/><text x="828" y="195" class="tprim">Trae CN</text>
   </g>
 
   <!-- category row -->
@@ -148,21 +159,21 @@
   <rect x="468" y="378" width="34" height="22" rx="7" class="chip"/><text x="481" y="393" font-size="11" class="tsec">1 ⌄</text>
   <text x="332" y="426" font-size="14" font-weight="700" class="tprim">web-fetch</text>
   <text x="332" y="443" font-size="10.5" class="tsec">Plugin package</text>
-  <circle cx="496" cy="436" r="9" fill="#10a37f"/>
+  <circle cx="495" cy="434" r="15" class="chip"/><circle cx="495" cy="434" r="15" class="bord"/><use href="#ic-codex" x="485.5" y="424.5" width="19" height="19"/>
   <!-- card 2 -->
   <rect x="528" y="362" width="200" height="92" rx="12" class="card" filter="url(#cs)"/><rect x="528.5" y="362.5" width="199" height="91" rx="11.5" class="cardb"/>
   <rect x="544" y="378" width="58" height="22" rx="7" class="chip"/><rect x="552" y="384" width="10" height="10" rx="2" class="tsec"/><text x="568" y="393" font-size="11" class="tsec">Plugin</text>
   <rect x="680" y="378" width="34" height="22" rx="7" class="chip"/><text x="693" y="393" font-size="11" class="tsec">3 ⌄</text>
   <text x="544" y="426" font-size="14" font-weight="700" class="tprim">playwright</text>
   <text x="544" y="443" font-size="10.5" class="tsec">Plugin package</text>
-  <circle cx="708" cy="436" r="9" fill="#d97757"/>
+  <circle cx="707" cy="434" r="15" class="chip"/><circle cx="707" cy="434" r="15" class="bord"/><use href="#ic-claude" x="697.5" y="424.5" width="19" height="19"/>
   <!-- card 3 -->
   <rect x="740" y="362" width="196" height="92" rx="12" class="card" filter="url(#cs)"/><rect x="740.5" y="362.5" width="195" height="91" rx="11.5" class="cardb"/>
   <rect x="756" y="378" width="58" height="22" rx="7" class="chip"/><rect x="764" y="384" width="10" height="10" rx="2" class="tsec"/><text x="780" y="393" font-size="11" class="tsec">Plugin</text>
   <rect x="888" y="378" width="34" height="22" rx="7" class="chip"/><text x="901" y="393" font-size="11" class="tsec">2 ⌄</text>
   <text x="756" y="426" font-size="14" font-weight="700" class="tprim">github</text>
   <text x="756" y="443" font-size="10.5" class="tsec">Plugin package</text>
-  <circle cx="916" cy="436" r="9" fill="#10a37f"/>
+  <circle cx="915" cy="434" r="15" class="chip"/><circle cx="915" cy="434" r="15" class="bord"/><use href="#ic-codex" x="905.5" y="424.5" width="19" height="19"/>
 
   <!-- SKILLS subsection -->
   <text x="316" y="492" font-size="12.5" font-weight="600" class="tsec">Skills · 9</text>
@@ -174,23 +185,26 @@
   <rect x="438" y="520" width="64" height="22" rx="11" fill="#d8a01a" fill-opacity="0.16"/><text x="470" y="535" text-anchor="middle" font-size="10.5" font-weight="600" fill="#b6850f">Drifted</text>
   <text x="332" y="566" font-size="14" font-weight="700" class="tprim">code-review</text>
   <text x="332" y="582" font-size="10.5" class="tsec">Review the current diff for bugs</text>
-  <circle cx="448" cy="592" r="8" fill="#10a37f"/><circle cx="466" cy="592" r="8" fill="#16a34a"/>
-  <circle cx="492" cy="592" r="9" class="chip"/><rect x="492.5" y="583.5" width="0" height="0"/><text x="492" y="596" text-anchor="middle" font-size="12" class="tsec">+</text>
+  <circle cx="446" cy="591" r="11" class="chip"/><circle cx="446" cy="591" r="11" class="bord"/><use href="#ic-codex" x="438.5" y="583.5" width="15" height="15"/>
+  <circle cx="470" cy="591" r="11" class="chip"/><circle cx="470" cy="591" r="11" class="bord"/><use href="#ic-trae" x="462.5" y="583.5" width="15" height="15"/>
+  <circle cx="496" cy="591" r="10" class="chip"/><circle cx="496" cy="591" r="10" class="bord"/><text x="496" y="595" text-anchor="middle" font-size="13" class="tsec">+</text>
   <!-- card 2 -->
   <rect x="528" y="504" width="200" height="104" rx="12" class="card" filter="url(#cs)"/><rect x="528.5" y="504.5" width="199" height="103" rx="11.5" class="cardb"/>
   <rect x="544" y="520" width="50" height="22" rx="7" class="chip"/><rect x="552" y="526" width="10" height="10" rx="2" class="tsec"/><text x="568" y="535" font-size="11" class="tsec">Skill</text>
   <rect x="650" y="520" width="64" height="22" rx="11" fill="#1f9e4a" fill-opacity="0.16"/><text x="682" y="535" text-anchor="middle" font-size="10.5" font-weight="600" fill="#1f9e4a">Enabled</text>
   <text x="544" y="566" font-size="14" font-weight="700" class="tprim">pr-summarizer</text>
   <text x="544" y="582" font-size="10.5" class="tsec">Summarize a pull request</text>
-  <circle cx="660" cy="592" r="8" fill="#10a37f"/><circle cx="678" cy="592" r="8" fill="#d97757"/>
-  <circle cx="704" cy="592" r="9" class="chip"/><text x="704" y="596" text-anchor="middle" font-size="12" class="tsec">+</text>
+  <circle cx="658" cy="591" r="11" class="chip"/><circle cx="658" cy="591" r="11" class="bord"/><use href="#ic-codex" x="650.5" y="583.5" width="15" height="15"/>
+  <circle cx="682" cy="591" r="11" class="chip"/><circle cx="682" cy="591" r="11" class="bord"/><use href="#ic-claude" x="674.5" y="583.5" width="15" height="15"/>
+  <circle cx="708" cy="591" r="10" class="chip"/><circle cx="708" cy="591" r="10" class="bord"/><text x="708" y="595" text-anchor="middle" font-size="13" class="tsec">+</text>
   <!-- card 3: group -->
   <rect x="740" y="504" width="196" height="104" rx="12" class="card" filter="url(#cs)"/><rect x="740.5" y="504.5" width="195" height="103" rx="11.5" class="cardb"/>
   <rect x="756" y="520" width="54" height="22" rx="7" class="chip"/><rect x="764" y="526" width="10" height="10" rx="2" class="tsec"/><text x="773" y="535" font-size="11" class="tsec">Group</text>
   <rect x="884" y="520" width="38" height="22" rx="7" class="chip"/><text x="903" y="535" font-size="11" class="tsec">26 ⌄</text>
   <text x="756" y="566" font-size="14" font-weight="700" class="tprim">lark</text>
   <text x="756" y="582" font-size="10.5" class="tsec">26 lark-* skills, grouped</text>
-  <circle cx="866" cy="592" r="8" fill="#10a37f"/><circle cx="884" cy="592" r="8" fill="#16a34a"/>
+  <circle cx="884" cy="591" r="11" class="chip"/><circle cx="884" cy="591" r="11" class="bord"/><use href="#ic-codex" x="876.5" y="583.5" width="15" height="15"/>
+  <circle cx="908" cy="591" r="11" class="chip"/><circle cx="908" cy="591" r="11" class="bord"/><use href="#ic-trae" x="900.5" y="583.5" width="15" height="15"/>
 
   <!-- fade hint that the grid continues -->
   <text x="316" y="640" font-size="11.5" class="tsec">＋ Commands · 2    Hooks · 4 …</text>
