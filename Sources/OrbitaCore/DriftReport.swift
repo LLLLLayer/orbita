@@ -151,6 +151,8 @@ public final class DriftReportBuilder {
             return "Cursor"
         case .trae:
             return "Trae"
+        case .traeCN:
+            return "Trae CN"
         }
     }
 }

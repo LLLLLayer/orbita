@@ -45,6 +45,9 @@ public enum AgentID: String, Codable, CaseIterable, Sendable {
     case claudeCode = "claude-code"
     case cursor
     case trae
+    /// Trae CN (Trae 国内版): a distinct agent that reads its own `.traecn` dirs. Structurally a generic
+    /// SKILL.md host like Trae, just under `.traecn` instead of `.trae`.
+    case traeCN = "trae-cn"
 }
 
 public struct CapabilitySource: Codable, Hashable, Sendable {

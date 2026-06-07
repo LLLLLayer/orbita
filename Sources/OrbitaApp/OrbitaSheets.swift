@@ -12,7 +12,7 @@ struct AddAgentSheet: View {
     let onCancel: () -> Void
 
     private var presets: [SkillsAgentDefinition] {
-        let builtInIDs: Set<String> = ["codex", "claude-code", "cursor", "trae"]
+        let builtInIDs: Set<String> = ["codex", "claude-code", "cursor", "trae", "trae-cn"]
         return SkillsAgentCatalog.addableAgents.filter { !builtInIDs.contains($0.id) }
     }
 

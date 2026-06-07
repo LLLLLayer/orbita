@@ -160,6 +160,7 @@ enum AgentBrandIconStore {
         case "codex": return "codex"
         case "claude-code": return "claude"
         case "trae": return "trae"
+        case "trae-cn": return "trae"
         default: return nil
         }
     }

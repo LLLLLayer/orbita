@@ -7,6 +7,7 @@ enum AgentBehavior: String, Codable, CaseIterable, Sendable {
     case claudeSource
     case cursorSource
     case traeSource
+    case traeCNSource
     case codexLike
     case claudeLike
     case skillsAgent
@@ -24,7 +25,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
     static let claudeCode = AgentSelection(id: "built-in:claude-code", displayName: "Claude Code", behavior: .claudeSource)
     static let cursor = AgentSelection(id: "built-in:cursor", displayName: "Cursor", behavior: .cursorSource)
     static let trae = AgentSelection(id: "built-in:trae", displayName: "Trae", behavior: .traeSource)
-    static let defaultAgents = [agents, codex, claudeCode, trae]
+    static let traeCN = AgentSelection(id: "built-in:trae-cn", displayName: "Trae CN", behavior: .traeCNSource)
+    static let defaultAgents = [agents, codex, claudeCode, trae, traeCN]
 
     /// The built-in tab for a core `AgentID` — used to render a capability's HOST brand icon
     /// (e.g. on a disabled tile) even when that agent is not a currently-shown tab (Cursor).
@@ -34,6 +36,7 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         case .claudeCode: return .claudeCode
         case .cursor: return .cursor
         case .trae: return .trae
+        case .traeCN: return .traeCN
         }
     }
 
@@ -61,6 +64,9 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.trae.id || behavior == .traeSource {
             return "trae"
         }
+        if id == Self.traeCN.id || behavior == .traeCNSource {
+            return "trae-cn"
+        }
         return nil
     }
 
@@ -77,6 +83,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             capabilities = AgentViewResolver().visibleCapabilities(for: .cursor, graph: graph)
         case .traeSource:
             capabilities = AgentViewResolver().visibleCapabilities(for: .trae, graph: graph)
+        case .traeCNSource:
+            capabilities = AgentViewResolver().visibleCapabilities(for: .traeCN, graph: graph)
         case .codexLike:
             capabilities = AgentViewResolver().visibleCapabilities(for: .codex, graph: graph)
         case .claudeLike:
@@ -149,6 +157,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return .cursor
         case .traeSource:
             return .trae
+        case .traeCNSource:
+            return .traeCN
         case .agentsSource, .generic, .skillsAgent:
             return nil
         }
@@ -167,6 +177,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             ids = Set(AgentViewResolver().visibleCapabilities(for: .cursor, graph: graph).map(\.id))
         case .traeSource:
             ids = Set(AgentViewResolver().visibleCapabilities(for: .trae, graph: graph).map(\.id))
+        case .traeCNSource:
+            ids = Set(AgentViewResolver().visibleCapabilities(for: .traeCN, graph: graph).map(\.id))
         case .codexLike:
             ids = Set(AgentViewResolver().visibleCapabilities(for: .codex, graph: graph).map(\.id))
         case .claudeLike:
@@ -277,7 +289,7 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.cursor.id {
             return "cursorarrow.rays"
         }
-        if id == Self.trae.id {
+        if id == Self.trae.id || id == Self.traeCN.id {
             return "sparkles"
         }
         switch behavior {
@@ -289,7 +301,7 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return "text.bubble"
         case .cursorSource:
             return "cursorarrow.rays"
-        case .traeSource:
+        case .traeSource, .traeCNSource:
             return "sparkles"
         case .codexLike:
             return "command"
@@ -309,7 +321,10 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
         if id == Self.claudeCode.id || behavior == .claudeSource || behavior == .claudeLike || skillsAgentID == "claude-code" {
             return "claude"
         }
-        if id == Self.trae.id || behavior == .traeSource || skillsAgentID == "trae" || displayName.localizedCaseInsensitiveContains("trae") {
+        if id == Self.trae.id || id == Self.traeCN.id
+            || behavior == .traeSource || behavior == .traeCNSource
+            || skillsAgentID == "trae" || skillsAgentID == "trae-cn"
+            || displayName.localizedCaseInsensitiveContains("trae") {
             return "trae"
         }
         // Only the flagship three keep a bundled brand SVG; everything else (incl. Cursor) uses the
@@ -327,6 +342,8 @@ struct AgentSelection: Codable, Hashable, Identifiable, Sendable {
             return ".cursor"
         case "trae":
             return ".trae"
+        case "trae-cn":
+            return ".traecn"
         default:
             return nil
         }
@@ -547,6 +564,8 @@ extension AgentID {
             return "Cursor"
         case .trae:
             return "Trae"
+        case .traeCN:
+            return "Trae CN"
         }
     }
 }

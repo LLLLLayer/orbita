@@ -1775,6 +1775,7 @@ public final class ApplyPlanBuilder {
             || components.contains(".claude")
             || components.contains(".cursor")
             || components.contains(".trae")
+            || components.contains(".traecn")
     }
 
     private func disabledQuarantineContentPath(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> String {
@@ -2281,7 +2282,7 @@ public final class ApplyPlanExecutor {
     private func agentStorageRoots(projectRoot: String, includeProject: Bool, includeUserHome: Bool) -> [String] {
         let home = homeDirectory.path
         var rawRoots: [String] = []
-        for dotDir in [".agents", ".codex", ".claude", ".cursor", ".trae"] {
+        for dotDir in [".agents", ".codex", ".claude", ".cursor", ".trae", ".traecn"] {
             if includeProject { rawRoots.append(projectRoot + "/" + dotDir) }
             if includeUserHome { rawRoots.append(home + "/" + dotDir) }
         }
