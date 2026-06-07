@@ -50,6 +50,37 @@ enum CapabilityClassifier {
         return kind != "claude-plugin" && !kind.hasPrefix("claude-plugin-")
     }
 
+    /// Codex-native hooks: a project `.codex` hook (`codex-hook`) or a hook bundled in a Codex plugin
+    /// (`codex-plugin-hook`). Shared by `AgentViewResolver` (Codex hook visibility) and
+    /// `AdapterPreviewBuilder` (Codex hook mapping) so a `codex-plugin-hook` shown on the Codex tab is
+    /// never reported `supported: false` in `.orbita/adapters/codex/capabilities.json`.
+    static func isCodexNativeHook(_ capability: Capability) -> Bool {
+        let kind = capability.source.kind
+        return kind == "codex-hook" || kind == "codex-plugin-hook"
+    }
+
+    /// Codex-native commands (`.codex/commands`). Shared predicate so view and preview agree.
+    static func isCodexNativeCommand(_ capability: Capability) -> Bool {
+        capability.source.kind == "codex-command"
+    }
+
+    /// Claude-native commands: a project `.claude/commands` slash command (`claude-command`) or one
+    /// bundled in a Claude plugin (`claude-plugin-command`). Shared by the Claude view and Claude mapping.
+    static func isClaudeNativeCommand(_ capability: Capability) -> Bool {
+        let kind = capability.source.kind
+        return kind == "claude-command" || kind == "claude-plugin-command"
+    }
+
+    /// Claude-native hooks: a `settings.json` hook (flattened `claude-settings-hook`, or a legacy
+    /// whole-`claude-settings` tile) or one bundled in a Claude plugin (`claude-plugin-hook`). Shared by the
+    /// Claude view and the Claude mapping so every Claude hook the view shows maps `supported: true` — a
+    /// real settings.json hook is always `claude-settings-hook`, so matching only `claude-settings` (the old
+    /// preview rule) left every Claude hook unsupported despite being visible.
+    static func isClaudeNativeHook(_ capability: Capability) -> Bool {
+        let kind = capability.source.kind
+        return kind == "claude-settings" || kind == "claude-settings-hook" || kind == "claude-plugin-hook"
+    }
+
     /// A capability that lives in the shared `.agents` workspace. Codex reads these in place,
     /// but the generic SKILL.md hosts (Trae, Cursor) and Claude Code do NOT auto-load `.agents`
     /// — they only see it once it's been synced into their own agent dir or installed for that

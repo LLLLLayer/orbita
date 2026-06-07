@@ -31,7 +31,11 @@ public struct ScanOptions: Sendable {
     ) {
         let home = FileManager.default.homeDirectoryForCurrentUser
         self.includeUserScope = includeUserScope
-        self.maxSkillFiles = maxSkillFiles
+        // A non-positive value is the documented "no limit" sentinel. Normalize it HERE, in the type that
+        // owns and documents the option, so every consumer — CLI, tests, future embedders — gets identical
+        // semantics. Previously only the App special-cased 0, so a raw `ScanOptions(maxSkillFiles: 0)`
+        // stopped after the first skill (`1 > 0`) and emitted a misleading "Stopped after 0 skill files".
+        self.maxSkillFiles = maxSkillFiles <= 0 ? Int.max : maxSkillFiles
         self.userSkillRoots = userSkillRoots ?? Self.defaultUserSkillRoots()
         self.userAgentRoots = userAgentRoots ?? (userSkillRoots == nil ? Self.defaultUserAgentRoots() : [])
         // Mirror the userAgentRoots default: when callers inject explicit user roots (tests), do NOT also
@@ -139,8 +143,8 @@ public final class CapabilityScanner {
             project
         }
         let claudeStateURLs = claudeSettingsStateURLs(projectRoot: root, options: options)
-        let claudeSkillStates = claudeSkillOverrideStates(at: claudeStateURLs)
-        let claudeDisabledMCPServerSettingsPaths = claudeDisabledMcpjsonServerSettingsPaths(at: claudeStateURLs)
+        let claudeSkillStates = claudeSkillOverrideStates(at: claudeStateURLs, projectRoot: root)
+        let claudeDisabledMCPServerSettingsPaths = claudeDisabledMcpjsonServerSettingsPaths(at: claudeStateURLs, projectRoot: root)
         let projectSkillsLock = SkillsLockReader.read(at: root.appendingPathComponent("skills-lock.json"))
         let globalSkillsLock = SkillsLockReader.read(at: options.skillsGlobalLockURL)
 
@@ -932,7 +936,7 @@ public final class CapabilityScanner {
                 currentKey = nil
                 continue
             }
-            guard let currentKey, line.hasPrefix("enabled"), let enabled = tomlBoolValue(from: line) else {
+            guard let currentKey, tomlKey(from: line) == "enabled", let enabled = tomlBoolValue(from: line) else {
                 continue
             }
             states[currentKey] = enabled
@@ -1083,7 +1087,9 @@ public final class CapabilityScanner {
                 for (serverName, value) in servers {
                     let server = value as? [String: Any] ?? [:]
                     let risks = riskHints(forMCPServer: server)
-                    let disabledSettingsPath = disabledMcpjsonServerSettingsPaths[serverName]
+                    // Scope-bound: a project MCP server matches only a project-scope disabled entry, so its
+                    // enable/disable can never rewrite the user's global ~/.claude/settings.json.
+                    let disabledSettingsPath = disabledMcpjsonServerSettingsPaths[scopedOverrideKey(scope, serverName)]
                     let isDisabledForClaude = disabledSettingsPath != nil
                     var metadata = compactMetadata(server)
                     metadata["mcpServerName"] = serverName
@@ -1742,7 +1748,10 @@ public final class CapabilityScanner {
             metadata["marketplace"] = codexCacheInfo.marketplace
             metadata["installedVersion"] = codexCacheInfo.version
             metadata["configPath"] = configPath
-            metadata["checkCommand"] = "codex plugin marketplace upgrade \(shellQuoted(codexCacheInfo.marketplace)) && codex plugin list --marketplace \(shellQuoted(codexCacheInfo.marketplace))"
+            // Read-only check: the App auto-runs `checkCommand` merely on selecting a tile (no confirmation),
+            // so it must not have side effects. `marketplace upgrade` (a network fetch that rewrites the local
+            // marketplace cache) stays only in `updateCommand`, which is gated behind explicit confirmation.
+            metadata["checkCommand"] = "codex plugin list --marketplace \(shellQuoted(codexCacheInfo.marketplace))"
             metadata["updateCommand"] = "codex plugin marketplace upgrade \(shellQuoted(codexCacheInfo.marketplace)) && codex plugin add \(shellQuoted(selector))"
             metadata["enableMode"] = "plugin-add"
             metadata["enableCommand"] = "codex plugin add \(shellQuoted(selector))"
@@ -1752,7 +1761,9 @@ public final class CapabilityScanner {
             metadata["lifecycleNote"] = "This skill is bundled inside the \(pluginDisplayName(codexCacheInfo.pluginName)) Codex plugin; enable, disable, update, and delete apply to the plugin package."
             statuses = statusList(enabled: codexPluginStates[selector])
         } else if sourceKind == "claude-skill" {
-            let overrideState = claudeSkillStates[name]
+            // Scope-bound lookup: a project skill matches only a project-scope override, so its
+            // enable/disable can never rewrite the user's global ~/.claude/settings.json (and vice versa).
+            let overrideState = claudeSkillStates[scopedOverrideKey(scope, name)]
             let settingsPath = overrideState?.settingsPath ?? claudeSettingsPath(forSkill: url, scope: scope, projectRoot: projectRoot)
             let enabled = overrideState?.enabled ?? true
             metadata["claudeSkillName"] = name
@@ -2062,30 +2073,52 @@ public final class CapabilityScanner {
         return uniqueURLs(urls)
     }
 
-    private func claudeSkillOverrideStates(at urls: [URL]) -> [String: ClaudeSkillOverrideState] {
+    /// The scope a settings file governs: project when it lives under the open project, else user. Used to
+    /// scope-bind Claude `skillOverrides` / `disabledMcpjsonServers` lookups so a PROJECT item never inherits
+    /// a same-named USER-global override (and have its enable/disable rewrite the user's global settings).
+    private func settingsScope(for url: URL, projectRoot: URL) -> CapabilityScope {
+        let path = url.standardizedFileURL.path
+        let root = projectRoot.standardizedFileURL.path
+        return (path == root || path.hasPrefix(root + "/")) ? .project : .user
+    }
+
+    /// Composite key `<scope>\u{1}<name>` (the separator can't occur in a skill/server name) so override
+    /// states from project and user settings never collide on a shared name.
+    private func scopedOverrideKey(_ scope: CapabilityScope, _ name: String) -> String {
+        "\(scope.rawValue)\u{1}\(name)"
+    }
+
+    /// Keyed by `scopedOverrideKey(scope, name)` so a project skill only ever matches a project-scope
+    /// `skillOverrides` entry (and vice versa) — never a same-named user-global one.
+    private func claudeSkillOverrideStates(at urls: [URL], projectRoot: URL) -> [String: ClaudeSkillOverrideState] {
         urls.reduce(into: [String: ClaudeSkillOverrideState]()) { result, url in
             guard let object = jsonObject(at: url),
                   let overrides = object["skillOverrides"] as? [String: Any] else {
                 return
             }
+            let scope = settingsScope(for: url, projectRoot: projectRoot)
             for (name, value) in overrides {
                 if let string = value as? String {
-                    result[name] = ClaudeSkillOverrideState(enabled: string.lowercased() != "off", settingsPath: url.path)
+                    result[scopedOverrideKey(scope, name)] = ClaudeSkillOverrideState(enabled: string.lowercased() != "off", settingsPath: url.path)
                 } else if let bool = value as? Bool {
-                    result[name] = ClaudeSkillOverrideState(enabled: bool, settingsPath: url.path)
+                    result[scopedOverrideKey(scope, name)] = ClaudeSkillOverrideState(enabled: bool, settingsPath: url.path)
                 }
             }
         }
     }
 
-    private func claudeDisabledMcpjsonServerSettingsPaths(at urls: [URL]) -> [String: String] {
+    /// Keyed by `scopedOverrideKey(scope, serverName)` so a project MCP server only matches a project-scope
+    /// `disabledMcpjsonServers` entry — never a same-named user-global one (server names like `github` are
+    /// highly predictable, so the cross-scope collision was easy to trigger).
+    private func claudeDisabledMcpjsonServerSettingsPaths(at urls: [URL], projectRoot: URL) -> [String: String] {
         urls.reduce(into: [String: String]()) { result, url in
             guard let object = jsonObject(at: url),
                   let servers = object["disabledMcpjsonServers"] as? [String] else {
                 return
             }
+            let scope = settingsScope(for: url, projectRoot: projectRoot)
             for server in servers {
-                result[server] = url.path
+                result[scopedOverrideKey(scope, server)] = url.path
             }
         }
     }
@@ -2214,7 +2247,9 @@ public final class CapabilityScanner {
             metadata["installedVersion"] = manifest.version
             metadata["configPath"] = configPath
             if scope == .user {
-                metadata["checkCommand"] = "codex plugin marketplace upgrade \(shellQuoted(manifest.marketplace)) && codex plugin list --marketplace \(shellQuoted(manifest.marketplace))"
+                // Read-only check (see the bundled-skill checkCommand above): `marketplace upgrade` is
+                // side-effecting/network and stays only in the confirmation-gated `updateCommand`.
+                metadata["checkCommand"] = "codex plugin list --marketplace \(shellQuoted(manifest.marketplace))"
                 metadata["updateCommand"] = "codex plugin marketplace upgrade \(shellQuoted(manifest.marketplace)) && codex plugin add \(shellQuoted(manifest.selector))"
                 metadata["enableMode"] = "plugin-add"
                 metadata["enableCommand"] = "codex plugin add \(shellQuoted(manifest.selector))"
@@ -2384,7 +2419,7 @@ public final class CapabilityScanner {
                 currentPlugin = nil
                 continue
             }
-            guard let plugin = currentPlugin, line.hasPrefix("enabled"), let enabled = tomlBoolValue(from: line) else { continue }
+            guard let plugin = currentPlugin, tomlKey(from: line) == "enabled", let enabled = tomlBoolValue(from: line) else { continue }
             states[plugin] = enabled
         }
         return states
@@ -2425,15 +2460,34 @@ public final class CapabilityScanner {
             }
             guard inSkillConfig else { continue }
 
-            if line.hasPrefix("path") {
+            switch tomlKey(from: line) {
+            case "path":
                 currentPath = tomlStringValue(from: line)
-            } else if line.hasPrefix("enabled") {
+            case "enabled":
                 currentEnabled = tomlBoolValue(from: line)
+            default:
+                break
             }
         }
 
         flushCurrent()
         return states
+    }
+
+    /// The bare key of a TOML `key = value` line (the token left of the first `=`, unquoted and trimmed),
+    /// or nil for a non-assignment line. Matching the key token — instead of `line.hasPrefix("enabled")` —
+    /// stops a prefix-sharing sibling key (`enabled_at`, `pathspec`) from being mistaken for `enabled`/`path`
+    /// and silently overwriting the real value.
+    private func tomlKey(from line: String) -> String? {
+        guard line.contains("=") else { return nil }
+        var key = (line.split(separator: "=", maxSplits: 1).first.map(String.init) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty, !key.contains(" ") else { return nil }
+        if key.count >= 2, let first = key.first, let last = key.last,
+           (first == "\"" && last == "\"") || (first == "'" && last == "'") {
+            key = String(key.dropFirst().dropLast())
+        }
+        return key
     }
 
     private func tomlStringValue(from line: String) -> String? {

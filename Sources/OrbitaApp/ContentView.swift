@@ -49,6 +49,9 @@ struct ContentView: View {
     /// A capability id carried by an `orbita://capability` deep link, focused once its scan lands. Scoped to
     /// the deep-linked project so it can't hijack selection if the user navigates elsewhere first.
     @State private var pendingDeepLinkFocus: DeepLinkFocus?
+    /// A deep-link URL that arrived before the store was prepared (cold start behind the Full Disk Access
+    /// gate). Replayed once `prepareStoreIfPermitted()` has run, so it isn't lost to prepare()'s openEnvironment().
+    @State private var pendingLaunchURL: URL?
     @State private var expandedGroupIDs: Set<String> = []
     @State private var sidebarCollapsed = false
     @State private var inspectorVisible = true
@@ -557,6 +560,12 @@ struct ContentView: View {
         didPrepareStore = true
         store.prepare()
         selectedProject = store.selectionID
+        // Replay a deep link that arrived before the store was ready; it opens the real project on top of
+        // the environment prepare() just opened.
+        if let url = pendingLaunchURL {
+            pendingLaunchURL = nil
+            handleDeepLink(url)
+        }
     }
 
     /// Handle an `orbita://` deep link. NAVIGATION ONLY — it opens a project and optionally focuses a
@@ -565,6 +574,13 @@ struct ContentView: View {
     ///   orbita://open?project=<path>
     ///   orbita://capability?project=<path>&id=<capability-id-or-name>
     private func handleDeepLink(_ url: URL) {
+        // A cold-start URL can arrive before the store is prepared (FDA gate still showing). Stash it and
+        // replay after prepare() — otherwise prepare()'s openEnvironment() resets projectRoot to the
+        // environment right after we opened the deep-linked project, bouncing the user back to This Mac.
+        guard didPrepareStore else {
+            pendingLaunchURL = url
+            return
+        }
         guard url.scheme == "orbita",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         let items = components.queryItems ?? []

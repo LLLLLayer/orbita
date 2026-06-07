@@ -410,7 +410,11 @@ public final class ApplyPlanBuilder {
             operations.append(ApplyOperation(
                 kind: .appendLog,
                 path: agentsRoot.appendingPathComponent("logs/apply.log").path,
-                content: "\(ISO8601DateFormatter().string(from: Date())) \(action.rawValue) \(planCapabilityID) affected:\(capabilities.count)\n",
+                // Record the member ids (tab-joined, after a " members:" sentinel — tabs never occur in a
+                // capability id) so `planRollback` can invert the WHOLE group. The bare `planCapabilityID` is
+                // a synthetic group id that matches no capability, so without this rollback could never
+                // resolve a grouped toggle and threw `capabilityNotFound`.
+                content: "\(ISO8601DateFormatter().string(from: Date())) \(action.rawValue) \(planCapabilityID) affected:\(capabilities.count) members:\(capabilities.map(\.id).joined(separator: "\t"))\n",
                 risk: .write,
                 description: "Append grouped \(action.rawValue) operation log"
             ))
@@ -837,51 +841,61 @@ public final class ApplyPlanBuilder {
             throw OrbitaError.invalidApplyPlan("Cannot rollback a \(lastEntry.action.rawValue) entry")
         }
 
-        guard let capability = graph.capabilities.first(where: { $0.id == lastEntry.capabilityID }) else {
-            throw OrbitaError.capabilityNotFound(lastEntry.capabilityID)
+        // A single toggle yields one id; a grouped toggle yields all its members (recorded in the log), so
+        // rollback inverts the entire group rather than failing to resolve a synthetic group id.
+        let capabilities = lastEntry.capabilityIDs.compactMap { id in
+            graph.capabilities.first(where: { $0.id == id })
+        }
+        guard !capabilities.isEmpty else {
+            throw OrbitaError.capabilityNotFound(lastEntry.capabilityIDs.first ?? "")
         }
 
         var operations = baseIndexOperations(
             action: inverseAction,
-            capability: capability,
+            capabilities: capabilities,
             graph: graph,
             agentsRoot: agentsRoot
         )
 
         // Reuse the SAME source-operation builders as a normal enable/disable so rollback is symmetric for
-        // every capability type by construction — not just skills. A rolled-back disable restores the source
-        // (from the disabled store for a quarantined command/agent fork, or by reconstructing a skill's
-        // `.agents/skills/<name>` link); a rolled-back enable re-runs the disable source ops.
-        switch inverseAction {
-        case .enable:
-            if let restore = restoreOperation(for: capability, graph: graph) {
-                operations.append(restore)
-            } else if capability.type == .skill {
-                let skillsRoot = agentsRoot.appendingPathComponent("skills")
-                operations.append(ApplyOperation(
-                    kind: .createDirectory,
-                    path: skillsRoot.path,
-                    risk: .write,
-                    description: "Create project skill links directory"
-                ))
-                operations.append(ApplyOperation(
-                    kind: .createSymlink,
-                    path: skillsRoot.appendingPathComponent(capability.name).path,
-                    target: skillDirectoryPath(for: capability),
-                    risk: .write,
-                    description: "Restore project skill link"
-                ))
+        // every capability type by construction — not just skills, and for every member of a grouped toggle.
+        // A rolled-back disable restores the source (from the disabled store for a quarantined command/agent
+        // fork, or by reconstructing a skill's `.agents/skills/<name>` link); a rolled-back enable re-runs the
+        // disable source ops.
+        for capability in capabilities {
+            switch inverseAction {
+            case .enable:
+                if let restore = restoreOperation(for: capability, graph: graph) {
+                    operations.append(restore)
+                } else if capability.type == .skill {
+                    let skillsRoot = agentsRoot.appendingPathComponent("skills")
+                    operations.append(ApplyOperation(
+                        kind: .createDirectory,
+                        path: skillsRoot.path,
+                        risk: .write,
+                        description: "Create project skill links directory"
+                    ))
+                    operations.append(ApplyOperation(
+                        kind: .createSymlink,
+                        path: skillsRoot.appendingPathComponent(capability.name).path,
+                        target: skillDirectoryPath(for: capability),
+                        risk: .write,
+                        description: "Restore project skill link"
+                    ))
+                }
+            case .disable:
+                operations.append(contentsOf: disableSourceOperations(for: capability, graph: graph, agentsRoot: agentsRoot))
+            case .delete, .merge, .rollback, .clean:
+                break
             }
-        case .disable:
-            operations.append(contentsOf: disableSourceOperations(for: capability, graph: graph, agentsRoot: agentsRoot))
-        case .delete, .merge, .rollback, .clean:
-            break
         }
 
+        let isGroup = capabilities.count > 1
+        let rollbackLogID = isGroup ? "group:\(capabilities.count)" : capabilities[0].id
         operations.append(ApplyOperation(
             kind: .appendLog,
             path: logPath,
-            content: "\(ISO8601DateFormatter().string(from: Date())) rollback \(capability.id) inverse:\(inverseAction.rawValue)\n",
+            content: "\(ISO8601DateFormatter().string(from: Date())) rollback \(rollbackLogID) inverse:\(inverseAction.rawValue)\n",
             risk: .write,
             description: "Append rollback operation log"
         ))
@@ -889,7 +903,8 @@ public final class ApplyPlanBuilder {
         return ApplyPlan(
             projectRoot: graph.projectRoot,
             action: .rollback,
-            capabilityID: capability.id,
+            capabilityID: isGroup ? "group" : capabilities[0].id,
+            affectedCapabilityIDs: isGroup ? capabilities.map(\.id) : nil,
             appliesChanges: false,
             requiresConfirmation: true,
             operations: operations
@@ -1626,14 +1641,12 @@ public final class ApplyPlanBuilder {
     private func quarantineOperations(for capability: Capability, sourcePath: String, graph: CapabilityGraph) -> [ApplyOperation] {
         let quarantinePath = disabledQuarantineContentPath(for: capability, sourcePath: sourcePath, graph: graph)
         let entryDirectory = URL(fileURLWithPath: quarantinePath).deletingLastPathComponent()
+        // Write the sidecar FIRST, then move the source. If the move then fails the sidecar is a harmless
+        // orphan (`OrbitaDisabledStore.entries()` ignores an entry whose content is absent) and the source is
+        // still in place. The reverse order risked the opposite: a successful move + a failed sidecar write
+        // would leave a content-only store entry with no `.orbita-restore.json`, unrecoverable if
+        // `.agents/manifest.json` were later lost — defeating the store's self-describing guarantee.
         return [
-            ApplyOperation(
-                kind: .cachePath,
-                path: sourcePath,
-                target: quarantinePath,
-                risk: .write,
-                description: "Move capability source into the scope-correct Orbita disabled store (host has no native disable); restorable on enable"
-            ),
             ApplyOperation(
                 kind: .writeFile,
                 path: OrbitaDisabledStore.sidecarPath(forEntryDirectory: entryDirectory).path,
@@ -1646,6 +1659,13 @@ public final class ApplyPlanBuilder {
                 ),
                 risk: .write,
                 description: "Write co-located restore metadata so the disabled item survives loss of .agents/manifest.json"
+            ),
+            ApplyOperation(
+                kind: .cachePath,
+                path: sourcePath,
+                target: quarantinePath,
+                risk: .write,
+                description: "Move capability source into the scope-correct Orbita disabled store (host has no native disable); restorable on enable"
             )
         ]
     }
@@ -1909,17 +1929,31 @@ public final class ApplyPlanBuilder {
         )
     }
 
-    private func readLastApplyLogEntry(at path: String) throws -> (action: ApplyAction, capabilityID: String)? {
+    private func readLastApplyLogEntry(at path: String) throws -> (action: ApplyAction, capabilityIDs: [String])? {
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
             return nil
         }
         let lines = text.split(separator: "\n").reversed()
         for line in lines {
             let parts = line.split(separator: " ", maxSplits: 2).map(String.init)
+            // A rollback entry is skipped so repeated rollback walks back through history; the sync/resync
+            // tokens are not ApplyAction cases, so they fail `ApplyAction(rawValue:)` and are skipped too.
             guard parts.count == 3, let action = ApplyAction(rawValue: parts[1]), action != .rollback else {
                 continue
             }
-            return (action, parts[2])
+            let remainder = parts[2]
+            if action == .enable || action == .disable {
+                // Grouped enable/disable trails its tab-joined members after a " members:" sentinel.
+                if let range = remainder.range(of: " members:") {
+                    let ids = remainder[range.upperBound...].split(separator: "\t").map(String.init)
+                    if !ids.isEmpty { return (action, ids) }
+                }
+                // Single entry: the remainder is exactly the capability id (no trailing tokens).
+                return (action, [remainder])
+            }
+            // Non-invertible (delete/merge/clean): the id list is unused by `planRollback`, which throws.
+            let leading = remainder.split(separator: " ", maxSplits: 1).map(String.init).first ?? remainder
+            return (action, [leading])
         }
         return nil
     }
@@ -1995,14 +2029,21 @@ public final class ApplyPlanExecutor {
                 try? fileManager.removeItem(atPath: operation.path)
             case .backupPath:
                 // Re-sync moved the existing fork aside into the fork-backup store, then the refresh copy
-                // failed — leaving the agent dir missing the fork. Unlike the disabled store, the fork-backup
-                // store is NOT read back by the scanner, so without this the working fork would be silently
-                // stranded with no in-product recovery. Move the backup back only when the destination is now
-                // empty (the failed copy never landed) and the backup is still present.
+                // (a `.copyPath` whose target is this same dest) ran. Unlike the disabled store, the
+                // fork-backup store is NOT read back by the scanner, so a stranded backup has no in-product
+                // recovery — restore it whenever the refresh did NOT succeed. The refresh "succeeded" iff its
+                // `.copyPath` is in `completed`; if it is, leave the fresh copy untouched. If it failed it may
+                // still have left a PARTIAL directory at dest (copyItem aborting mid-tree), so clear that
+                // partial first — otherwise the old `!fileExists(dest)` guard would refuse and strand the
+                // user's only intact copy in the invisible backup store.
                 guard let target = operation.target,
-                      fileManager.fileExists(atPath: target),
-                      !fileManager.fileExists(atPath: operation.path),
-                      (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) == nil else { continue }
+                      fileManager.fileExists(atPath: target) else { continue }
+                let refreshSucceeded = completed.contains { $0.kind == .copyPath && $0.target == operation.path }
+                guard !refreshSucceeded else { continue }
+                if fileManager.fileExists(atPath: operation.path)
+                    || (try? fileManager.destinationOfSymbolicLink(atPath: operation.path)) != nil {
+                    try? fileManager.removeItem(atPath: operation.path)
+                }
                 try? fileManager.moveItem(atPath: target, toPath: operation.path)
             default:
                 continue
@@ -2182,8 +2223,14 @@ public final class ApplyPlanExecutor {
             } else if operationPath == orbitaRootPath
                 || operationPath.hasPrefix(orbitaRootPath + "/")
                 || isDisabledStorePath(operationPath, projectRootPath: projectRootPath) {
-                guard isProjectPath(targetPath) else {
-                    throw OrbitaError.invalidApplyPlan("Project-store restore target is outside the project tree: \(target)")
+                // Mirror the user-store branch: a project-store quarantine source always lived in a project
+                // agent dotdir (`isCacheableAgentSourcePath`), so its restore target must stay within one too
+                // — NOT anywhere under the repo. Without this, a hostile repo's committed
+                // `<repo>/.orbita/disabled` entry with an attacker-controlled sidecar `originalSourcePath`
+                // could aim the restore at e.g. `<repo>/.git/hooks/pre-commit` and, on the victim clicking
+                // Enable, plant an executable hook (the no-clobber rule blocks overwrites but not new files).
+                guard isProjectAgentStoragePath(targetPath, projectRoot: projectRootPath) else {
+                    throw OrbitaError.invalidApplyPlan("Project-store restore target is outside project agent storage: \(target)")
                 }
             } else {
                 throw OrbitaError.invalidApplyPlan("Restore source is outside the Orbita disabled store: \(operation.path)")
@@ -2264,6 +2311,15 @@ public final class ApplyPlanExecutor {
     /// so a project-store quarantine entry can never restore into the user's HOME agent dirs.
     private func isUserHomeAgentStoragePath(_ path: String, projectRoot: String) -> Bool {
         let allowedRoots = agentStorageRoots(projectRoot: projectRoot, includeProject: false, includeUserHome: true)
+        return allowedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// Project half of `isAgentStoragePath`: the project's own agent dotdirs only (no user-home roots, no
+    /// catalog `globalSkillsDir`). Used to scope-bind a PROJECT-store restore to a real project agent dir
+    /// (e.g. `<repo>/.trae/skills/<name>`), so a hostile repo's planted `<repo>/.orbita/disabled` entry can
+    /// never restore to an arbitrary repo path. Symmetric with `isUserHomeAgentStoragePath`.
+    private func isProjectAgentStoragePath(_ path: String, projectRoot: String) -> Bool {
+        let allowedRoots = agentStorageRoots(projectRoot: projectRoot, includeProject: true, includeUserHome: false)
         return allowedRoots.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 

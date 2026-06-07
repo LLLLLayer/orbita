@@ -529,6 +529,16 @@ struct ParsedCommand {
         var parsedMerge = false
         var parsedClean = false
 
+        // A value-taking flag's value must exist AND not itself be another `--flag`: `--disable --json` is a
+        // missing value for --disable, not a capability literally named "--json". Single-dash tokens (`-h`)
+        // stay allowed as values, so a capability id passed as `--disable -h` is still not hijacked as help.
+        func flagValue(_ flag: String) throws -> String {
+            guard index + 1 < arguments.count else { throw CLIError.missingValue(flag) }
+            let next = arguments[index + 1]
+            guard !next.hasPrefix("--") else { throw CLIError.missingValue(flag) }
+            return next
+        }
+
         while index < arguments.count {
             let argument = arguments[index]
             switch argument {
@@ -547,40 +557,31 @@ struct ParsedCommand {
                 parsedClean = true
                 index += 1
             case "--agent":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--agent") }
-                parsedAgent = arguments[index + 1]
+                parsedAgent = try flagValue("--agent")
                 index += 2
             case "--enable":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--enable") }
-                parsedEnableCapabilityID = arguments[index + 1]
+                parsedEnableCapabilityID = try flagValue("--enable")
                 index += 2
             case "--disable":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--disable") }
-                parsedDisableCapabilityID = arguments[index + 1]
+                parsedDisableCapabilityID = try flagValue("--disable")
                 index += 2
             case "--delete":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--delete") }
-                parsedDeleteCapabilityID = arguments[index + 1]
+                parsedDeleteCapabilityID = try flagValue("--delete")
                 index += 2
             case "--sync":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--sync") }
-                parsedSyncCapabilityID = arguments[index + 1]
+                parsedSyncCapabilityID = try flagValue("--sync")
                 index += 2
             case "--resync":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--resync") }
-                parsedResyncCapabilityID = arguments[index + 1]
+                parsedResyncCapabilityID = try flagValue("--resync")
                 index += 2
             case "--mode":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--mode") }
-                parsedSyncMode = arguments[index + 1]
+                parsedSyncMode = try flagValue("--mode")
                 index += 2
             case "--scope":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue("--scope") }
-                parsedSyncScope = arguments[index + 1]
+                parsedSyncScope = try flagValue("--scope")
                 index += 2
             case "--project", "--project-root":
-                guard index + 1 < arguments.count else { throw CLIError.missingValue(argument) }
-                explicitProject = arguments[index + 1]
+                explicitProject = try flagValue(argument)
                 index += 2
             default:
                 positional.append(argument)
@@ -600,6 +601,34 @@ struct ParsedCommand {
         rollback = parsedRollback
         merge = parsedMerge
         clean = parsedClean
+
+        // `plan` takes exactly one action. The run() dispatch resolves actions by a fixed priority, so two
+        // actions on one line (`--disable X --delete Y`) would silently run only the higher-priority one —
+        // a mutating command doing something other than what the user asked, with no error. Reject it here,
+        // and reject a modifier (`--mode`/`--scope`) attached to an action it does not modify (it would be
+        // silently ignored, masking a wrong mental model). `--mode` only modifies `--sync`; `--scope`
+        // modifies `--sync` or `--resync`.
+        if name == "plan" {
+            let actionCount = [
+                parsedEnableCapabilityID != nil,
+                parsedDisableCapabilityID != nil,
+                parsedDeleteCapabilityID != nil,
+                parsedSyncCapabilityID != nil,
+                parsedResyncCapabilityID != nil,
+                parsedRollback,
+                parsedMerge,
+                parsedClean
+            ].filter { $0 }.count
+            if actionCount > 1 {
+                throw CLIError.conflictingPlanActions
+            }
+            if parsedSyncMode != nil, parsedSyncCapabilityID == nil {
+                throw CLIError.unexpectedPlanModifier("--mode", "--sync")
+            }
+            if parsedSyncScope != nil, parsedSyncCapabilityID == nil, parsedResyncCapabilityID == nil {
+                throw CLIError.unexpectedPlanModifier("--scope", "--sync or --resync")
+            }
+        }
 
         if name == "doctor" {
             projectRoot = explicitProject ?? FileManager.default.currentDirectoryPath
@@ -631,6 +660,8 @@ enum CLIError: LocalizedError {
     case invalidValue(String, String)
     case missingCapabilityID
     case missingPlanCapabilityID
+    case conflictingPlanActions
+    case unexpectedPlanModifier(String, String)
     case capabilityNotFound(String)
 
     var errorDescription: String? {
@@ -649,6 +680,10 @@ enum CLIError: LocalizedError {
             return "Missing capability id."
         case .missingPlanCapabilityID:
             return "Missing plan action. Use --enable <capability-id>, --disable <capability-id>, --delete <capability-id>, --sync <capability-id> --agent <id> [--mode copy|symlink] [--scope project|user], --resync <capability-id> --agent <id> [--scope project|user], --merge, --rollback, or --clean."
+        case .conflictingPlanActions:
+            return "Only one plan action is allowed at a time. Use exactly one of --enable, --disable, --delete, --sync, --resync, --merge, --rollback, or --clean."
+        case let .unexpectedPlanModifier(flag, requires):
+            return "\(flag) is only valid with \(requires)."
         case .capabilityNotFound(let id):
             return "Capability not found: \(id)"
         }

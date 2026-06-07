@@ -53,13 +53,23 @@ final class ProjectCapabilityStore: ObservableObject {
     private var scanTask: Task<Void, Never>?
     private var refreshPolicy = ScanRefreshPolicy.oneHour
     /// Per-source skill-scan budget passed to `ScanOptions.maxSkillFiles`. Mirrors the
-    /// `scanMaxSkillFiles` AppStorage preference; `Int.max` means "no limit" (the
-    /// settings picker stores `0` for that and `configure(maxSkillFiles:)` maps it).
+    /// `scanMaxSkillFiles` AppStorage preference; a non-positive value (the picker's "No limit",
+    /// stored as `0`) is normalized to "no limit" by `ScanOptions.init`.
     private var maxSkillFiles = 500
     private let snapshotStore: CapabilitySnapshotStore
     private let projectLibraryStore: ProjectLibraryStore
     private let iso8601Formatter = ISO8601DateFormatter()
     private(set) var graphRevision = 0
+    /// Monotonic id for the in-flight scan. A cancelled scan's detached work keeps running and keeps
+    /// emitting progress events; tagging each scan and dropping events whose generation is stale stops a
+    /// superseded scan (e.g. an A→B→A switch back to the same root) from driving the current scan's UI.
+    private var scanGeneration = 0
+    /// True while an `apply()`'s `ApplyPlanExecutor` is writing to disk. Serializes applies so two executors
+    /// can't write `.agents/manifest.json` concurrently (last-write-wins / interleaved ops).
+    private var applyInFlight = false
+    /// When true, `errorMessage` holds a failed-apply message that the reconciling re-scan must NOT clear on
+    /// success — otherwise the scan's `errorMessage = nil` would wipe the reason the user most needs to see.
+    private var errorMessageIsApplyFailure = false
 
     init(
         projectRoot: URL? = nil,
@@ -110,10 +120,11 @@ final class ProjectCapabilityStore: ObservableObject {
         self.refreshPolicy = ScanRefreshPolicy(rawValue: rawValue) ?? .oneHour
     }
 
-    /// Sets the per-source skill-scan budget. A non-positive value (the picker's
-    /// "No limit" option, stored as `0`) maps to `Int.max` so the cap never fires.
+    /// Sets the per-source skill-scan budget. The picker's "No limit" option (stored as `0`) and any
+    /// non-positive value are normalized to "no limit" by `ScanOptions.init` (the single owner of that
+    /// sentinel), so this just forwards the raw value.
     func configure(maxSkillFiles value: Int) {
-        self.maxSkillFiles = value <= 0 ? Int.max : value
+        self.maxSkillFiles = value
     }
 
     func prepare() {
@@ -135,6 +146,7 @@ final class ProjectCapabilityStore: ObservableObject {
                 setGraph(nil)
             }
             errorMessage = nil
+            errorMessageIsApplyFailure = false
             isScanning = false
             scanMessage = nil
             scanProgress = 0
@@ -146,7 +158,10 @@ final class ProjectCapabilityStore: ObservableObject {
         let startedAt = Date()
         scanTask?.cancel()
         scanTask = nil
+        scanGeneration += 1
+        let generation = scanGeneration
         errorMessage = nil
+        errorMessageIsApplyFailure = false
         if let snapshot = try? snapshotStore.load(projectRoot: root) {
             if !preserveCurrentGraph {
                 setGraph(snapshot.graph)
@@ -174,7 +189,7 @@ final class ProjectCapabilityStore: ObservableObject {
 
         OrbitaTelemetry.scan.notice("scan.start root=\(root.path, privacy: .private)")
 
-        let progressRelay = ScanProgressRelay(store: self, root: root)
+        let progressRelay = ScanProgressRelay(store: self, root: root, generation: generation)
         let maxSkillFiles = self.maxSkillFiles
         scanTask = Task { [weak self] in
             do {
@@ -201,7 +216,9 @@ final class ProjectCapabilityStore: ObservableObject {
                 }
 
                 self.setGraph(graph)
-                self.errorMessage = nil
+                // A reconciling re-scan kicked off by a FAILED apply must not wipe the failure banner the
+                // user most needs to read; every other scan clears stale scan errors as before.
+                if !self.errorMessageIsApplyFailure { self.errorMessage = nil }
                 self.isScanning = false
                 self.scanMessage = String(format: L("scan.foundCapabilities"), graph.capabilities.count)
                 self.scanProgress = 1
@@ -222,6 +239,7 @@ final class ProjectCapabilityStore: ObservableObject {
                 }
                 self.setGraph(nil)
                 self.errorMessage = error.localizedDescription
+                self.errorMessageIsApplyFailure = false
                 self.isScanning = false
                 self.scanMessage = nil
                 self.scanProgress = 0
@@ -245,7 +263,10 @@ final class ProjectCapabilityStore: ObservableObject {
         graphRevision += 1
     }
 
-    fileprivate func updateScanProgress(_ event: ScanProgressEvent, for root: URL) {
+    fileprivate func updateScanProgress(_ event: ScanProgressEvent, for root: URL, generation: Int) {
+        // Drop events from a superseded scan: a cancelled scan's detached work keeps emitting, and on an
+        // A→B→A switch its late events would otherwise pass the root check and jitter the current scan's UI.
+        guard generation == scanGeneration else { return }
         guard projectRoot?.standardizedFileURL.resolvingSymlinksInPath() == root else { return }
         scanProgress = max(scanProgress, progressValue(for: event.name))
         scanMessage = scanMessage(for: event)
@@ -655,15 +676,25 @@ final class ProjectCapabilityStore: ObservableObject {
 
     @discardableResult
     func apply(_ plan: ApplyPlan) -> Bool {
+        // Serialize applies: two `ApplyPlanExecutor`s writing `.agents/manifest.json` concurrently would
+        // race (last-write-wins / interleaved ops). Reject a second apply while one is still on disk — the
+        // UI state is left untouched so the user can retry once the first completes.
+        guard !applyInFlight else {
+            OrbitaTelemetry.apply.notice("apply.rejected reason=in-flight action=\(plan.action.rawValue, privacy: .public)")
+            return false
+        }
+
         let affectedCapabilities = affectedCapabilities(for: plan)
         let previousGraph = graph
         errorMessage = nil
+        errorMessageIsApplyFailure = false
         successMessage = nil
         successDetail = nil
         successUndoable = false
 
         let didOptimisticallyApply = optimisticallyApply(plan)
         let optimisticRevision = didOptimisticallyApply ? graphRevision : nil
+        applyInFlight = true
 
         Task { [weak self, plan, affectedCapabilities, previousGraph, optimisticRevision] in
             let outcome = await Task.detached(priority: .userInitiated) {
@@ -678,6 +709,9 @@ final class ProjectCapabilityStore: ObservableObject {
             }.value
 
             guard let self else { return }
+            // The executor is fully done (its detached Task resolved), so the disk write is complete and a
+            // new apply may safely begin; the reconciling re-scan that finish/failApply trigger is a read.
+            self.applyInFlight = false
 
             switch outcome {
             case let .success(result):
@@ -783,7 +817,10 @@ final class ProjectCapabilityStore: ObservableObject {
         }
         OrbitaTelemetry.apply.error("apply.failed action=\(plan.action.rawValue, privacy: .public) error=\(message, privacy: .public)")
         reload(force: true, preserveCurrentGraph: true)
+        // Set AFTER reload (which resets the flag): mark this as an apply failure so the reconciling re-scan
+        // this same reload spawned doesn't clear the banner when it finishes.
         errorMessage = message
+        errorMessageIsApplyFailure = true
     }
 
     private func isCurrentOptimisticRevision(_ revision: Int?) -> Bool {
@@ -821,7 +858,9 @@ final class ProjectCapabilityStore: ObservableObject {
             setGraph(token.previousGraph)
         }
         reload(force: true, preserveCurrentGraph: true)
+        // See failApply: set after reload so the reconciling re-scan can't wipe the failure banner.
         errorMessage = message
+        errorMessageIsApplyFailure = true
     }
 
     private func affectedCapabilities(for plan: ApplyPlan) -> [Capability] {
@@ -1068,15 +1107,17 @@ final class ProjectCapabilityStore: ObservableObject {
 private final class ScanProgressRelay: @unchecked Sendable {
     weak var store: ProjectCapabilityStore?
     let root: URL
+    let generation: Int
 
-    init(store: ProjectCapabilityStore, root: URL) {
+    init(store: ProjectCapabilityStore, root: URL, generation: Int) {
         self.store = store
         self.root = root
+        self.generation = generation
     }
 
     func receive(_ event: ScanProgressEvent) {
-        Task { @MainActor [weak store, root] in
-            store?.updateScanProgress(event, for: root)
+        Task { @MainActor [weak store, root, generation] in
+            store?.updateScanProgress(event, for: root, generation: generation)
         }
     }
 }
