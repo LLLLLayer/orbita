@@ -238,6 +238,7 @@ enum LocalizationCatalog {
         "inspector.field.version": "Version",
         "inspector.field.access": "Access",
         "inspector.field.source": "Source",
+        "inspector.field.linkedSource": "Link",
         "inspector.field.canon": "Canon",
         "inspector.field.agents": "Agents",
         "inspector.field.lock": "Lock",
@@ -641,7 +642,7 @@ enum LocalizationCatalog {
         "sort.riskLevel": "Risk (highest first)",
 
         // Capability tiles
-        "group.prefix.subtitle": "Grouped by the %@-* prefix",
+        "group.prefix.subtitle": "Grouped by %@",
         "hook.timing": "Hook timing",
         "hook.timing.format": "%@ hook timing",
 
@@ -814,6 +815,7 @@ enum LocalizationCatalog {
         "inspector.field.version": "版本",
         "inspector.field.access": "权限",
         "inspector.field.source": "来源",
+        "inspector.field.linkedSource": "软链接",
         "inspector.field.canon": "规范路径",
         "inspector.field.agents": "Agent",
         "inspector.field.lock": "锁",
@@ -1210,7 +1212,7 @@ enum LocalizationCatalog {
         "sort.statusPriority": "状态（问题优先）",
         "sort.riskLevel": "风险（最高优先）",
 
-        "group.prefix.subtitle": "前缀为 %@-* 聚合的内容",
+        "group.prefix.subtitle": "按 %@ 聚合的内容",
         "hook.timing": "Hook 时机",
         "hook.timing.format": "Hook %@ 时机",
 
@@ -1381,6 +1383,7 @@ enum LocalizationCatalog {
         "inspector.field.version": "版本",
         "inspector.field.access": "權限",
         "inspector.field.source": "來源",
+        "inspector.field.linkedSource": "軟連結",
         "inspector.field.canon": "規範路徑",
         "inspector.field.agents": "Agent",
         "inspector.field.lock": "鎖",
@@ -1777,7 +1780,7 @@ enum LocalizationCatalog {
         "sort.statusPriority": "狀態（問題優先）",
         "sort.riskLevel": "風險（最高優先）",
 
-        "group.prefix.subtitle": "前綴為 %@-* 彙整的內容",
+        "group.prefix.subtitle": "按 %@ 彙整的內容",
         "hook.timing": "Hook 時機",
         "hook.timing.format": "Hook %@ 時機",
 

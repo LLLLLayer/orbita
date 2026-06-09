@@ -358,6 +358,9 @@ struct CapabilityInspectorView: View {
     private func sourceFields(for capability: Capability) -> some View {
         let display = sourceDisplay(for: capability)
         InspectorPathField(L("inspector.field.source"), path: display.primary)
+        ForEach(linkedMirrorSourcePaths(for: capability, primary: display.primary, canonical: display.canonical), id: \.self) { linkedSource in
+            InspectorPathField(L("inspector.field.linkedSource"), path: linkedSource)
+        }
         if let canonical = display.canonical {
             InspectorPathField(L("inspector.field.canon"), path: canonical)
         }
@@ -462,6 +465,10 @@ struct CapabilityInspectorView: View {
         if let selectedAgentPath = selectedAgentSourcePath(for: capability) {
             return selectedAgentPath
         }
+        return storedSourcePath(for: capability)
+    }
+
+    private func storedSourcePath(for capability: Capability) -> String {
         if let path = capability.metadata["sourcePath"],
            !path.isEmpty,
            !isInternalOrbitaIndexPath(path) {
@@ -474,6 +481,26 @@ struct CapabilityInspectorView: View {
             return capability.source.path
         }
         return "-"
+    }
+
+    private func linkedMirrorSourcePaths(for capability: Capability, primary: String, canonical: String?) -> [String] {
+        // In a concrete agent tab, the source row is already that agent's own entry
+        // and the canonical row is the target it resolves to. Showing sibling agent
+        // entries here makes it look like the selected agent loaded those paths.
+        guard selectedAgent == nil else { return [] }
+        guard !mirrorSiblings.isEmpty else { return [] }
+        var seen = Set([primary, canonical].compactMap { path -> String? in
+            guard let path, path != "-", !path.isEmpty else { return nil }
+            return standardizedPath(path)
+        })
+
+        return mirrorSiblings.compactMap { sibling in
+            guard sibling.type == capability.type else { return nil }
+            let path = storedSourcePath(for: sibling)
+            guard path != "-", !path.isEmpty else { return nil }
+            guard seen.insert(standardizedPath(path)).inserted else { return nil }
+            return path
+        }
     }
 
     private func selectedAgentSourcePath(for capability: Capability) -> String? {

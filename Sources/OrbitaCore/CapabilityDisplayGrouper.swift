@@ -185,6 +185,14 @@ public enum CapabilityDisplayItem: Hashable, Sendable, Identifiable {
 }
 
 public final class CapabilityDisplayGrouper {
+    private struct PrefixGroupCandidate: Hashable {
+        var key: String
+        var displayName: String
+        var displayPattern: String
+        var specificity: Int
+        var usesExplicitNamespace: Bool
+    }
+
     public init() {}
 
     public func items(
@@ -213,10 +221,33 @@ public final class CapabilityDisplayGrouper {
                 && capability.type != .hook
                 && !groupedChildIDs.contains(capability.id)
         }
-        let grouped = Dictionary(grouping: prefixCandidates, by: groupKey(for:))
-        let prefixGroupKeys = Set(grouped.compactMap { key, values in
-            Set(values.map(\.name)).count >= minimumGroupSize ? key : nil
+        var prefixCandidateByKey: [String: PrefixGroupCandidate] = [:]
+        let prefixCandidateEntries = prefixCandidates.flatMap { capability in
+            prefixGroupCandidates(for: capability).map { candidate in
+                prefixCandidateByKey[candidate.key] = candidate
+                return (candidate: candidate, capability: capability)
+            }
+        }
+        let prefixCandidateEntriesByKey = Dictionary(grouping: prefixCandidateEntries, by: { $0.candidate.key })
+        let prefixGroupableKeys = Set(prefixCandidateEntriesByKey.compactMap { entry -> String? in
+            let key = entry.key
+            let entries = entry.value
+            guard let candidate = entries.first?.candidate else { return nil }
+            let distinctNameCount = Set(entries.map { $0.capability.name }).count
+            return distinctNameCount >= requiredMinimumGroupSize(for: candidate, default: minimumGroupSize) ? key : nil
         })
+        var chosenPrefixKeyByCapabilityID: [String: String] = [:]
+        for capability in prefixCandidates {
+            guard let candidate = prefixGroupCandidates(for: capability).first(where: { prefixGroupableKeys.contains($0.key) }) else {
+                continue
+            }
+            chosenPrefixKeyByCapabilityID[capability.id] = candidate.key
+        }
+        let grouped = Dictionary(
+            grouping: prefixCandidates.filter { chosenPrefixKeyByCapabilityID[$0.id] != nil },
+            by: { chosenPrefixKeyByCapabilityID[$0.id] ?? "" }
+        )
+        let prefixGroupKeys = Set(chosenPrefixKeyByCapabilityID.values)
 
         var emittedGroups = Set<String>()
         var items: [CapabilityDisplayItem] = []
@@ -224,8 +255,8 @@ public final class CapabilityDisplayGrouper {
             if capability.type != .plugin,
                capability.type != .hook,
                !groupedChildIDs.contains(capability.id) {
-                let key = groupKey(for: capability)
-                if prefixGroupKeys.contains(key) {
+                if let key = chosenPrefixKeyByCapabilityID[capability.id],
+                   prefixGroupKeys.contains(key) {
                     let groupID = "group:\(key)"
                     guard !emittedGroups.contains(groupID), let groupCapabilities = grouped[key] else {
                         continue
@@ -233,7 +264,7 @@ public final class CapabilityDisplayGrouper {
                     emittedGroups.insert(groupID)
                     items.append(.group(CapabilityGroup(
                         id: groupID,
-                        name: prefixToken(for: capability),
+                        name: prefixCandidateByKey[key]?.displayPattern ?? "\(prefixToken(for: capability))-*",
                         capabilities: groupCapabilities,
                         kind: .prefix
                     )))
@@ -388,10 +419,68 @@ public final class CapabilityDisplayGrouper {
     /// and its `npx skills` symlink bridge under `.trae/skills` (or `.claude`/`.cursor`) are owned by
     /// different agents, so they form SEPARATE prefix tiles — each branded by its own directory's
     /// loader — instead of merging into one inflated "N copies" count (e.g. `lark` showing 50 in the
-    /// Overview when it is really 25 canonical + 25 bridge). The group display name stays the bare
-    /// prefix (`lark`); only the grouping/identity key carries the owner bucket.
-    private func groupKey(for capability: Capability) -> String {
-        "\(ownerBucket(for: capability))\u{1}\(prefixToken(for: capability))"
+    /// Overview when it is really 25 canonical + 25 bridge). The grouping key uses the bare prefix
+    /// (`lark`), while the group title displays the matched pattern (`lark-*`).
+    private func prefixGroupCandidates(for capability: Capability) -> [PrefixGroupCandidate] {
+        let name = capability.name
+        guard !name.isEmpty else { return [] }
+
+        let bucket = ownerBucket(for: capability)
+        if let namespaceSeparator = name.firstIndex(of: ":"), namespaceSeparator > name.startIndex {
+            return [
+                prefixGroupCandidate(
+                    displayName: String(name[..<namespaceSeparator]),
+                    separator: ":",
+                    ownerBucket: bucket,
+                    usesExplicitNamespace: true
+                )
+            ]
+        }
+
+        return name.indices
+            .filter { $0 > name.startIndex && name[$0] == "-" }
+            .map { separator in
+                prefixGroupCandidate(
+                    displayName: String(name[..<separator]),
+                    separator: "-",
+                    ownerBucket: bucket,
+                    usesExplicitNamespace: false
+                )
+            }
+            .sorted(by: sortPrefixCandidates)
+    }
+
+    private func prefixGroupCandidate(
+        displayName: String,
+        separator: String,
+        ownerBucket: String,
+        usesExplicitNamespace: Bool
+    ) -> PrefixGroupCandidate {
+        PrefixGroupCandidate(
+            key: "\(ownerBucket)\u{1}\(displayName)",
+            displayName: displayName,
+            displayPattern: "\(displayName)\(separator)*",
+            specificity: displayName.split(separator: "-").count,
+            usesExplicitNamespace: usesExplicitNamespace
+        )
+    }
+
+    private func sortPrefixCandidates(_ lhs: PrefixGroupCandidate, _ rhs: PrefixGroupCandidate) -> Bool {
+        if lhs.specificity != rhs.specificity {
+            return lhs.specificity > rhs.specificity
+        }
+        if lhs.displayName.count != rhs.displayName.count {
+            return lhs.displayName.count > rhs.displayName.count
+        }
+        return lhs.displayName < rhs.displayName
+    }
+
+    private func requiredMinimumGroupSize(for candidate: PrefixGroupCandidate, default defaultMinimum: Int) -> Int {
+        guard defaultMinimum != Int.max else { return defaultMinimum }
+        if candidate.usesExplicitNamespace || candidate.displayName.contains("-") {
+            return min(defaultMinimum, 2)
+        }
+        return defaultMinimum
     }
 
     /// The agent-directory a capability physically lives under (`.agents`/`.codex`/`.claude`/`.cursor`
@@ -406,14 +495,10 @@ public final class CapabilityDisplayGrouper {
         return ""
     }
 
-    /// The shared name prefix (text before the first interior `-`), e.g. `lark` for `lark-doc`. This is
-    /// the group's display name; the grouping key composes it with `ownerBucket`.
+    /// The preferred shared name prefix, e.g. `lark` for `lark-doc`, `sdd` for
+    /// `sdd:continue`, and `douyin-ios` for `douyin-ios-cosign`.
     private func prefixToken(for capability: Capability) -> String {
-        let name = capability.name
-        guard let separator = name.firstIndex(of: "-"), separator > name.startIndex else {
-            return name
-        }
-        return String(name[..<separator])
+        prefixGroupCandidates(for: capability).first?.displayName ?? capability.name
     }
 
     private func sortByName(_ lhs: Capability, _ rhs: Capability) -> Bool {

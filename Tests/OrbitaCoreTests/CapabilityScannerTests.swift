@@ -208,7 +208,7 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertEqual(items.count, 2)
         XCTAssertTrue(items.contains { item in
             guard case let .group(group) = item else { return false }
-            return group.name == "lark"
+            return group.name == "lark-*"
                 && group.capabilities.map(\.name) == ["lark-calendar", "lark-doc", "lark-im"]
                 && group.inspectionCapability.type == .plugin
                 && group.inspectionCapability.source.kind == "virtual-plugin"
@@ -217,6 +217,58 @@ final class CapabilityScannerTests: XCTestCase {
         XCTAssertTrue(items.contains { item in
             guard case let .capability(capability) = item else { return false }
             return capability.name == "obsidian-cli"
+        })
+    }
+
+    func testCapabilityDisplayGrouperAggregatesColonNamePrefixes() {
+        let capabilities = [
+            displayCapability(name: "sdd:continue"),
+            displayCapability(name: "sdd:e2e"),
+            displayCapability(name: "sdd:exec"),
+            displayCapability(name: "skill-creator")
+        ]
+
+        let items = CapabilityDisplayGrouper().items(for: capabilities, minimumGroupSize: 3)
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.contains { item in
+            guard case let .group(group) = item else { return false }
+            return group.name == "sdd:*"
+                && group.capabilities.map(\.name) == ["sdd:continue", "sdd:e2e", "sdd:exec"]
+                && group.inspectionCapability.type == .plugin
+                && group.inspectionCapability.source.kind == "virtual-plugin"
+                && group.inspectionCapability.metadata["childCount"] == "3"
+        })
+        XCTAssertTrue(items.contains { item in
+            guard case let .capability(capability) = item else { return false }
+            return capability.name == "skill-creator"
+        })
+    }
+
+    func testCapabilityDisplayGrouperAggregatesSpecificHyphenNamePrefixes() {
+        let capabilities = [
+            displayCapability(name: "douyin-ios-cosign"),
+            displayCapability(name: "douyin-ios-project"),
+            displayCapability(name: "skill-creator"),
+            displayCapability(name: "skill-installer")
+        ]
+
+        let items = CapabilityDisplayGrouper().items(for: capabilities, minimumGroupSize: 3)
+
+        XCTAssertEqual(items.count, 3)
+        XCTAssertTrue(items.contains { item in
+            guard case let .group(group) = item else { return false }
+            return group.name == "douyin-ios-*"
+                && group.capabilities.map(\.name) == ["douyin-ios-cosign", "douyin-ios-project"]
+                && group.inspectionCapability.metadata["childCount"] == "2"
+        })
+        XCTAssertTrue(items.contains { item in
+            guard case let .capability(capability) = item else { return false }
+            return capability.name == "skill-creator"
+        })
+        XCTAssertTrue(items.contains { item in
+            guard case let .capability(capability) = item else { return false }
+            return capability.name == "skill-installer"
         })
     }
 
@@ -372,7 +424,7 @@ final class CapabilityScannerTests: XCTestCase {
         }
         XCTAssertEqual(items.count, 2)
         XCTAssertEqual(groups.count, 2)
-        XCTAssertTrue(groups.allSatisfy { $0.kind == .prefix && $0.name == "lark" })
+        XCTAssertTrue(groups.allSatisfy { $0.kind == .prefix && $0.name == "lark-*" })
         XCTAssertTrue(groups.allSatisfy { $0.inspectionCapability.metadata["childCount"] == "3" })
         let agentsGroup = try XCTUnwrap(groups.first { group in
             group.capabilities.allSatisfy { $0.source.kind == "agents-skill" }
@@ -418,7 +470,7 @@ final class CapabilityScannerTests: XCTestCase {
             return group
         }
         XCTAssertEqual(groups.count, 2, "lark must split into an .agents group and a .trae group, not merge to 6")
-        XCTAssertTrue(groups.allSatisfy { $0.kind == .prefix && $0.name == "lark" })
+        XCTAssertTrue(groups.allSatisfy { $0.kind == .prefix && $0.name == "lark-*" })
         let agentsBucket = try XCTUnwrap(groups.first { $0.capabilities.allSatisfy { $0.source.kind == "agents-skill" } })
         let traeBucket = try XCTUnwrap(groups.first { $0.capabilities.allSatisfy { $0.source.kind == "trae-skill" } })
         XCTAssertEqual(agentsBucket.capabilities.count, 3)
