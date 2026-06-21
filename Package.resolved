@@ -1,13 +1,13 @@
 {
-  "originHash" : "d8329b6bb17adad7ec5592beff4982aa1d42e1cad0a3287cd385f2aa85a84fd4",
+  "originHash" : "0c2cc4670899327839dea4f18e511f420f9da3d5e457a8dd3abcdbb56565d486",
   "pins" : [
     {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "6276ba2b404829d139c45ff98427cf90e2efc59b",
-        "version" : "2.9.2"
+        "revision" : "d46d456107feacc80711b21847b82b07bd9fb46e",
+        "version" : "2.9.3"
       }
     },
     {
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/gonzalezreal/textual",
       "state" : {
-        "revision" : "5b06b811c0f5313b6b84bbef98c635a630638c38",
-        "version" : "0.3.1"
+        "revision" : "01b51875a5406eefc95f52a058cb059e7bc94dc4",
+        "version" : "0.5.0"
       }
     }
   ],
